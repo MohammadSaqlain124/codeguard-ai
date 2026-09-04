@@ -2,7 +2,7 @@
 
 **An Authorship-Evidence System for Detecting Copied, Outsourced and AI-Generated Code**
 
-Final-year B.Tech major project · Department of Computer Science & Engineering
+Final-year B.Tech major project · Department of Computer Science & Engineering  
 Invertis University, Bareilly · AY 2026–27
 
 ---
@@ -40,6 +40,9 @@ knows where to look. It does not arrest anyone.
 | 2 · Behavioral | Outsourced code | Per-student stylometric baseline | Yes |
 | 3 · AI-Content | LLM-generated code | Fine-tuned CodeBERT classifier | No |
 
+```
+RPS = w1·structural + w2·behavioral + w3·ai_content
+```
 
 A transparent weighted sum, with per-course weights configurable by faculty and
 displayed openly in the evidence view. Deliberately not a learned model: there is
@@ -54,7 +57,6 @@ the baseline is poisoned — and the failure inverts. The poisoned baseline beco
 "their style," so their first honest submission deviates sharply and gets flagged.
 The dishonest work looks clean; the honest work gets accused.
 
-RPS = w1·structural + w2·behavioral + w3·ai_content
 Five mitigations:
 
 1. **Anchor samples** — baselines are built only from invigilated work (lab
@@ -78,26 +80,27 @@ will not catch them. Only Layer 3 stands in the way.
 
 ## Architecture
 
-                ┌──────────────┐   ┌──────────────┐
-                │  React web   │   │   Android    │
-                └──────┬───────┘   └──────┬───────┘
-                       │                  │
-                       └────────┬─────────┘
-                                │ REST + JWT
-                       ┌────────▼─────────┐
-                       │   Node API       │
-                       │  auth · storage  │
-                       │  orchestration   │
-                       └──┬───┬───┬───┬───┘
-                          │   │   │   │
-          ┌───────────────┘   │   │   └──────────────┐
-          │          ┌────────┘   └───────┐          │
-    ┌─────▼─────┐ ┌──▼───┐          ┌─────▼────┐ ┌───▼────────┐
-    │  MongoDB  │ │Redis │          │  MinIO   │ │  Python    │
-    │           │ │queue │          │  files   │ │  detector  │
-    └───────────┘ └──────┘          └──────────┘ └────────────┘
+```
+                    ┌──────────────┐   ┌──────────────┐
+                    │  React web   │   │   Android    │
+                    └──────┬───────┘   └──────┬───────┘
+                           │                  │
+                           └────────┬─────────┘
+                                    │ REST + JWT
+                           ┌────────▼─────────┐
+                           │   Node API       │
+                           │  auth · storage  │
+                           │  orchestration   │
+                           └──┬───┬───┬───┬───┘
+                              │   │   │   │
+              ┌───────────────┘   │   │   └──────────────┐
+              │          ┌────────┘   └───────┐          │
+        ┌─────▼─────┐ ┌──▼───┐          ┌─────▼────┐ ┌───▼────────┐
+        │  MongoDB  │ │Redis │          │  MinIO   │ │  Python    │
+        │           │ │queue │          │  files   │ │  detector  │
+        └───────────┘ └──────┘          └──────────┘ └────────────┘
+```
 
-    
 The Python detection service is a separate process because the required libraries
 (tree-sitter, APTED, PyTorch, transformers) exist only in Python, and because
 tree edit distance is CPU-bound work that would block Node's single-threaded
@@ -120,6 +123,20 @@ Docker Compose runs the entire stack.
 
 ## Repository layout
 
+```
+apps/
+  web/            React dashboard (teacher + student)
+  api/            Node + Express REST tier
+  detector/       Python + FastAPI detection service
+  mobile/         Android companion app
+packages/
+  shared-types/   TypeScript types shared by web and api
+harness/          Obfuscation benchmark — labelled plagiarism pair generator
+ml/               Model training scripts, notebooks, model cards
+infra/            docker-compose.yml, nginx.conf, .env.example
+docs/             Project notes, SRS, ADRs, evaluation results
+scripts/          Development helpers
+```
 
 ## Getting started
 
@@ -127,7 +144,7 @@ Docker Compose runs the entire stack.
 inside containers.
 
 ```bash
-git clone https://github.com/<org>/codeguard-ai.git
+git clone https://github.com/MohammadSaqlain124/codeguard-ai.git
 cd codeguard-ai
 cp infra/.env.example infra/.env
 docker compose -f infra/docker-compose.yml up --build
