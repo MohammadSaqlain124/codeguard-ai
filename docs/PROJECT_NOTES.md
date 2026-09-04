@@ -177,3 +177,72 @@ headings force "Problem faced" and "Decision made" to be filled
 every time — the two most valuable fields for the report.
 
 **Commit:** `docs: add project notes header, conventions and entry template`
+
+## 2026-09-04 — Day 1 — File 004: .editorconfig
+
+**What we built:** Cross-editor formatting rules — UTF-8, LF line
+endings, final newline, trailing-whitespace trim, and 2-space
+indentation as the baseline, with per-language overrides: 4 spaces
+for Python and Kotlin, no whitespace trimming for Markdown, tabs for
+Makefiles, CRLF for Windows script files.
+
+**Why we built it:** Four people on three operating systems across
+six languages. Without a shared rule, one teammate's editor
+reformats a whole file on save and a one-line change appears as a
+200-line diff — real work hidden in noise, and merge conflicts on
+every line. Line endings are the sharper risk: our containers run
+Linux, and a CRLF shell script fails inside one with
+`bash: \r: command not found`, an error that says nothing about the
+actual cause.
+
+**Why a separate file:** The name is fixed by the EditorConfig
+standard — every supporting editor looks for `.editorconfig`. It
+does not replace Prettier or Ruff; it operates earlier and wider.
+EditorConfig acts as you type, covers every file type including
+Dockerfile, .env and Makefile that no formatter handles, and works
+before anyone runs npm install. Root file rather than per-directory,
+with `root = true` stopping the upward search, so the universal
+rules are written once.
+
+**Libraries introduced:** None. Declarative INI-format config read
+by the editor, not by Git or any runtime. VS Code needs the
+"EditorConfig for VS Code" extension — it has no native support,
+which is the usual reason people think the file does nothing.
+
+**Functions written:** None.
+
+**Concepts learned:** EditorConfig · INI format · CRLF vs LF ·
+character encoding · UTF-8 · PEP 8 · brace expansion in globs ·
+tabs vs spaces · Makefile · formatter vs linter
+
+**Problem faced:** Two file types break the universal rules.
+Markdown uses two trailing spaces as significant syntax meaning
+"line break," so trimming trailing whitespace silently deletes line
+breaks — this already happened in our README, where the two lines
+under the title collapsed into one paragraph. Makefiles require tab
+indentation and fail with "missing separator" if given spaces.
+
+**How we solved it:** Scoped overrides rather than weakening the
+global rule. `[*.md]` sets trim_trailing_whitespace = false;
+`[Makefile]` sets indent_style = tab. Same approach for Windows
+script files — `[*.{bat,cmd,ps1}]` gets CRLF, because line endings
+should match the platform that *executes* a file, not the one that
+edits it.
+
+**Decision made:** LF globally, rather than relying on Git's
+core.autocrlf. autocrlf is a per-machine setting that cannot be
+committed, so it has to be configured identically on four machines,
+and it only governs what Git stores, not what the editor writes.
+EditorConfig fixes it at the source.
+
+**Known gap:** Neither fully solves line endings. The complete
+answer is a .gitattributes file with `* text=auto eol=lf`, enforcing
+it at the Git layer regardless of local config. Deferred until we
+add shell scripts in infra/ (File 006), where it starts to matter.
+
+**Decision made:** No max_line_length. EditorConfig can set it, but
+line-length enforcement belongs to linters that understand the
+language and can wrap intelligently. EditorConfig would only draw a
+guide line.
+
+**Commit:** `chore: add editorconfig for cross-platform formatting`
