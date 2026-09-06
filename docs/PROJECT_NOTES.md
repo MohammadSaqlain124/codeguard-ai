@@ -246,3 +246,85 @@ language and can wrap intelligently. EditorConfig would only draw a
 guide line.
 
 **Commit:** `chore: add editorconfig for cross-platform formatting`
+
+## 2026-09-04 — Day 1 — File 005: infra/.env.example
+
+**What we built:** The committed template for every environment
+variable the system needs — API port and CORS origin, MongoDB
+credentials and connection URI, Redis host, MinIO credentials and
+bucket, two JWT secrets with their expiries, the detector URL and
+timeout, and upload limits. Real values live in infra/.env, which is
+gitignored.
+
+**Why we built it:** Secrets have to reach running code somehow.
+Hardcoding puts them in git history permanently. A gitignored config
+file alone leaves a new teammate with no idea what to create. The
+template solves both — same keys, safe dummy values, committed. This
+is the file the `!.env.example` negation in .gitignore existed for.
+It doubles as documentation: the complete authoritative list of
+every external service the system talks to.
+
+**Why a separate file:** Separate from .env by design — same keys,
+opposite git treatment. Separate from docker-compose.yml because
+structure and config change at different rates; merging them means
+every teammate edits the compose file locally and it stops being
+mergeable. Separate from config/env.ts because this *supplies*
+values while that *validates* them. Lives in infra/ because Docker
+Compose automatically reads a file named .env from the directory
+containing the compose file — a tooling requirement, not a
+preference.
+
+**Libraries introduced:** None here. Docker Compose reads .env
+natively. Later: dotenv (npm) for running the API outside Docker,
+chosen over dotenv-safe because Zod in File 009 handles validation
+*and* type coercion; pydantic-settings on the Python side.
+
+**Functions written:** None.
+
+**Concepts learned:** environment variable · Twelve-Factor App ·
+.env format · CORS · origin · connection string/URI · DNS ·
+bucket · object storage · JWT · access vs refresh token ·
+signing secret · MiB vs MB
+
+**Problem faced:** Working out the right hostname for service-to-
+service connections. The instinct is localhost, which is wrong
+inside Docker.
+
+**How we solved it:** Used the compose service names — mongo, redis,
+minio, detector. Docker Compose runs an internal DNS server that
+resolves each service name to its container IP. Inside a container,
+localhost means *that container*, where nothing is listening. Getting
+this wrong produces ECONNREFUSED 127.0.0.1:27017, which reads like
+the database is down when actually we asked the wrong machine.
+
+**Problem faced:** Every env value is a string. API_PORT=4000 yields
+"4000", and MINIO_USE_SSL=false yields "false" — which is truthy in
+JavaScript.
+
+**How we solved it:** Accepted it here and deferred coercion to
+File 009, where Zod parses and type-casts every variable at startup
+and crashes loudly if one is missing or malformed.
+
+**Decision made:** Two different JWT secrets rather than one. With a
+shared secret, a leaked 15-minute access token could be replayed as
+a 7-day refresh token. Separate secrets confine each token type to
+its intended use.
+
+**Decision made:** Plain .env over Docker secrets or Vault. Both are
+correct for production and both are wrong here — Docker secrets need
+Swarm mode, Vault is an entire service to run and learn, and our
+spec already defers it. A .env file on a controlled single host is
+appropriate for an academic deployment. Worth naming in the report's
+limitations section.
+
+**Decision made:** Dummy values like "changeme_mongo_password"
+rather than empty values. Greppable — `Select-String -Pattern
+changeme` instantly lists everything not yet replaced.
+
+**Also learned:** ?authSource=admin in the Mongo URI tells MongoDB
+which database holds the *user account*. The root user is created in
+`admin` but we connect to `codeguard`. Without it, Mongo looks for
+the user in the wrong place and returns an auth failure that says
+nothing about the real cause.
+
+**Commit:** `chore: add env template for all services`
