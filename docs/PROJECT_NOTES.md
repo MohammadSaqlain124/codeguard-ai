@@ -664,3 +664,117 @@ once annotated — strict mode is genuinely active, not just
 configured.
 
 **Commit:** `feat(api): add typescript config with strict mode and NodeNext modules`
+
+## 2026-09-07 — Day 3 — File 009: apps/api/src/config/env.ts
+
+**What we built:** The first real TypeScript in the project — a Zod
+schema covering all 22 environment variables the API uses, parsed
+once at startup with safeParse. On failure it prints one readable
+line per problem and exits with code 1. On success it exports a
+single typed `env` object.
+
+**Why we built it:** Environment variables have three properties
+that make them dangerous used raw. Every value is a string, so
+API_PORT is "4000" and MINIO_USE_SSL is "false" — which is truthy in
+JavaScript, so `if (process.env.MINIO_USE_SSL)` silently takes the
+wrong branch. Every value might be undefined, so a typo like
+MONGO_URl produces undefined and a connection error that says
+nothing about the typo. And failures surface late — a missing JWT
+secret is discovered at the first login, not at startup. This file
+fixes all three: validate at startup, crash loudly, export one typed
+object. Fail fast — a container that refuses to start with a clear
+message beats one that starts and fails unpredictably an hour later.
+
+**Why a separate file:** Separate from infra/.env by role, which was
+claimed at File 005 and is now demonstrated — that file *supplies*
+values, this one *validates and types* them. Separate from
+server.ts because this is a leaf module: it imports Zod and nothing
+from our own code, so any file can import it without risking a
+circular dependency. If validation lived in server.ts, then
+storageService needing MINIO_BUCKET would import server.ts, which
+imports app.ts, which imports the service. In config/ rather than
+loose in src/ because logger.ts and constants.ts are coming.
+
+**Libraries introduced:** No new packages. Zod (from File 007) is
+used here for the first time: z.object for shape, z.coerce.number
+for string-to-number, .transform for string-to-boolean and
+string-to-array, .refine for the cross-field rule, .safeParse for
+non-throwing validation, and .issues to read failures. Considered
+envalid and dotenv-safe, which are purpose-built for env validation,
+and rejected both — they would be a second validation library
+alongside Zod, which we need anyway for request bodies.
+
+**Functions written:** No named functions. Three arrow functions
+passed to Zod: the MINIO_USE_SSL transform (string to boolean), the
+ALLOWED_EXTENSIONS transform (comma string to trimmed lowercase
+array), and the refine predicate comparing the two JWT secrets. The
+module body itself runs once on import — a deliberate side effect on
+import, so validation happens before any other code regardless of
+which file imports it first.
+
+**Concepts learned:** schema · validation · coercion · transform ·
+refinement · fail fast · exit code · stdout vs stderr · control-flow
+narrowing · never type · truthiness · entropy · side effect on
+import · leaf module · circular import
+
+**Problem faced:** MINIO_USE_SSL="false" is truthy. Coercing with
+z.coerce.boolean() would not help — Boolean("false") is true.
+
+**How we solved it:** z.enum(["true","false"]).transform(v => v ===
+"true"). The enum validates the *input* is one of those exact
+strings, so "yes", "1" and "TRUE" fail loudly instead of being
+misread; the transform then produces a real boolean. Input type is
+string, output type is boolean — that asymmetry is the mechanism.
+
+**Problem faced:** Field-level rules cannot express a relationship
+between two fields, but the File 005 decision requires the two JWT
+secrets to differ.
+
+**How we solved it:** .refine() on the object, which runs after all
+fields validate and receives the whole object, with
+path: ["JWT_REFRESH_SECRET"] so the error attaches to a named field.
+The design decision is now enforced by code rather than merely
+documented.
+
+**Decision made:** safeParse rather than parse. parse throws, and an
+uncaught Zod error prints a large unreadable JSON blob. safeParse
+lets us print one line per problem — and, importantly, control what
+is printed. If this dumped process.env on failure, our JWT secrets
+would land in container logs, which Docker stores on disk and CI
+systems often publish. Only field names and messages are printed,
+never values.
+
+**Decision made:** Crash rather than fall back to defaults. The
+tempting alternative is `process.env.API_PORT || 4000`, which is
+fine for a port and catastrophic for a secret —
+`JWT_ACCESS_SECRET || "dev-secret"` in production means anyone
+reading the source can forge admin tokens. Rather than reason
+case-by-case, only genuinely optional variables get .default(), and
+secrets never do.
+
+**Decision made:** Left MONGO_ROOT_USER and MONGO_ROOT_PASSWORD out
+of the schema. They are consumed by the MongoDB container to create
+its admin account; the API never uses them, since its credentials
+are embedded in MONGO_URI. Validating unused variables would
+misrepresent what this service actually needs.
+
+**Decision made:** Node's built-in --env-file rather than the dotenv
+package. Node has loaded .env files since 20.6, so the dependency is
+unnecessary, and it keeps this file pure — it validates process.env
+without caring how the values arrived, so it behaves identically in
+Docker (where Compose injects them) and locally.
+
+**Zod 4 note confirmed:** a ZodError exposes .issues, not .errors.
+Every Zod 3 tutorial uses .errors, which does not exist in Zod 4.
+
+**Confirmed working:** env.API_PORT printed as `4000 number`, not a
+string — coercion proven. env.MINIO_USE_SSL printed as
+`false boolean`. env.ALLOWED_EXTENSIONS printed as an array.
+Running without --env-file listed every missing variable at once,
+printed no values, and exited with code 1. Setting both JWT secrets
+to the same value produced the refine error.
+
+**File 007 revisit:** the dev script became
+`tsx watch --env-file=../../infra/.env src/server.ts`.
+
+**Commit:** `feat(api): validate and type environment config with zod`
