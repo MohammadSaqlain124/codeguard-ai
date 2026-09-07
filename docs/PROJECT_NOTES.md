@@ -1,4 +1,8 @@
-# CodeGuard AI — Project Notes, ## Conventions, ## Entry template
+# CodeGuard AI — Project Notes, 
+
+## Conventions, 
+
+## Entry template
 
 ## 2026-09-04 — Day 1 — File 001: README.md
 
