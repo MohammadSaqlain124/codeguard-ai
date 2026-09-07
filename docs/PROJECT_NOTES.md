@@ -328,3 +328,335 @@ the user in the wrong place and returns an auth failure that says
 nothing about the real cause.
 
 **Commit:** `chore: add env template for all services`
+
+## 2026-09-06 — Day 2 — File 006: infra/docker-compose.yml
+
+**What we built:** The Compose definition for the data tier —
+MongoDB 7, Redis 7 (Alpine, AOF persistence on) and MinIO. Each has
+a pinned image, a fixed container name, restart policy, environment
+variables substituted from infra/.env, a localhost-bound port
+mapping, a named volume for persistence, and a healthcheck.
+
+**Why we built it:** The project needs a database, a job queue and
+object storage. Installing them natively means four teammates with
+four subtly different environments and an examiner who cannot
+reproduce the setup. Compose replaces all of that with one command
+and gives byte-identical services on any machine with Docker. It is
+also what makes the `mongo:27017` hostname in .env actually resolve.
+
+**Why a separate file:** Separate from .env because structure and
+values change at different rates — merged, every teammate edits the
+compose file locally and it stops being mergeable. Separate from the
+Dockerfiles by scope: a Dockerfile says how to build one image;
+Compose says how services relate. In infra/ rather than the root so
+deployment concerns stay together and because Compose reads .env
+from the compose file's own directory — the reason File 005 lives
+there. Cost is typing -f infra/docker-compose.yml, to be removed
+later with a Makefile.
+
+**Scope decision:** Only three services today, not five. The api and
+detector services must be *built* from Dockerfiles that do not exist
+yet, and Compose errors on a missing Dockerfile. Five services today
+would be untestable. Revisit scheduled for File 014, once both
+Dockerfiles exist.
+
+**Libraries introduced:** No code libraries, but three images:
+* `mongo:7` — document database. Chosen over PostgreSQL because
+  detection results are deeply nested and layer-specific (matched
+  subtree pairs, per-feature z-scores, token attributions), which is
+  naturally a document. In Postgres that is either a jsonb column —
+  Postgres imitating Mongo — or a dozen join tables. Counter-argument
+  is real: Postgres gives true transactions and foreign keys, and the
+  User/Course/Assignment relationships genuinely are relational.
+* `redis:7-alpine` — in-memory store, used as the BullMQ job queue.
+  Chosen over RabbitMQ because Redis is one container with no
+  configuration, BullMQ is built on it, and we want Redis for caching
+  anyway. One service instead of two.
+* `minio:latest` — S3-compatible object storage. Chosen over the
+  plain filesystem because the S3 API is what production uses, so
+  moving to real S3 later is a config change rather than a rewrite,
+  and because presigned URLs let a browser download a file directly
+  without proxying through the API.
+
+**Functions written:** None. Declarative YAML describing desired
+state rather than steps.
+
+**Concepts learned:** container · image · tag · Docker Hub ·
+Compose service · named volume · bind mount · port mapping ·
+healthcheck · YAML · variable substitution · AOF persistence ·
+Alpine Linux · localhost binding · object storage / S3 API ·
+presigned URL
+
+**Problem faced:** Distinguishing a container that is *running* from
+one that is *working*. MongoDB reports running within a second but
+takes 10–20 seconds before it accepts connections. Without that
+distinction, the API would start, try to connect and fail.
+
+**How we solved it:** Added a healthcheck to every service — a
+command Docker runs periodically to confirm the service actually
+responds. start_period gives a grace window at boot where failures
+do not count toward retries. At File 014 the api service will use
+depends_on with condition: service_healthy so it waits properly.
+
+**Problem faced:** `docker compose up` failed with "bind: Only one
+usage of each socket address (protocol/network address/port) is
+normally permitted" on port 27017. Redis and MinIO started; Mongo
+did not.
+
+**How we solved it:** Diagnosed rather than guessed.
+`netstat -ano | findstr :27017` showed PID 5264 already LISTENING.
+`netsh interface ipv4 show excludedportrange protocol=tcp` ruled out
+a Hyper-V or WSL reserved range — exclusions were 50000–56066,
+nowhere near 27017. `Get-Service MongoDB` confirmed a native MongoDB
+Windows service, installed months earlier for a lab and starting
+silently at boot. Fixed with `Stop-Service MongoDB` and
+`Set-Service MongoDB -StartupType Manual`, keeping the install but
+stopping it launching. Second obstacle: both commands failed with
+"Access is denied" in a normal terminal. Reading service state is
+unprivileged; changing it needs Administrator, and VS Code's
+integrated terminal cannot elevate — it required a separate admin
+PowerShell window. Lesson: two processes cannot own one port.
+Diagnose netstat → PID → Get-Process before changing configuration.
+The compose file was never wrong.
+
+**Decision made:** Bound every port to 127.0.0.1 rather than the
+default 0.0.0.0. Written as "27017:27017", Docker binds every
+network interface, so anyone on the same college WiFi could reach
+our MongoDB. The 127.0.0.1 prefix restricts it to this machine.
+Ports are still exposed at all so MongoDB Compass and mongosh can
+connect from Windows for debugging.
+
+**Decision made:** Named volumes rather than bind mounts for data. A
+bind mount would put the data in the project folder where it is
+visible, but file permissions differ across Windows, Mac and Linux
+and MongoDB is strict about ownership of its data directory. Named
+volumes are managed by Docker and behave identically everywhere.
+
+**Decision made:** Pinned images to a major version (mongo:7) rather
+than :latest. With :latest, two teammates could silently run
+different major versions months apart. Major-version pinning still
+receives patch updates; pinning the full patch version would be
+fully deterministic but means chasing security updates by hand.
+
+**Decision made:** Enabled Redis AOF persistence with
+--appendonly yes. Redis is in-memory by default, so a restart would
+silently discard every queued detection job. AOF logs each write to
+disk and replays it on restart.
+
+**Known limitation:** Redis has no password. Acceptable because it
+is bound to localhost and only reachable inside the Docker network,
+but a production deployment would set --requirepass. Name this in
+the report's limitations section.
+
+**Security incident:** Live MinIO and MongoDB passwords were exposed
+by pasting the output of `docker compose config` into a chat — that
+command prints all resolved secrets. Rotated both and wiped the
+volumes with `docker compose down -v`, which was free since no data
+existed yet. Rule adopted: a secret's value never leaves the file it
+lives in. Safe form of the command is
+`docker compose config | Select-String -NotMatch "PASSWORD|SECRET"`.
+
+**Verified working:** All three containers reported (healthy).
+`db.adminCommand({ ping: 1 })` returned { ok: 1 } after
+authenticating as codeguard against authSource admin.
+`docker exec codeguard-redis ping -c 3 mongo` resolved the service
+name to 172.18.0.4 — Docker's internal DNS demonstrated, which is
+the mechanism behind the mongo:27017 hostname in .env. The
+submissions bucket was created in MinIO and is PRIVATE.
+
+**Still deferred:** The .gitattributes gap from File 004. This file
+introduced no shell scripts, so LF enforcement at the git layer is
+still not urgent. Trigger: the first .sh file added to infra/.
+
+**Commit:** `feat(infra): add compose stack for mongo, redis and minio`
+
+## 2026-09-06 — Day 2 — File 007: apps/api/package.json
+
+**What we built:** The npm manifest for the API tier — scoped name
+@codeguard/api, private flag, ESM declaration, Node >=22 engine
+requirement, and five scripts (dev, build, start, typecheck, test).
+Dependencies added by npm install rather than written by hand:
+express and zod as runtime deps; typescript, tsx, @types/express,
+@types/node and vitest as devDependencies.
+
+**Why we built it:** Nothing in Node works without it. It records
+dependencies so a teammate's npm install reproduces our exact tree;
+it defines commands so nobody has to remember "tsx watch
+src/server.ts"; its mere presence marks the directory as a Node
+package and tells Node whether files are ESM or CommonJS; and it is
+the input to Docker layer caching — the Dockerfile copies it before
+the source so editing a .ts file does not re-run a two-minute
+install.
+
+**Why a separate file:** The name is fixed by npm. The real decision
+was per-app rather than one manifest at the repo root. Root was
+rejected on three grounds: the API's Docker build would install the
+entire React toolchain it never executes; a single manifest would
+let backend code import a frontend-only package, which installs fine
+and crashes at runtime; and the API and web tiers could not version
+a shared library independently during a migration.
+
+**Libraries introduced:**
+* `express` — minimal web framework. Chosen over Fastify (roughly 2x
+  faster, but our bottleneck is tree edit distance in Python, not
+  HTTP parsing in Node — optimising the fast part is the wrong
+  instinct) and over NestJS (imposes a large framework to learn and
+  defend; Express is small enough to understand completely).
+* `zod` — runtime schema validation. Needed because TypeScript types
+  vanish at compile time and check nothing at runtime, while every
+  request body from the internet is untrusted. Chosen over Joi
+  because Zod is TypeScript-first: one schema gives both runtime
+  validation and the compile-time type via z.infer.
+* `typescript` — the compiler.
+* `tsx` — runs TypeScript directly with watch mode. Chosen over
+  ts-node, which struggles with ESM configuration; tsx is built on
+  esbuild and handles ESM with no configuration.
+* `vitest` — test runner. Chosen over Jest because we picked ESM and
+  Jest's ESM support has been experimental for years. Vitest is
+  ESM-native and API-compatible with Jest.
+
+**Functions written:** None. JSON data.
+
+**Concepts learned:** npm · package · registry · manifest ·
+dependency vs devDependency · semantic versioning · caret range ·
+scoped package · ES Modules vs CommonJS · lockfile · transitive
+dependency · DefinitelyTyped and @types · hot reload · type checking
+vs transpiling
+
+**Problem faced:** Whether to write the full eventual dependency
+list now or add libraries as they are needed.
+
+**How we solved it:** Added only what the first server file
+requires. Two reasons. Writing version numbers by hand risks
+specifying a version that does not exist, whereas npm install writes
+the real current one — and the actual resolved versions (Express
+5.2, Zod 4.5, TypeScript 7.0) were all newer than expected. And the
+notebook gets one page per library at first use; fifteen pages today
+would mean defending choices in a viva for packages never touched.
+
+**Problem faced:** `git add apps/api/package.json` failed with
+"pathspec did not match any files" despite the file existing.
+
+**How we solved it:** The terminal was inside apps/api, and git
+resolves paths relative to the current directory — so it looked for
+apps/api/apps/api/package.json. The `../` shown in git status was
+the tell. Habit adopted: run every git command from the repository
+root.
+
+**Version notes for later:** Express 5, not 4. In Express 4 an async
+handler that throws crashes the process, which is why tutorials wrap
+handlers or install express-async-errors. Express 5 forwards
+rejected promises to the error handler automatically, so that
+wrapper is unnecessary. Also app.del() is removed (use app.delete())
+and wildcard routes are /*splat rather than /*. Zod 4, not 3: the
+API is unchanged, but a ZodError exposes .issues, not .errors —
+relevant when the error handler is written.
+
+**Decision made:** ESM ("type": "module") rather than CommonJS. ESM
+is the standard, matches the React frontend, and supports top-level
+await. The cost is a rule that looks like a bug: an import of a .ts
+file must be written with a .js extension, because TypeScript
+refuses to rewrite import paths and the ESM spec requires an
+explicit extension, so the path must name the compiled output.
+
+**Decision made:** npm rather than pnpm or yarn. pnpm is faster and
+more disk-efficient; yarn has better workspace support. npm ships
+with Node, so there is zero setup for four teammates, and every
+tutorial assumes it. Not worth spending complexity budget on a
+package manager.
+
+**Decision made:** No npm workspaces yet. They are the right tool for
+packages/shared-types later. With one package and nothing shared,
+adding them now would be structure for its own sake.
+
+**Decision made:** Commit package-lock.json. It records the exact
+resolved version of all 123 packages including transitive ones, so a
+teammate's install produces an identical tree. Without it they could
+get a newer transitive dependency carrying a bug we cannot
+reproduce.
+
+**Commit:** `feat(api): add package manifest with express, zod and typescript toolchain`
+
+## 2026-09-06 — Day 2 — File 008: apps/api/tsconfig.json
+
+**What we built:** The TypeScript compiler configuration for the API
+tier — ES2023 target and lib, NodeNext module resolution, src to
+dist paths, strict mode, verbatimModuleSyntax, consistent filename
+casing, source maps, skipLibCheck and resolveJsonModule.
+
+**Why we built it:** TypeScript is not a runtime — Node cannot
+execute a .ts file. Something has to say which files to compile,
+which JavaScript version to emit, which module system to use and how
+strict to be. It is also what makes the editor useful: VS Code's
+language server reads this file, so without it there is no
+autocomplete on Express objects and no error highlighting.
+
+**Why a separate file:** The name is fixed by tsc. TypeScript
+deliberately does not allow config inside package.json, unlike Jest
+or ESLint, because tsconfig supports `extends` — we will likely want
+apps/api and apps/web sharing strictness while differing on target
+and module, which is impossible if the config is buried in a
+manifest. Conceptually: package.json says what to install and which
+commands exist; tsconfig says how to compile. Per-app rather than
+root because the API targets Node with no DOM and Node-style
+resolution, while the frontend targets a browser with DOM types, JSX
+and bundler resolution — genuinely incompatible option sets.
+
+**Ordering correction:** The original plan put the Dockerfile at 008.
+That was wrong — a Dockerfile packages an application, and ours did
+not exist yet. Its build step runs tsc, which needs this file and a
+non-empty src/. Corrected order: 008 tsconfig, 009 config/env.ts,
+010 app.ts, 011 server.ts, 012 Dockerfile, 013 .dockerignore.
+Phase 0 grows from 14 files to 16.
+
+**Libraries introduced:** None imported, but two from File 007 are
+governed here. `typescript` provides tsc and the language server
+VS Code uses. `@types/node` is what "types": ["node"] refers to —
+without it, process.env, Buffer and every Node built-in would be
+undefined types.
+
+**Functions written:** None. Declarative JSON.
+
+**Concepts learned:** transpilation · type erasure · target vs lib ·
+strict mode · strictNullChecks · noImplicitAny · any · source map ·
+declaration file (.d.ts) · language server · type-only import ·
+glob **
+
+**Problem faced:** tsx transpiles one file at a time, so it cannot
+tell whether an imported name is a type or a value. An import of a
+type-only name would survive into the output and fail at runtime
+when Node tries to import something that does not exist as a value.
+
+**How we solved it:** Enabled verbatimModuleSyntax, which forces the
+distinction to be explicit — `import type { Request } from 'express'`
+for types, plain `import express from 'express'` for values. Type
+imports are then guaranteed to be erased.
+
+**Decision made:** strict: true from the start rather than tightening
+incrementally. Strictness is only cheap before code exists;
+retrofitting means fixing hundreds of errors at once, which is how
+projects end up leaving it off permanently.
+
+**Decision made:** NodeNext rather than moduleResolution "Bundler".
+Bundler is more forgiving and needs no .js extensions, but it is
+correct only when a bundler processes the output afterwards. The API
+has no bundler — Node loads the files directly — so Bundler would
+emit imports Node cannot resolve, failing at runtime instead of
+compile time. apps/web will legitimately use Bundler because Vite
+handles resolution there.
+
+**Decision made:** No "DOM" in lib. Makes document.getElementById a
+compile error on the server. Costs nothing, prevents writing
+browser-only code that type-checks and crashes in a container.
+
+**Decision made:** No noUncheckedIndexedAccess. It catches real
+index-out-of-bounds bugs but makes ordinary loops noticeably more
+annoying, and readable defensible code matters more here.
+Reconsider if such a bug actually appears.
+
+**Confirmed working:** A scratch file with an untyped parameter
+produced TS7006 "implicitly has an 'any' type" and compiled cleanly
+once annotated — strict mode is genuinely active, not just
+configured.
+
+**Commit:** `feat(api): add typescript config with strict mode and NodeNext modules`
