@@ -891,3 +891,118 @@ Until then an unhandled error produces Express's default 500 with a
 stack trace: acceptable now, unacceptable in production.
 
 **Commit:** `feat(api): add express app with security middleware and health endpoint`
+
+## 2026-09-07 — Day 3 — File 011: apps/api/src/server.ts
+
+**What we built:** The process entry point — binds createApp() to
+env.API_PORT, captures the returned http.Server, and manages the
+process lifecycle: SIGTERM and SIGINT handlers that drain in-flight
+requests before exiting, a 10-second force-exit timer, a guard flag
+against double shutdown, closeIdleConnections() to release
+keep-alive sockets, and last-resort handlers for unhandled
+rejections and uncaught exceptions.
+
+**Why we built it:** Two jobs. Binding the port is trivial. Shutting
+down without dropping requests is not, and it is what most student
+projects skip. Docker sends SIGTERM to stop a container, and Node's
+default response is to exit immediately — so a submission being
+uploaded at that moment has its TCP connection severed mid-transfer.
+The browser gets ERR_CONNECTION_RESET with no status code and
+nothing the frontend can handle, and a request midway through a
+MongoDB write may leave a half-written document. Matters more later:
+the BullMQ worker will be mid-detection on restart, and without
+clean shutdown that job is neither completed nor requeued.
+
+**Why a separate file:** An Express app is a function; a server is a
+process. Keeping them apart lets supertest run the whole request
+pipeline against createApp() with no port bound. There is a second
+reason specific to this file: signal handlers, process.exit and port
+binding are process-level concerns that must run exactly once. In
+app.ts, every test import would register another set of handlers and
+Node warns about listener leaks after ten.
+
+**Libraries introduced:** None. All Node built-ins. `process` is a
+global (no import) used for process.on and process.exit.
+setTimeout/clearTimeout — note Node's setTimeout returns a Timeout
+*object*, not a number as in browsers, which is one reason
+@types/node matters. http.Server comes from app.listen(); .close(),
+.closeIdleConnections() and .keepAliveTimeout belong to it, not to
+Express.
+
+**Functions written:**
+* `shutdown(signal)` — guard flag, force-exit timer, server.close()
+  with callback, closeIdleConnections(). Takes the signal name for
+  logging only; returns nothing because it terminates the process.
+  Failure modes: close() errors if not listening (exit 1), drain
+  exceeds 10s (force exit 1), called twice (second call returns).
+* The listen callback — logs port and mode once the socket is bound.
+* Four process.on handlers — thin wrappers, except uncaughtException
+  which exits directly.
+
+**Concepts learned:** entry point · signal (SIGTERM/SIGINT/SIGKILL) ·
+graceful shutdown · draining · idempotent · keep-alive · TCP socket ·
+event loop · exit code · unhandled rejection · uncaught exception ·
+numeric separator · orchestrator
+
+**Key realisation:** app.listen() returns the Node http.Server, and
+most tutorials discard it. Capturing it is the entire prerequisite
+for graceful shutdown — the Express app itself has no close method.
+
+**Problem faced:** server.close() does not close existing
+connections; it stops accepting new ones and waits for current ones
+to end. HTTP keep-alive means a browser may hold an idle-but-open
+connection for up to 60 seconds, so Ctrl+C appeared to hang and then
+force-exited after 10 seconds with nothing actually wrong.
+
+**How we solved it:** server.closeIdleConnections() (Node 18.2+),
+called after server.close(). It closes connections with no request
+in flight while leaving active ones alone, so the drain finishes
+immediately when nothing is actually being served.
+
+**Problem faced:** If a single request hangs, server.close() never
+completes and the process never exits. Docker waits out its
+stop_grace_period and then sends SIGKILL — exactly the ungraceful
+termination we were avoiding.
+
+**How we solved it:** A 10-second force-exit timer, cleared in the
+close callback. Set slightly at Docker's default grace period so we
+control our own exit rather than having the platform impose one. If
+shutdowns are ever killed, raise stop_grace_period in compose rather
+than lowering this. Also: clearTimeout must be called, or the
+pending timer keeps the event loop alive and the "clean" shutdown
+hangs anyway.
+
+**Decision made:** uncaughtException exits immediately rather than
+shutting down gracefully, unlike unhandledRejection. After an
+uncaught exception the process is in an unknown state — some code
+stopped partway, an assumption was violated — so continuing to run,
+even to drain requests, risks corrupting data. An unhandled
+rejection usually just means a forgotten .catch() and the process is
+probably fine, so draining is safe.
+
+**Decision made:** No process manager (PM2, forever). Docker already
+provides restart policies and log collection, and running a process
+manager inside a container means two supervisors disagreeing about
+lifecycle. One supervisor per process.
+
+**Decision made:** No clustering. Node's cluster module forks one
+process per core, but our CPU-heavy work is in the Python detector,
+not here, and Compose can scale replicas if needed.
+
+**Deferred:** keepAliveTimeout tuning. Node's HTTP keep-alive
+timeout is 5s, and a reverse proxy with a longer idle timeout can
+produce sporadic 502s when the two disagree. Real problem, but only
+behind Nginx, which is deferred. Trigger for revisiting: when Nginx
+is added.
+
+**Known temporary state:** console.log rather than a structured
+logger. pino arrives at File 027; swapping is a two-line change.
+Noted so it reads as a decision, not an oversight.
+
+**Platform note:** Windows has no real POSIX signals. Node emulates
+SIGINT for Ctrl+C, so that path is testable locally, but SIGTERM
+will not fire on Windows — and SIGTERM is what Docker sends. The
+handler is untestable on this machine and correct in the environment
+that matters.
+
+**Commit:** `feat(api): add server entry point with graceful shutdown`
