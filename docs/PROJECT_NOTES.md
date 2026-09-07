@@ -778,3 +778,116 @@ to the same value produced the refine error.
 `tsx watch --env-file=../../infra/.env src/server.ts`.
 
 **Commit:** `feat(api): validate and type environment config with zod`
+
+## 2026-09-07 — Day 3 — File 010: apps/api/src/app.ts
+
+**What we built:** The Express application factory — createApp()
+registers security headers (helmet), CORS from config, JSON body
+parsing with a 100kb limit, a liveness /health endpoint, and a
+JSON 404 catch-all, then returns the app.
+
+**Why we built it:** This is the object that turns an HTTP request
+into a response. It is where config, middleware and routes come
+together.
+
+**Why a separate file:** An Express app is not a server. The app is
+a function — request in, response out. A server is a process bound
+to a TCP port. Keeping them apart is what makes the API testable:
+supertest can run the entire pipeline (middleware, routing, JSON
+parsing) against createApp() without binding a port, so tests need
+no cleanup and can run in parallel. Combined, importing the module
+would start a real listener, two test files would collide on port
+4000, and CI would fail intermittently. Also separate from route
+files — this assembles, they define endpoints, so adding a route
+never means editing a 300-line app.ts.
+
+**Libraries introduced:**
+* `helmet` — sets a bundle of HTTP security headers. Browsers only
+  enable several protections when the server asks; helmet asks, in
+  one line. Chosen over setting headers by hand because that means
+  knowing all fifteen and tracking browser changes. The two that
+  matter most here: X-Content-Type-Options: nosniff (stops browsers
+  guessing a response's type) and X-Frame-Options: DENY (blocks
+  clickjacking via iframe embedding).
+* `cors` — implements Cross-Origin Resource Sharing. Our frontend
+  runs on :5173 and the API on :4000; different ports are different
+  origins, so the browser blocks requests unless the API sends
+  Access-Control-Allow-Origin. Passed env.CORS_ORIGIN rather than
+  origin: true, which reflects any origin and effectively permits
+  everyone.
+* `@types/cors` — DefinitelyTyped definitions. helmet ships its own
+  types; cors does not.
+
+**Functions written:**
+* `createApp()` — builds and returns a configured Express app.
+  Registers middleware in order, then routes, then the 404. Takes
+  nothing, returns an Express application object. Cannot fail at
+  call time; it only registers handlers.
+* Health handler `(_req, res)` — responds { status, uptime } with
+  200 via res.json(), which also sets Content-Type.
+* 404 handler `(_req, res)` — responds { error: "Not found" } with
+  404. Registered last, with no path, so it matches anything that
+  reached it unmatched.
+
+**Concepts learned:** middleware · middleware chain · factory
+function · HTTP method · route · status code · Request/Response
+objects · body parser · security headers · clickjacking · MIME
+sniffing · Content Security Policy · preflight request · liveness vs
+readiness · denial of service · arity
+
+**First real use of the .js extension rule:** `import { env } from
+"./config/env.js"` — the file on disk is env.ts. TypeScript refuses
+to rewrite import paths, and ESM requires an explicit extension, so
+the source names the compiled output. Package imports (express,
+helmet, cors) take no extension because they resolve through
+node_modules rather than as relative paths.
+
+**Problem faced:** Deciding whether /health should check MongoDB and
+Redis.
+
+**How we solved it:** Kept it liveness-only. Liveness answers "is
+the process alive?" and the response to failure is a restart.
+Readiness answers "can it serve real traffic?" and the response is
+to stop routing requests to it. If /health checked MongoDB, a brief
+database blip would fail Docker's healthcheck, restart the API,
+drop every in-flight request, and not fix MongoDB. A separate
+/health/ready that does check dependencies comes at File 015.
+
+**Decision made:** Factory function rather than a module-level app.
+A shared instance means one test's mutation leaks into the next and
+failures depend on file ordering. A factory gives each test a clean
+instance for one line.
+
+**Decision made:** Named export rather than default. Renaming
+createApp then breaks every import visibly at compile time. With a
+default export each importer picks its own name, so a rename
+silently produces inconsistent naming.
+
+**Decision made:** JSON body limit written explicitly at 100kb even
+though it matches Express's default. It changes nothing today, but
+it makes the number a decision rather than an accident. Note this is
+not the file upload limit — MAX_UPLOAD_BYTES (1 MiB) governs
+multipart uploads handled by multer at File 038. Different body
+type, different middleware, different limit.
+
+**Learned about middleware order:** registration order is execution
+order. Helmet before routes so every response including errors gets
+the headers; CORS before routes so preflight OPTIONS requests are
+answered without reaching handlers; express.json before routes so
+req.body is populated by the time a handler sees it. Putting
+express.json after the routes leaves req.body undefined everywhere
+with no error explaining why.
+
+**Learned about CORS:** it is enforced by the *browser*, not the
+server. curl, Postman and our Android app ignore it entirely. It is
+not authentication — it only stops a malicious website making
+requests as a logged-in user. Frequently misunderstood as a security
+boundary.
+
+**Not yet built:** the error handler. Express identifies error
+middleware by arity — four parameters (err, req, res, next) instead
+of three. That comes at File 026 with the typed AppError class.
+Until then an unhandled error produces Express's default 500 with a
+stack trace: acceptable now, unacceptable in production.
+
+**Commit:** `feat(api): add express app with security middleware and health endpoint`
