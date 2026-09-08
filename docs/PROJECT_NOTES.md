@@ -1006,3 +1006,121 @@ handler is untestable on this machine and correct in the environment
 that matters.
 
 **Commit:** `feat(api): add server entry point with graceful shutdown`
+
+## 2026-09-07 — Day 3 — File 012: apps/api/Dockerfile
+
+**What we built:** A two-stage Docker build for the API. The build
+stage installs all dependencies and runs tsc; the runtime stage
+starts from a clean base, installs production dependencies only,
+copies dist/ from the build stage, drops to the non-root node user,
+and runs `node dist/server.js` in exec form.
+
+**Why we built it:** The API currently runs only because this
+machine has Node 22, the right packages and a working tsx. The image
+carries its own runtime, so it reproduces identically anywhere,
+deploys as a single artifact, and runs isolated from the host. It is
+also what unblocks File 014's compose revisit — the missing
+Dockerfile is why File 006 shipped with three services instead of
+five.
+
+**Why a separate file:** A Dockerfile describes how to build one
+image; Compose describes how services relate. Recipe versus seating
+plan. It lives in apps/api rather than infra/ because of build
+context — Docker can only COPY files inside the context, so placing
+it beside the code makes the context exactly apps/api, and a
+frontend change cannot invalidate the API's build cache.
+
+**Libraries introduced:** No packages. Base image
+node:22-bookworm-slim (Debian 12, stripped of docs and extras) for
+both stages. Docker BuildKit is the build engine, default since
+Docker 23 — it handles layer caching and parallel stage execution.
+
+**Functions written:** None. Declarative build instructions; each one
+produces a layer.
+
+**Concepts learned:** Dockerfile · image vs container · layer ·
+layer cache · build context · multi-stage build · base image ·
+exec form vs shell form · PID 1 · WORKDIR · EXPOSE · non-root user ·
+attack surface · defence in depth · deterministic build ·
+musl vs glibc · distroless
+
+**Key mechanism — layer caching:** every filesystem-changing
+instruction creates a layer, and Docker reuses a cached layer only
+if that instruction and everything before it is unchanged. So
+package.json and package-lock.json are copied and installed *before*
+the source. The naive `COPY . .` then `npm ci` would invalidate the
+install layer on every source edit and reinstall 127 packages every
+build — two minutes instead of ten seconds.
+
+**Decision made:** bookworm-slim rather than alpine. At File 006 we
+used alpine for Redis and noted the risk would land on application
+images; this is where it lands. Alpine uses musl instead of glibc,
+and native modules — packages with compiled C++ — often ship
+prebuilt binaries only for glibc. bcrypt arrives at File 028, and on
+alpine npm would fall back to compiling from source, requiring
+python3, make and g++ in the image. Sizes: alpine ~50MB, slim ~80MB,
+full node:22 ~400MB. Not worth 30MB for a build toolchain and a
+class of confusing errors.
+
+**Decision made:** Multi-stage rather than single-stage. Single-stage
+would ship TypeScript, Vitest, all 127 packages and the .ts source
+in production — roughly 450MB versus 200MB, with a compiler and test
+runner sitting in the production image. Four extra lines.
+
+**Decision made:** npm ci rather than npm install. ci reads the
+lockfile rather than package.json, installs exactly the locked
+versions, deletes node_modules first, and errors if the lockfile is
+out of sync instead of silently updating it. Deterministic images —
+the reason File 007 committed the lockfile.
+
+**Decision made:** npm cache clean --force in the *same* RUN as the
+install. Each RUN is a layer, and a layer records changes; deleting
+the cache in a later RUN leaves the files in the earlier layer and
+the image does not shrink. Cleaning in the same instruction means
+the cache never lands in a layer at all. About 50MB.
+
+**Decision made:** USER node rather than the default root. Root in a
+container plus a container-escape vulnerability means root on the
+host. Placement matters — it comes after the COPY and RUN
+instructions, which need root to write to /app.
+
+**Decision made:** Not distroless. Google's distroless images have
+no shell, so an attacker with remote code execution has no shell to
+use — genuinely more secure, and it also means we cannot docker exec
+in to debug. Wrong trade for a project we will be debugging for
+eleven months. Name as future work in the report.
+
+**Decision made:** Healthcheck stays in compose rather than in this
+file. Keeps all service healthchecks in one place and lets the
+interval change without rebuilding the image.
+
+**Critical connection to File 011:** CMD is in exec form —
+["node", "dist/server.js"] — not shell form. Shell form wraps the
+command in /bin/sh -c, making sh PID 1 and node a child. docker stop
+sends SIGTERM to PID 1, and sh does not forward signals, so the
+Node handlers never fire and Docker eventually SIGKILLs. Exec form
+makes node PID 1 and the signal arrives directly. This is the same
+class of problem as the tsx watch issue — a supervisor sitting
+between the signal source and the process. Note also that PID 1 in
+Linux gets no default signal handlers, so this only works because
+File 011 registers explicit ones; the fallback for images without
+them is init: true in compose.
+
+**Confirmed working:** Rebuild after a source edit showed CACHED on
+the npm ci step and completed in seconds. Image size ~200MB.
+`docker run whoami` returned node, not root. `ls /app` showed dist
+but no src and no tsconfig.json, proving the multi-stage discard.
+`docker stop` produced "SIGTERM received, closing server" followed
+by "shutdown complete" — the graceful shutdown path that could not
+be tested locally under tsx watch now verified in the environment
+that actually matters.
+
+**Known cosmetic inconsistency:** API_PORT is configurable via env
+but EXPOSE 4000 is hardcoded. EXPOSE is documentation only and
+publishes nothing, so the mismatch has no functional effect.
+
+**Next file motivated by this one:** the build context currently
+includes node_modules, roughly 200MB sent to the daemon before the
+build even starts. File 013 (.dockerignore) fixes it.
+
+**Commit:** `feat(api): add multi-stage dockerfile with non-root runtime`
