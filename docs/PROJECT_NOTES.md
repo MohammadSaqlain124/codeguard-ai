@@ -1200,3 +1200,107 @@ node_modules has ~65 entries rather than the local 127, since the
 runtime stage installs with --omit=dev.
 
 **Commit:** `chore(api): add dockerignore to keep secrets and host artifacts out of images`
+
+## 2026-09-10 — Day 4 — File 014: apps/detector/pyproject.toml
+
+**What we built:** The Python project manifest — project metadata,
+requires-python >=3.11, runtime dependencies (fastapi,
+uvicorn[standard], pydantic, pydantic-settings), a dev extras group
+(pytest, httpx, ruff), hatchling as build backend, and inline
+configuration for ruff and pytest. Plus a generated requirements.txt
+lockfile.
+
+**Why we built it:** The same four jobs package.json does on the Node
+side — declare dependencies so teammates get an identical set,
+declare the Python version so pip refuses an incompatible one with a
+clear message, make our code importable so `from app.config import
+settings` works regardless of the launch directory, and hold tool
+configuration in one place instead of .ruff.toml plus pytest.ini.
+
+**Why a separate file:** The name is fixed by PEP 518. Separate from
+apps/api/package.json for the reasons File 007 rejected a root
+manifest, except the languages make it absolute: the API image must
+not install PyTorch and the detector image must not install React.
+
+**Why not requirements.txt as the manifest:** It is a pip convention
+rather than a standard, has no project metadata, no dev/prod split
+without a second file, no tool config, and cannot make code
+importable. pyproject.toml is what the packaging ecosystem
+converged on (PEP 518/621). We still generate a requirements.txt —
+but as a *lockfile* from pip freeze, which is a different job.
+
+**Libraries introduced:**
+* `fastapi` — async web framework. Validates request bodies from
+  Pydantic models automatically and generates interactive OpenAPI
+  docs at /docs from type hints alone. Chosen over Flask (no async,
+  no automatic validation, no OpenAPI) and Django (a full ORM and
+  admin framework for a service that only receives code and returns
+  scores).
+* `uvicorn[standard]` — the ASGI server that actually runs FastAPI.
+  Same app-versus-server split as app.ts and server.ts. The
+  [standard] extras pull uvloop and httptools for real speed gains;
+  without the brackets you get a slower pure-Python implementation.
+* `pydantic` — runtime validation driven by type hints. Pydantic is
+  to Python what Zod is to TypeScript — different mechanism, same
+  purpose.
+* `pydantic-settings` — the direct counterpart to config/env.ts.
+  Same fail-fast design in half the code, because Pydantic handles
+  coercion natively.
+* `pytest` — test runner. Plain assert statements and a real fixture
+  system, versus unittest's Java-derived self.assertEqual ceremony.
+* `httpx` — HTTP client. FastAPI's TestClient is built on it, so
+  testing endpoints requires it. The counterpart to supertest.
+* `ruff` — linter and formatter in Rust, roughly 100x faster,
+  replacing flake8, isort, pyupgrade, pylint and black with one
+  binary.
+
+**Functions written:** None. Declarative TOML.
+
+**Concepts learned:** TOML · PEP · virtual environment · editable
+install · extras · build backend · ASGI vs WSGI · linter vs
+formatter · transitive dependency · lockfile · mutable default
+argument
+
+**Ruff rules chosen:** E (pycodestyle), F (pyflakes), I (isort),
+UP (pyupgrade), B (bugbear). B is the valuable one — it catches
+mutable default arguments like `def process(items, results=[])`,
+where the list is created once at definition and shared across every
+call. Deliberately not enabling all of ruff's hundreds of rules; an
+over-strict linter gets disabled rather than obeyed.
+
+**Decision made:** line-length 100 rather than the community default
+88 (inherited from black). ML code has genuinely long lines that do
+not wrap gracefully.
+
+**Decision made:** pip rather than Poetry or uv. Poetry gives proper
+dependency resolution and a real lockfile, and uv is dramatically
+faster and produces a cross-platform lock. Both rejected because pip
+ships with Python — zero setup for four teammates — and every
+tutorial assumes it. Same reasoning as npm over pnpm at File 007.
+Noted: if pip install becomes painful when PyTorch arrives at
+Tier 3, uv is the upgrade, and it reads the same pyproject.toml so
+switching costs nothing.
+
+**Honest limitation:** pip has no real lockfile. We generate one with
+`pip freeze --exclude-editable > requirements.txt`, which captures
+exact versions including transitive dependencies, but it captures
+what was installed *on Windows* and a few packages have
+platform-specific variants. This is genuinely weaker than
+package-lock.json. Name it in the report's limitations rather than
+claiming equivalence.
+
+**Decision made:** app/ rather than src/ as the package directory,
+correcting the earlier plan. `from src.config import ...` reads
+oddly; app/ is the standard FastAPI layout and gives clean imports.
+
+**Decision made:** hatchling rather than setuptools as build backend.
+Three lines versus more configuration and decades of legacy
+behaviour. Neither ships in the final image — build-time only.
+
+**File order correction:** The plan had the detector Dockerfile
+before main.py, repeating exactly the mistake corrected at File 012
+— a Dockerfile cannot package an application that does not exist.
+Corrected: 014 pyproject.toml, 015 app/main.py, 016 .dockerignore,
+017 Dockerfile, 018 compose revisit. Phase 0 is 18 files, not 16.
+
+**Commit:** `feat(detector): add python project manifest and dependency lock`
