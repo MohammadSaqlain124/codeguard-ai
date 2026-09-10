@@ -1304,3 +1304,114 @@ Corrected: 014 pyproject.toml, 015 app/main.py, 016 .dockerignore,
 017 Dockerfile, 018 compose revisit. Phase 0 is 18 files, not 16.
 
 **Commit:** `feat(detector): add python project manifest and dependency lock`
+
+## 2026-09-10 — Day 4 — File 015: apps/detector/app/main.py
+
+**What we built:** The FastAPI application for the detection service
+— app instance with OpenAPI metadata, a monotonic start timestamp,
+and a synchronous /health endpoint returning status and uptime.
+Fifteen lines, and it also generates interactive documentation at
+/docs for free.
+
+**Why we built it:** This is the detector's entry point. It exposes
+only /health today because File 018's compose revisit needs a
+healthcheck to know whether the service is up — a service that
+cannot answer "are you alive?" cannot be orchestrated. Detection
+endpoints come later. The service exists at all because tree-sitter,
+APTED, PyTorch and transformers are Python-only, and because tree
+edit distance is CPU-bound work that would block Node's
+single-threaded event loop for seconds at a time.
+
+**Why a separate file:** Separate from the API by language and by
+workload. Within the detector, it lives in app/ rather than at the
+project root because a root main.py is not part of a package, so
+`from config import settings` would only resolve when launched from
+that exact directory. Inside app/ with __init__.py present it
+becomes `from app.config import settings`, resolvable from pytest
+and from the container. main.py will stay thin — routers, middleware
+and assembly only — with endpoints moving to app/api/routes.py at
+File 050.
+
+**Plan correction:** I had said this file would include settings via
+pydantic-settings. app/config.py is already scheduled at File 047 in
+Phase 4, and the skeleton needs no configuration yet — uvicorn takes
+its port from the command line. Writing it now would mean writing it
+twice.
+
+**Libraries introduced:** No new packages. `fastapi` used for the
+first time: FastAPI() to create the app, @app.get(path) to register
+a route, and returning a dict to produce a JSON response. `time`
+from the standard library for monotonic().
+
+**Functions written:**
+* `health()` — returns {"status": "ok", "uptime": N} with HTTP 200.
+  Computes monotonic() - _started_at, rounds to 3dp, returns a dict
+  that FastAPI serialises. No inputs, no I/O, no realistic failure
+  mode. Synchronous, so FastAPI runs it in a thread pool.
+* Module body runs once at import: creates `app`, captures
+  _started_at.
+
+**Concepts learned:** decorator · module-level code · __init__.py ·
+namespace package · monotonic clock vs wall-clock time · thread
+pool · event loop · OpenAPI · Swagger UI · PEP 8 import grouping ·
+leading underscore convention
+
+**Decorators explained:** @app.get("/health") above a function is
+shorthand for `health = app.get("/health")(health)`. app.get()
+returns a decorator, which registers the function in FastAPI's
+routing table and returns it unchanged. The Express equivalent
+passes the handler as an argument instead; Python's version reads
+more declaratively because the route sits directly above the
+function it belongs to.
+
+**Decision made:** `def` rather than `async def`. FastAPI accepts
+both — async def runs on the event loop, plain def is offloaded to a
+thread pool. /health works either way, but the detection endpoints
+will be genuinely CPU-bound (APTED on a 500-node tree) and *must* be
+synchronous so they do not block the loop. Establishing the pattern
+now means one fewer thing to get wrong at File 050. This is also the
+answer to "doesn't Python have the same event-loop blocking problem
+as Node?" — it does, and the thread-pool offload is the mechanism
+that addresses it.
+
+**Decision made:** time.monotonic() rather than time.time().
+Wall-clock time can jump backwards when NTP corrects the system
+clock, so subtracting two readings across such a jump gives a
+negative uptime. monotonic() only ever increases; its absolute value
+is meaningless but differences are guaranteed correct. Node's
+process.uptime() handles this internally.
+
+**Decision made:** Module-level `app` rather than a factory
+function, the opposite of File 010's decision on the Node side.
+FastAPI's TestClient expects a module-level app and pytest fixtures
+handle test isolation, so the underlying concern is solved
+differently rather than ignored. Following each ecosystem's
+convention beats forcing symmetry between two frameworks.
+
+**Decision made:** Uvicorn directly rather than behind Gunicorn.
+Production Python often runs Gunicorn managing uvicorn workers for
+supervision and multi-core use, but Docker already supervises and
+Compose can scale replicas. Same reasoning as rejecting PM2 at
+File 011 — one supervisor per process.
+
+**Decision made:** No CORS and no security headers, unlike app.ts.
+Both are browser mechanisms, and this service only ever talks to the
+Node API over the internal Docker network. Adding them would be
+cargo-culting from the Express side.
+
+**Known temporary state:** No return type annotation, so the
+OpenAPI schema describes the response as an untyped object. A
+Pydantic response model would fix it, and belongs in app/schemas.py
+at File 048 with the rest of the contracts rather than as a stray
+definition here.
+
+**Confirmed working:** /health returned status and uptime. /docs
+rendered interactive Swagger UI with the project title and a working
+"Try it out" button — generated entirely from the fifteen lines,
+with no configuration or separate spec file. /openapi.json served
+the raw machine-readable spec. Ctrl+C shut down cleanly with
+"Application shutdown complete", unlike tsx watch on the Node side —
+uvicorn's reloader forwards SIGINT to its worker rather than killing
+it.
+
+**Commit:** `feat(detector): add fastapi app with health endpoint`
