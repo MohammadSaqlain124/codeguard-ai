@@ -1124,3 +1124,79 @@ includes node_modules, roughly 200MB sent to the daemon before the
 build even starts. File 013 (.dockerignore) fixes it.
 
 **Commit:** `feat(api): add multi-stage dockerfile with non-root runtime`
+
+## 2026-09-10 — Day 4 — File 013: apps/api/.dockerignore
+
+**What we built:** The build-context exclusion list for the API
+image — node_modules, dist, .env and variants, .git and build
+metadata, markdown, tests, coverage, editor directories, and OS
+junk.
+
+**Why we built it:** Docker sends a build context to the daemon
+before building, and COPY can only reach files inside it. Three
+things must stay out: secrets (a .env baked into a layer is
+retrievable by anyone who pulls the image, and deleting it in a
+later layer does not remove it — the same permanence problem as git
+history), host-specific artifacts (node_modules was installed on
+Windows; native modules compiled for Windows fail inside a Linux
+container with cryptic loader errors), and noise like .git, which is
+tens of megabytes of history the application never reads and which
+contains every version of every file ever committed.
+
+**Correction to File 012's reasoning:** I expected the first build
+to be slow with a huge context and used that to motivate this file.
+The actual build was 14.5 seconds with "transferring context:
+105.60kB" — BuildKit only transfers files a COPY instruction
+actually references, so node_modules was never sent. That
+motivation was wrong. The reasons that survive: this is a
+correctness guard rather than a speed optimisation, and it makes a
+future `COPY . .` harmless instead of dangerous. Honest assessment —
+a ~20-line insurance policy, not a performance fix.
+
+**Why a separate file:** The name is fixed and it must sit at the
+build context root, which for us is apps/api — a root-level
+.dockerignore would be ignored entirely. It cannot reuse .gitignore
+because they answer different questions and diverge on exactly the
+entries that matter: .gitignore *tracks* Dockerfile and README.md as
+source, while .dockerignore *excludes* them as build metadata with
+no runtime value. Docker has no option to read .gitignore. The
+detector gets its own at File 016 — two build contexts, two files.
+
+**Libraries introduced:** None. Read by the Docker CLI, at the CLI
+layer, before anything reaches the daemon — which is why an excluded
+file is genuinely unreachable rather than merely blocked.
+
+**Functions written:** None. A pattern list.
+
+**Concepts learned:** build context · Docker daemon vs CLI ·
+denylist vs allowlist · native module · anchored pattern
+
+**Syntax difference from .gitignore:** Docker uses Go's
+filepath.Match. Patterns are anchored to the context root by
+default, whereas a slashless .gitignore pattern matches at any
+depth. Trailing slashes carry no extra meaning.
+
+**Decision made:** Denylist rather than `*` plus negations. The
+allowlist form is maximally safe against leaks and means every new
+file requires editing this file first — the same trade rejected at
+File 002.
+
+**Decision made:** No `!` negations at all. .gitignore needed one for
+.env.example; nothing here needs re-including, and negations are a
+known source of silent failure, as found at File 002 with
+harness/generated.
+
+**Decision made:** Excluded the Dockerfile itself. It is needed to
+build but not to run, and shipping build metadata inside a runtime
+image is the same instinct as dropping to a non-root user — ship the
+minimum.
+
+**Confirmed working:** Added a temporary `COPY .env ./` to the
+Dockerfile with a real apps/api/.env present. The build failed with
+"failed to compute cache key: /.env: not found" — the file exists on
+disk but was never sent to the daemon, so COPY genuinely could not
+find it. That failure is the proof. Also confirmed the image's
+node_modules has ~65 entries rather than the local 127, since the
+runtime stage installs with --omit=dev.
+
+**Commit:** `chore(api): add dockerignore to keep secrets and host artifacts out of images`
