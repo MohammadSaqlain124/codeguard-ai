@@ -1851,3 +1851,120 @@ setup complexity for a problem not yet encountered. Name this in the
 report's limitations section.
 
 **Commit:** `feat(api): add mongoose connection with retry and clean shutdown`
+
+## 2026-09-11 — Day 5 — File 020: apps/api/src/models/User.ts
+
+**What we built:** The first Mongoose schema — email (unique,
+lowercased, trimmed), passwordHash (required, select: false), name,
+role (enum of three, indexed), rollNo (unique + sparse, uppercased),
+isActive soft-delete flag, and automatic timestamps. Plus a toJSON
+transform stripping passwordHash and __v, and three exports: the
+inferred type, the hydrated document type, and the model.
+
+**Why we built it:** Every other collection points at this one —
+Course has faculty and enrolled students, Submission has a student,
+AuditLog records which faculty member decided. It also carries the
+role field that gates the entire authorisation model.
+
+**Why a separate file:** One file per model is the Mongoose
+convention and is forced by a real constraint —
+mongoose.model("User", schema) can only be called once per process,
+or you get OverwriteModelError. Separate from db/connect.ts because
+connection is infrastructure and schemas are domain. Separate from
+auth logic because this defines *what a user is*; hashing, signing
+and permission checks are behaviours operating on users. Putting
+hashPassword here would mean importing bcrypt into every file that
+merely wants to read a name.
+
+**Libraries introduced:** None new. mongoose used for the first time
+as a schema tool: new Schema() for shape and validators,
+schema.set("toJSON") for serialisation control, model() to register,
+InferSchemaType and HydratedDocument for typing.
+
+**Functions written:** Only the toJSON transform — mutates the plain
+object Mongoose builds, deleting passwordHash and __v, then returns
+it. Fires on JSON.stringify(), which res.json() calls internally.
+Does *not* fire on console.log(), so a deliberately-selected hash
+could still reach the logs; pino redaction at File 027 covers that.
+
+**Concepts learned:** schema · model · document · collection ·
+validator vs setter · index · unique index · sparse index ·
+collection scan · soft delete · select: false · projection · E11000 ·
+version key __v · InferSchemaType · HydratedDocument
+
+**Key gotcha — unique is not a validator.** It reads like one but is
+an instruction to create a unique *index* in MongoDB. Three
+consequences: enforcement is the database's, so a duplicate throws
+E11000 rather than a Mongoose ValidationError, and File 026 must
+handle both shapes; it does not work until the index is built, so
+with autoIndex disabled in production duplicates pass silently; and
+it says nothing about existing data, so adding it to a collection
+with duplicates makes index creation fail at startup. Confirmed in
+testing: the duplicate email produced E11000 while the invalid role
+produced a ValidationError — genuinely different error types.
+
+**Problem faced:** Students have roll numbers; faculty and admin do
+not. unique: true alone would treat every faculty member as having
+rollNo: undefined, and a unique index rejects duplicate absences —
+so the second faculty account would fail with E11000.
+
+**How we solved it:** sparse: true, which excludes documents that
+*lack* the field from the index entirely. One sharp edge: sparse
+skips missing fields, not null ones, so explicitly setting
+rollNo: null would put the document in the index and a second null
+would collide. The seed script must omit the field for faculty
+rather than setting it null.
+
+**Decision made:** select: false on passwordHash rather than relying
+on discipline. The dangerous case is the forgotten one —
+res.json(await UserModel.find()) in a list endpoint would serialise
+every hash. Secure by default, with exactly one place
+(authController.login) opting in via .select("+passwordHash").
+
+**Decision made:** A toJSON transform *as well as* select: false.
+Deliberately redundant — two independent mechanisms must both fail
+for a hash to reach a client. Same defence-in-depth principle as
+USER node in the Dockerfile.
+
+**Decision made:** No pre("save") hashing hook, against the common
+Mongoose pattern. A hook guarantees hashing, but it makes
+user.save() sometimes slow in a way the call site cannot see (bcrypt
+is intentionally expensive), makes the model depend on bcrypt so
+every file importing User pulls in a native module, and makes tests
+slow since seeding 30 users means 30 unrequested bcrypt rounds.
+Hashing in authController keeps the cost visible where it is paid.
+Honest trade-off: the hook is safer against forgetting, and we are
+accepting a small risk for an explicit cost, with only two write
+paths.
+
+**Decision made:** InferSchemaType rather than a hand-written
+interface passed as new Schema<IUser>(). One source of truth — the
+alternative duplicates every field, and forgetting one makes the
+type lie. Same reasoning as z.infer for Zod at File 007.
+
+**Decision made:** Soft delete via isActive rather than removing
+records. Submissions and audit-log entries reference a user's _id,
+so deletion orphans them. An AuditLog saying "faculty X flagged
+submission Y" is worthless if X no longer exists — in an evidence
+system, records must outlive the people in them.
+
+**Decision made:** role as a single string rather than an array of
+permissions. Full RBAC is more flexible and considerably more
+machinery; three roles with clear boundaries cover the spec. If
+per-course permissions become necessary they belong on Course, not
+on User.
+
+**Decision made:** Indexed role but not name. Every index costs
+storage and slows writes, since each insert must update it. Index
+fields you filter or sort by — we will run find({ role: "student" })
+constantly and never sort by name.
+
+**Confirmed working:** "  Sam@Invertis.AC.IN  " saved as
+"sam@invertis.ac.in" and "bcs2023126" as "BCS2023126" — setters
+normalising. The created document serialised without passwordHash or
+__v. A plain findOne returned undefined for the hash;
+.select("+passwordHash") returned it. Two faculty without rollNo
+both saved. db.users.getIndexes() showed _id_, email_1, role_1 and
+rollNo_1 with sparse: true.
+
+**Commit:** `feat(api): add user model with roles and protected password field`
