@@ -1415,3 +1415,70 @@ uvicorn's reloader forwards SIGINT to its worker rather than killing
 it.
 
 **Commit:** `feat(detector): add fastapi app with health endpoint`
+
+## 2026-09-10 — Day 4 — File 016: apps/detector/.dockerignore
+
+**What we built:** The build-context exclusion list for the detector
+image — three virtual environment names, bytecode and compiled
+extension modules, packaging metadata, three tool caches, .env and
+variants, git and build metadata, markdown, tests, coverage output,
+Jupyter checkpoints, editor directories and OS junk.
+
+**Why we built it:** Same job as File 013, but the failure mode here
+is worse. The venv holds 29 packages compiled for Windows —
+pydantic-core shipped as pydantic_core-2.46.5-cp313-cp313-win_amd64,
+a .pyd binary that is Windows-only and amd64-only. Copied into a
+Linux container it produces "cannot open shared object file", an
+error that says nothing about the real cause. There is a second,
+Python-specific reason: local Python is 3.13 while File 017's image
+pins 3.11, and site-packages layout is version-specific
+(lib/python3.13/), so even Linux-compatible binaries would sit at
+paths the container cannot find. Two independent reasons the venv
+must stay out. A Node node_modules copied into a Linux image mostly
+still works; a Python venv produces import errors that look like
+broken code.
+
+**Why a separate file:** Forced by Docker — .dockerignore must sit
+at the build context root, and we have two contexts (apps/api and
+apps/detector). A root-level file would be ignored by both. Correct
+on the merits too: only about a third of the patterns overlap. The
+API excludes node_modules and dist; the detector excludes .venv,
+__pycache__, .pytest_cache and .ruff_cache. Merging would mean each
+context carrying patterns meaningless to it.
+
+**Libraries introduced:** None. Read by the Docker CLI before
+anything reaches the daemon, which is why an excluded file is
+genuinely unreachable rather than merely blocked — as the File 013
+test demonstrated.
+
+**Functions written:** None. A pattern list.
+
+**Concepts learned:** compiled extension module (.pyd on Windows,
+.so on Linux) · wheel and platform tags (cp313-cp313-win_amd64) ·
+bytecode cache · egg-info · tool cache
+
+**Decision made:** Excluded three venv names — .venv, venv and env.
+Only .venv exists here, but the convention genuinely split: modern
+tooling defaults to .venv, older tutorials use venv, some use env.
+Two extra lines against a teammate following a different tutorial.
+
+**Decision made:** Listed tests/ and .mypy_cache before they exist.
+Slightly against the usual rule about not building for
+hypotheticals, but the cost is one line each and the alternative is
+a directory silently entering the image later when nobody is
+thinking about this file. Different from a hypothetical
+*abstraction*, which imposes cost every day it exists.
+
+**Decision made:** Denylist rather than `*` plus negations, and no
+negations at all. Same reasoning as Files 002 and 013 — the
+allowlist form is safer against leaks and means every new file
+requires editing this file first, and negations are a known source
+of silent failure.
+
+**Not yet testable:** There is no detector Dockerfile, so this
+cannot be verified by building. Confirmed instead that the excluded
+directories are the ones actually present, and inspected the venv's
+.pyd files to see the win_amd64 platform tags first-hand. Real test
+comes at File 017.
+
+**Commit:** `chore(detector): add dockerignore for venv, bytecode and tool caches`
