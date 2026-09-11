@@ -1,5 +1,13 @@
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
+import { connectDb, disconnectDb } from "./db/connect.js";
+
+try {
+  await connectDb();
+} catch {
+  console.error("could not connect to mongo, exiting");
+  process.exit(1);
+}
 
 const app = createApp();
 
@@ -19,13 +27,13 @@ function shutdown(signal: string) {
     process.exit(1);
   }, 10_000);
 
-  server.close((err) => {
+  server.close(async (err) => {
     clearTimeout(force);
     if (err) {
       console.error("error closing server:", err);
       process.exit(1);
     }
-    // File 015 closes mongo here, File 042 closes the queue
+    await disconnectDb();
     console.log("shutdown complete");
     process.exit(0);
   });

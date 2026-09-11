@@ -1731,3 +1731,123 @@ with validated config and graceful shutdown, and a FastAPI detector
 — all reproducible with one command.
 
 **Commit:** `feat(infra): add api and detector services with health-gated startup`
+
+## 2026-09-11 — Day 5 — File 019: apps/api/src/db/connect.ts
+
+**What we built:** The MongoDB connection layer — three lifecycle
+event listeners registered before connecting, a retry loop with
+exponential backoff (1s, 2s, 4s, 8s across five attempts), tuned
+connection options, and a disconnect function wired into the
+graceful-shutdown path from File 011.
+
+**Why we built it:** Mongoose needs an open connection before any
+model can be used, and that connection has a lifecycle — it can fail
+at startup, drop mid-life, recover, and must close cleanly. Without
+event listeners a dropped connection is silent: queries start
+hanging and nothing in the logs explains why.
+
+**Why a separate file:** Connection is infrastructure; schemas are
+domain. No model file should care how the connection was established
+or whether it retried. Also a leaf module, like config/env.ts — it
+imports mongoose and env and nothing else of ours, so tests can
+import it to connect to an in-memory MongoDB without pulling in the
+HTTP server. In db/ rather than services/ because it will gain
+company: seed helpers, possibly migrations.
+
+**Libraries introduced:**
+* `mongoose` — an ODM (Object-Document Mapper) adding schemas,
+  validation, type casting, middleware hooks and population on top
+  of the raw MongoDB driver. MongoDB itself is schemaless, so
+  application-layer enforcement is exactly what we want for a
+  provenance enum that must be one of three values. Chosen over the
+  native mongodb driver, which is faster with no abstraction to
+  learn but would mean hand-writing validation for every collection
+  and losing TypeScript types on query results. Chosen over Prisma,
+  whose generated types are excellent but whose MongoDB support is
+  less mature than its SQL support, and which adds a separate schema
+  language plus a codegen step. Ships its own types, so no @types
+  package.
+
+**Functions written:**
+* `connectDb()` — registers listeners, then connects with up to five
+  attempts and exponential backoff. Takes nothing, returns
+  Promise<void>, throws the last error after five failures.
+* `disconnectDb()` — closes the connection pool, awaited so it
+  cannot race with process.exit.
+
+**Concepts learned:** ODM vs ORM · connection pool · exponential
+backoff · server selection · Mongoose buffering · singleton ·
+replica set
+
+**Why retry when compose already gates on healthchecks:** they cover
+different situations. The healthcheck runs once, at boot, and only
+inside Compose. The retry loop covers local npm run dev, where
+nothing gates startup, and MongoDB restarting at 3pm on a Tuesday.
+Complementary, not duplicate.
+
+**Decision made:** Listeners registered before connect(), not after.
+An event fired before its listener exists is lost, so connecting
+first would miss any error during the initial handshake.
+
+**Decision made:** console.warn for disconnection rather than
+console.error. A dropped connection is not necessarily fatal —
+Mongoose reconnects automatically. Reserving error for things
+needing attention keeps the signal useful.
+
+**Decision made:** serverSelectionTimeoutMS 5000 rather than the
+default 30000. Thirty seconds is right when a replica set might be
+electing a new primary; we run a single standalone node, so either
+it is there or it is not. Five seconds means a failed attempt fails
+quickly enough for the retry loop to actually run.
+
+**Decision made:** maxPoolSize 20 rather than the default 100. Our
+concurrency is a handful of teachers and a few dozen students; 100
+idle connections is memory neither side needs.
+
+**Decision made:** Accepted Mongoose 7+'s strictQuery default of
+false, and this is a *security* choice. With strictQuery true, a
+filter field not in the schema is silently removed from the query —
+so a typo like `find({ studentld: id })` with a lowercase L would
+drop the filter and return *every* submission. In an
+academic-integrity system a silently-widened query is a data leak.
+False means the condition passes through and matches nothing, which
+fails visibly.
+
+**Decision made:** Kept bufferCommands at its default of true, so
+queries issued while disconnected queue rather than failing. Makes a
+two-second reconnection invisible to users. The cost is that a
+longer outage makes requests hang until serverSelectionTimeoutMS
+expires — acceptable at five seconds.
+
+**Decision made:** Fail fast at startup, buffer during runtime. Two
+different situations: a missing database at boot means broken
+configuration, so exit 1; a database dropping mid-life is usually
+transient, so buffer and let Mongoose reconnect.
+
+**Decision made:** Explicit connectDb/disconnectDb rather than
+connecting on import. env.ts deliberately runs on import, but
+connecting is slow and can fail — a test that merely imports a model
+should not open a database connection.
+
+**File 011 revisit:** server.ts now awaits connectDb() before
+creating the app, exits 1 if it throws, and calls disconnectDb()
+inside the server.close callback. Ordering matters — HTTP drains
+first, then the database, because closing MongoDB while requests are
+still in flight would make those requests fail. Top-level await
+works here, which is a direct payoff for choosing ESM at File 007.
+
+**LIMITATION recorded — no transactions.** MongoDB transactions
+require a replica set, and our compose file runs a standalone node.
+This matters: when faculty confirm a submission as clean we would
+ideally update the Submission, append to the AuditLog and update the
+baseline atomically. Without transactions those are three
+independent writes, and a crash between them leaves inconsistent
+state. Options were (1) accept it and design for recoverable partial
+failure — make the AuditLog write last, so an interrupted operation
+leaves no false record; (2) convert to a single-node replica set
+with --replSet rs0 plus a bootstrap step; (3) defer. Taking option 1
+now with option 2 as documented future work, because option 2 adds
+setup complexity for a problem not yet encountered. Name this in the
+report's limitations section.
+
+**Commit:** `feat(api): add mongoose connection with retry and clean shutdown`
