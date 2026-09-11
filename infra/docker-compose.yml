@@ -62,6 +62,11 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DB}?authSource=admin
+      REDIS_HOST: redis
+      MINIO_ENDPOINT: minio
+      DETECTOR_URL: http://detector:8000
     depends_on:
       mongo:
         condition: service_healthy
