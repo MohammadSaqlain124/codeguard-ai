@@ -1482,3 +1482,252 @@ directories are the ones actually present, and inspected the venv's
 comes at File 017.
 
 **Commit:** `chore(detector): add dockerignore for venv, bytecode and tool caches`
+
+## 2026-09-11 — Day 5 — File 017: apps/detector/Dockerfile
+
+**What we built:** A two-stage Docker build for the detector. The
+build stage creates a venv at /opt/venv and installs from
+requirements.txt; the runtime stage starts clean, sets the two
+standard Python container env vars, creates a non-root appuser,
+copies the venv wholesale and then the source, and runs uvicorn in
+exec form bound to 0.0.0.0.
+
+**Why we built it:** The local environment cannot be shipped. The
+.venv holds Windows binaries compiled for Python 3.13; the container
+needs Linux binaries for 3.11. There is no path from one to the
+other except reinstalling from requirements.txt inside the image.
+It also unblocks File 018 — a missing Dockerfile is why the compose
+file has only three services.
+
+**Why a separate file:** One Dockerfile per app, forced by the build
+context rule and correct anyway — the API needs Node 22, the
+detector needs Python 3.11 with tree-sitter and eventually PyTorch.
+Separate from pyproject.toml by role: that declares what the project
+depends on, this describes how to package it.
+
+**Libraries introduced:** No packages. Base image
+python:3.11-slim-bookworm, the same Debian 12 base as the Node
+images, so both containers share one OS.
+
+**Functions written:** None. Declarative build instructions.
+
+**Concepts learned:** manylinux wheel · loopback interface ·
+binding to 0.0.0.0 · output buffering · PATH · UID
+
+**The line that would have cost hours:** --host 0.0.0.0 in the CMD.
+Uvicorn defaults to 127.0.0.1, and inside a container that is the
+container's *own* loopback — a server bound there accepts
+connections from inside the container and nowhere else. Docker's
+port mapping arrives on the external interface, finds nothing
+listening, and refuses the connection. The container starts fine and
+the logs say nothing about a binding problem. This is the mirror of
+the File 005 lesson: there we learned not to *connect* to localhost
+inside a container; here, not to *listen* on it. Same fact, both
+ends.
+
+**Why a venv inside a container at all:** it looks redundant since
+the container is already isolated. Without one, pip scatters
+packages into /usr/local/lib/python3.11/site-packages and binaries
+into /usr/local/bin, so copying them between stages means picking
+through system directories and risking overwriting base-image files.
+A venv puts everything under one path, so
+COPY --from=build /opt/venv /opt/venv moves the whole dependency
+tree in one instruction. ENV PATH="$VIRTUAL_ENV/bin:$PATH" is the
+equivalent of `activate` — activation is only a PATH change, and
+`source activate` cannot be used in a Dockerfile because each RUN is
+a separate shell.
+
+**Two Python-specific env vars, both standard:**
+* PYTHONDONTWRITEBYTECODE=1 — the container filesystem is discarded
+  on exit, so caching .pyc files buys nothing, and a read-only
+  filesystem would make the writes fail.
+* PYTHONUNBUFFERED=1 — Python buffers stdout when it is not a
+  terminal, which inside a container means log lines sit in a buffer
+  until it fills or the process exits. The symptom is `docker logs`
+  showing nothing and then dumping everything at shutdown, with the
+  last lines before a crash lost entirely.
+
+**Decision made:** Multi-stage even though Python has no compile
+step. Today it saves maybe 10MB, which is arguably building for a
+hypothetical. The difference is that the future need is certain, not
+speculative: File 051 builds tree-sitter grammars and needs a C
+compiler. With multi-stage that becomes one apt-get in the *build*
+stage while runtime stays clean; single-stage it means either
+shipping a compiler in production or restructuring under time
+pressure. A hypothetical *abstraction* costs you every day it
+exists; a hypothetical *structure* costs you once.
+
+**Decision made:** python:3.11-slim over alpine. Stronger reason
+than on the Node side — many Python packages ship manylinux wheels
+targeting glibc, so on musl pip finds no compatible wheel and
+compiles from source. For pydantic-core that means installing a Rust
+toolchain; for PyTorch at Tier 3 it is effectively impossible.
+
+**Decision made:** 3.11 rather than 3.13, diverging from the local
+interpreter. PyTorch and tree-sitter lag Python releases, so a
+package with no 3.13 wheel will have a 3.11 one. Pinning the
+container to the older version means the thing that must work in
+production is the thing we tested. ruff's target-version = "py311"
+guards the gap by flagging syntax the container cannot run.
+
+**Decision made:** Install from requirements.txt rather than
+pip install -e . The lockfile pins exact versions while
+pyproject.toml has floors that could resolve differently on
+different days, and an editable install makes no sense in a built
+image.
+
+**Decision made:** Created a user rather than using an existing one.
+Unlike the official Node images, which ship a `node` user, the
+official Python images ship no non-root user at all.
+
+**Decision made:** No --reload and no --workers in the CMD. Reload
+is a development file watcher; workers would put a process manager
+inside the container, and Compose can scale replicas. One supervisor
+per process, same as rejecting PM2 at File 011.
+
+**Limitation tested for the first time:** requirements.txt was
+generated by pip freeze on Windows under Python 3.13, and this is
+the first time it has been installed on Linux under 3.11. pip freeze
+outputs name==version, which is platform-neutral, so it should
+work — but this is exactly the weakness named at File 014.
+
+**Commit:** `feat(detector): add multi-stage dockerfile with venv and non-root runtime`
+
+## 2026-09-11 — Day 5 — File 018: infra/docker-compose.yml (revisit)
+
+**What we built:** The api and detector services, completing the
+five-service stack. api builds from ../apps/api, loads infra/.env in
+bulk, waits for all three data services to report healthy, and gets
+a 15-second stop grace period. detector builds from ../apps/detector
+with no dependencies and no configuration. Both have healthchecks
+written in their own runtime.
+
+**Why this revisit exists:** File 006 stopped at three services
+because Compose errors on a missing Dockerfile and neither
+application had one. Both now do. But the real addition is startup
+ordering — containers report "running" within a second while
+MongoDB takes 10–20 seconds to accept connections, so without it the
+API starts, fails to connect and crashes. The healthchecks written
+at File 006 finally do something. This is also what makes the
+README's "docker compose up" claim true for the first time.
+
+**Why not a separate file:** Compose describes how services relate,
+and these two relate to the existing three. A second compose file
+would mean two networks, no cross-file depends_on, and no way to
+bring the system up with one command.
+
+**Libraries introduced:** None. Two images are now built rather than
+pulled — codeguard-api and codeguard-detector, from Files 012 and
+017.
+
+**Functions written:** None. The two healthcheck commands are
+one-line programs, but they run inside the containers.
+
+**Concepts learned:** startup ordering · service_healthy condition ·
+build context path resolution · environment precedence · grace
+period · graceful degradation · least privilege · circuit breaker
+
+**Problem faced:** A healthcheck runs *inside* the container, so it
+can only use tools that image contains. The MinIO healthcheck uses
+curl because the MinIO image has it, but neither
+node:22-bookworm-slim nor python:3.11-slim does — slim variants
+strip it. A curl-based check would fail with "executable not found"
+and leave the container permanently unhealthy with a misleading
+error.
+
+**How we solved it:** Used each language runtime, already present.
+Node 22 has fetch as a global (stable since Node 18), so
+`node -e "fetch(...).then(r => process.exit(r.ok ? 0 : 1))"` with a
+.catch for connection refused. Python uses urllib.request from the
+standard library — urlopen raises on a non-2xx status, and an
+uncaught exception exits non-zero, so no explicit exit code is
+needed. Rejected installing curl: apt-get in both Dockerfiles, ~10MB
+each, and a larger attack surface for something both runtimes
+already do.
+
+**Gotcha:** build context paths resolve relative to the *compose
+file's* directory, not the working directory. Since the compose file
+is in infra/, reaching apps/api means ../apps/api. Writing
+./apps/api gives "path infra/apps/api not found" — the same class of
+error as the git add and docker build working-directory mistakes.
+
+**Two things about localhost, now fully resolved:** inside a
+container, localhost means that container. So it is *correct* in a
+healthcheck, which reaches the container's own service, and *wrong*
+when reaching another service, which needs the compose service name.
+Same word, opposite meaning depending on the target. There is a
+matching asymmetry in the frameworks: Express's app.listen(port)
+binds all interfaces by default, while uvicorn defaults to
+127.0.0.1, which is why File 017's CMD needed --host 0.0.0.0. The
+healthchecks work either way because they originate inside the
+container.
+
+**Decision made:** condition: service_healthy rather than plain
+depends_on. The plain form waits about a second for the container to
+exist. Also rejected a wait-for-it script — the classic
+pre-healthcheck solution — because it means a shell script in the
+image, a wrapper around CMD that reintroduces the PID 1 problem, and
+a TCP port check that says nothing about whether MongoDB finished
+initialising.
+
+**Decision made:** Application-level connection retry is still
+planned for db/connect.ts, but as a complement rather than a
+substitute. Retry is more robust in production because a database
+can restart mid-life, not just at boot; healthchecks stop every
+startup burning through retries unnecessarily. Both, not either.
+
+**Decision made:** The API does *not* depend on the detector. It
+should start and serve logins, dashboards and uploads even if the
+detector is down, with detection jobs queuing in Redis until it
+recovers. Making the API wait would mean a detector failure takes
+down the whole platform. Same graceful-degradation principle as the
+baseline-confidence design, applied to infrastructure. File 045's
+detectorClient gets a timeout and circuit breaker for the same
+reason.
+
+**Decision made:** stop_grace_period 15s on the api, deliberately
+longer than the 10-second force-exit timer in server.ts. Both at 10
+would race — Docker might SIGKILL at the same instant our code
+force-exits, losing the exit code and the final log line. Fifteen
+guarantees our timer fires first, so the process always controls its
+own exit. The two numbers are now a deliberate pair.
+
+**Decision made:** env_file for the api rather than eighteen
+explicit environment lines. Honest trade-off: the container now
+receives MONGO_ROOT_USER and MONGO_ROOT_PASSWORD, which it never
+uses since its credentials are embedded in MONGO_URI. That is a
+small violation of least privilege. The alternative is eighteen
+lines that must stay in sync with env.ts, and both values are
+already in the same file. Maintenance cost wins — name it in the
+report rather than pretending it is clean.
+
+**Environment precedence, worth remembering:** environment: beats
+env_file:, which beats Dockerfile ENV. So the Dockerfile's
+NODE_ENV=production is overridden by .env's development — which is
+why docker run --env-file printed "development mode" at File 012.
+Correct for now, since stack traces are useful while building. For
+the demo, add environment: NODE_ENV: production.
+
+**Decision made:** No source volume mounts. The image runs compiled
+dist/, not src/, so a mount would achieve nothing without also
+running tsc --watch inside the container — putting a compiler in the
+production image. Consequence stated plainly: changing API source
+requires docker compose up --build. The fast development loop stays
+npm run dev locally; the compose stack is the integration and demo
+environment. If rebuilds become painful, Compose's develop: watch is
+the tool, but that is a Tier 2 concern.
+
+**Verified:** All five containers reached healthy. curl against
+:4000/health and :8000/health both returned JSON.
+`docker exec codeguard-api node -e "fetch('http://detector:8000/health')"`
+returned the detector's response — the Node container calling the
+Python container by service name over the private network, with no
+port mapping involved. That is the exact path detectorClient will
+use at File 045.
+
+**Phase 0 complete.** 18 files. Repository scaffolding, formatting
+rules, secrets handling, a five-service Docker stack, a Node API
+with validated config and graceful shutdown, and a FastAPI detector
+— all reproducible with one command.
+
+**Commit:** `feat(infra): add api and detector services with health-gated startup`
