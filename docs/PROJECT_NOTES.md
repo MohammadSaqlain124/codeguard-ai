@@ -2077,3 +2077,121 @@ guessing what varies. File 027 (models/index.ts) has all seven in
 view. Rule of three.
 
 **Commit:** `feat(api): add course model with faculty and enrolment references`
+
+## 2026-09-13 — Day 6 — File 022: apps/api/src/models/Assignment.ts
+
+**What we built:** The Assignment schema — a course reference,
+title, description, a language enum limited to python and java, a
+provenance enum defaulting to takehome, dueAt as a Date, acceptsLate
+and maxSubmissions with range validation, an isPublished draft flag,
+plus two compound indexes: { course, title } unique, and
+{ course, dueAt: -1 } for the dashboard query. Also exports
+LANGUAGES and PROVENANCE as `as const` arrays.
+
+**Why we built it:** An assignment is the unit submissions are
+compared *within* — comparing a sorting exercise against a graph
+traversal is meaningless, so every Layer 1 similarity computation is
+scoped to one assignment. Two fields shape the whole pipeline:
+language decides which tree-sitter grammar the detector loads, and
+provenance is what the entire baseline-integrity subsystem depends
+on.
+
+**Why a separate file:** One model per file per OverwriteModelError.
+Separate from Course because a Submission must reference one
+assignment directly and embedded assignments have no stable _id to
+point at. Separate from DetectionConfig even though both hold
+configuration — an assignment describes what students must do
+(deadline, language, instructions) while DetectionConfig describes
+how faculty want detection tuned (w1/w2/w3, thresholds). Different
+owners, different change frequency.
+
+**Libraries introduced:** None new. First use of `as const` exported
+arrays, index direction (-1), range validators and Date casting.
+
+**Functions written:** Only the toJSON transform — third identical
+instance now.
+
+**Concepts learned:** as const · literal union type ·
+denormalisation · covering a sort · index direction · BSON · range
+validator · draft state
+
+**The `as const` pattern, and why it matters:** without it,
+LANGUAGES is string[]; with it, it is readonly ["python","java"] —
+a tuple of exact literals. One declaration then serves three
+purposes: Mongoose validation via enum: LANGUAGES, a TypeScript
+union via typeof LANGUAGES[number] so `lang === "c++"` is a compile
+error, and runtime reuse so File 031's Zod schema can do
+z.enum(LANGUAGES). One source of truth for the API boundary, the
+database and the type system.
+
+**Inconsistency noticed and recorded:** User.ts should have exported
+its role values the same way. They will be needed by requireRole at
+File 030 and by Zod at File 031, and will otherwise be duplicated.
+TODO: add `export const ROLES = [...] as const` to User.ts when next
+touching it.
+
+**Decision made — where provenance lives.** It sits on Assignment
+rather than on each Submission, because provenance is a property of
+the *conditions* and conditions are set per assignment: if a lab ran
+under supervision, every submission to it was supervised. Storing it
+per submission would mean 30 copies of the same value and the
+possibility of two submissions to one invigilated lab disagreeing
+about whether it was invigilated. **But File 023's Submission will
+also carry provenance, denormalised at creation time**, for two
+specific reasons: (1) immutability — if faculty later correct an
+assignment's provenance, submissions already scored under the old
+value must keep it, because a result computed under invigilated
+assumptions does not retroactively become a takehome result; and
+(2) query performance — "all invigilated submissions by this student
+across all courses" is the baseline-anchor query, which with
+provenance only on Assignment would be a join across every course
+they have taken. Deliberate denormalisation with a stated reason,
+which is what separates a design decision from an accident.
+
+**Decision made:** default provenance is "takehome", not
+"invigilated". A forgotten field should fail toward caution.
+Defaulting to invigilated would silently make unsupervised work
+baseline-eligible — exactly the poisoning the subsystem exists to
+prevent.
+
+**Decision made:** Two languages, not three. The spec says C++ only
+if time allows, and an enum listing a language the detector cannot
+parse would let faculty create assignments that fail at detection
+time. Scope enforced by schema rather than by intention.
+
+**Decision made:** acceptsLate defaults to true — a late submission
+is still analysed, just marked. Refusing it means the student
+contributes no baseline sample and no cohort data point. Our job is
+evidence-gathering; deadline enforcement is the LMS's.
+
+**Decision made:** maxSubmissions bounded 1–20, default 3. Unlimited
+resubmission means unbounded storage and detection work, and a
+student iterating 15 times against feedback produces stylometric
+noise rather than signal, which degrades their Layer 2 baseline.
+
+**New kind of index:** { course: 1, dueAt: -1 } is the first index
+created for *query performance* rather than for a constraint. A
+compound index can serve both the filter and the sort, so MongoDB
+returns results already ordered instead of sorting in memory.
+Direction matters for sorts — an index can be read forwards or
+backwards, so this also serves sort({ dueAt: 1 }), but it would not
+serve a mixed-direction sort.
+
+**Timezone note, deferred deliberately:** MongoDB stores dates in
+UTC and we are in IST (+5:30). A deadline of "midnight on the 20th"
+entered by faculty must be converted before storage or it lands 5.5
+hours off. That conversion belongs at the API boundary in File 039's
+Zod schema, not in the schema — the database's job is to store an
+unambiguous instant. Recorded now because timezone bugs are hard to
+spot: everything looks fine until someone submits at 11pm.
+
+**Decision made:** No validator forcing dueAt into the future.
+Faculty legitimately backdate when importing a past semester's data
+for testing.
+
+**Still deferred:** the toJSON transform is now written three times.
+Rule of three is technically met, but DetectionResult and AuditLog
+may need different treatment, so extracting from five real cases at
+File 027 beats guessing from three.
+
+**Commit:** `feat(api): add assignment model with language and provenance`
