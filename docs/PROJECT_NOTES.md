@@ -2565,3 +2565,162 @@ the three compound ones. Worth recording because it is a real cost —
 that collection updates nine index entries per insert.
 
 **Commit:** `feat(api): add detection config with weight validation`
+
+## 2026-09-13 — Day 6 — File 025: apps/api/src/models/DetectionResult.ts
+
+**What we built:** The largest schema in the project. Five
+subdocument schemas (span, structural match, feature deviation,
+token attribution, window score), three layer blocks each with an
+independent status/reason/duration, the RPS with a full weight
+snapshot including effectiveW2, configVersion and detectorVersion,
+a signalDisagreement flag, revision and isCurrent for versioning,
+and a mutable review subdocument. Three compound indexes.
+
+**Why we built it:** Everything before this stored inputs; this
+stores conclusions *with their evidence*. The spec's central claim
+is that CodeGuard AI is an evidence system rather than a verdict
+machine, and that claim is true or false depending on what this
+schema holds. If it stored { submission, rps: 0.82 } we would have
+built a verdict machine with extra steps — a number nobody can
+interrogate. Four fields exist because of specific spec
+requirements: per-layer status (mitigation 5, graceful degradation),
+baselineConfidence plus effectiveW2 (mitigation 3, attenuation),
+lowVariance as a separate block (mitigation 4, "report it as a
+separate signal, not folded into the deviation score"), and the
+weights snapshot plus configVersion (reproducibility in a hearing).
+
+**Why a separate file:** Separate from Submission because a
+submission is what the student gave us — immutable — while a result
+is what the system concluded, and *will* be recomputed when weights
+are retuned or the parser improves. Separate from AuditLog because a
+result is what the system computed and a log entry is what a person
+did. Different actors, different immutability guarantees.
+
+**Libraries introduced:** None new. First use of subdocument schemas
+with _id: false, and of dot-notation nested paths in an index.
+
+**Functions written:** Only the toJSON transform — sixth instance,
+back to the simple __v-only form.
+
+**Concepts learned:** subdocument · _id: false · z-score · difficulty
+normalisation · calibration / temperature scaling · token
+attribution · sliding window · ablation study · versioned record ·
+dot notation in indexes
+
+**The embedding decision, executed.** File 021 set the rule: embed
+data owned by and read with its parent that has no independent
+identity; reference data that exists on its own. Matched spans,
+feature deviations and token attributions are exactly the first
+case — they belong to one match inside one result, nothing else will
+reference them, and nobody queries "find me all spans". _id: false
+matters because Mongoose adds a 12-byte ObjectId to every
+subdocument by default, which for a span holding four small integers
+is more overhead than payload and implies an identity it does not
+have.
+
+**Per-layer status — mitigation 5 as a data structure.** Three
+states with genuinely different meanings: ok (ran, produced a
+score), skipped (could not run, for a stated reason), failed (tried
+and broke). Skipped and failed must stay distinct because a student
+with two anchors against a minimum of three is *correct system
+behaviour*, while a tree-sitter crash is a bug. Collapse them and
+monitoring cannot tell "working as designed" from "broken".
+
+**Why score is optional rather than defaulting to 0.** A skipped
+layer has no score, and that is not a score of zero. Zero means "ran
+and found nothing suspicious" — a positive finding. Undefined means
+"we do not know". The spec puts it exactly right: the system must be
+able to say "I do not know this student well enough to judge" rather
+than guessing. Defaulting to 0 would guess, in the student's favour,
+while looking like evidence.
+
+**Why both w2 and effectiveW2 are stored.** Only the pair lets the
+evidence view say: "your department configured w2 = 0.3, but this
+student has two invigilated anchors giving baseline confidence 0.28,
+below the 0.4 threshold, so the behavioural weight was reduced to
+0.09." Store only effectiveW2 and the attenuation is invisible;
+store only w2 and the arithmetic does not reconcile. anchorCount is
+there so the message can be specific rather than vague.
+
+**Why lowVariance is a separate block, not folded in.** Spec
+requirement, with a real reason behind it. Low variance is a
+different *kind* of claim from deviation: deviation says "this
+submission does not match your history", low variance says "your
+history is implausibly uniform for a human". Crucially it works when
+the baseline is poisoned, because it needs no clean reference — only
+enough samples to measure spread. Folding it into behavioral.score
+would let a poisoned baseline suppress the one signal designed to
+detect poisoning. cohortPercentile rather than an absolute threshold
+because raw variance is meaningless across languages and assignment
+types.
+
+**Two numbers per structural match.** similarity is the raw
+APTED-derived score; cohortZScore is how many standard deviations
+above the assignment's mean it sits. A "reverse a linked list"
+assignment has high baseline similarity — 0.85 might be the cohort
+median — while on an open-ended project 0.85 is extraordinary. The
+queue ranks on the z-score and the evidence view shows both. Note
+cohortZScore has no min/max: a z-score is unbounded and can be
+legitimately negative.
+
+**Decision made — results are versioned, not overwritten.**
+Re-running creates revision 2 and sets revision 1's isCurrent to
+false. Three reasons: reviewed evidence must remain retrievable,
+because "the score you saw no longer exists" is fatal in a hearing;
+the Tier 3 ablation study needs to compare detector versions on
+identical submissions; and it is consistent with the project's own
+philosophy, since PROJECT_NOTES and AuditLog are both append-only.
+Honest cost: every query for "the result" must filter
+isCurrent: true, and forgetting that is a real bug class. Mitigated
+by both query indexes routing through it, so the correct query is
+also the fast one.
+
+**Decision made — a review subdocument rather than a separate
+collection, and this breaks the immutability claimed above.** A
+separate Review collection would mean a join on every queue page
+load for a field that is "pending" in the vast majority of
+documents. The compromise: review state is the one mutable region,
+everything else is not, File 040's controller will only ever update
+review.* fields, and every state change also writes an AuditLog
+entry — so the review *history* is append-only even though the
+current state is not.
+
+**No guilty or plagiarised review status.** Five states: pending,
+contested, dismissed, confirmed_clean, escalated. The system
+escalates to a human and stops. That boundary is the entire
+"evidence not verdict" claim, enforced by an enum rather than by
+policy. confirmed_clean is also what makes a take-home submission
+baseline-eligible at trust weight 0.3, connecting back to
+File 023's baselineEligible flag.
+
+**baselineModelScore stored alongside score.** The spec says to keep
+the scikit-learn logistic regression running alongside CodeBERT, not
+instead of it, so the report can state "the transformer beats the
+baseline by X". Storing both on every result makes the ablation
+study a *query* rather than a separate experiment — at Tier 3 we can
+compute the delta across thousands of real submissions instead of
+re-running everything.
+
+**cohortMeanShift and studentShift** are the stated research
+contribution in two numbers. If the whole class shifted between
+assignments the instructor taught something; if only this student
+shifted, that is signal. Storing both lets the evidence view show
+the comparison directly, which is the difference between an
+accusation and an observation.
+
+**Decision made:** match count capped in the detector, not the
+schema. A schema-level array limit would reject valid data rather
+than truncating it; truncation to the top-K is a policy decision
+belonging where the ranking happens. Without a cap this would be the
+unbounded-array anti-pattern from File 021 — in a 60-student cohort,
+every pairwise comparison means 59 matches per result, mostly noise
+near zero.
+
+**Decision made:** denormalised assignment, course, student and
+language. The review queue filters and sorts on these constantly,
+and without them every page load is a join through Submission. Note
+this is *purely* a query-cost argument, unlike provenance on
+Submission — these are stable references, so the immutability
+reasoning does not apply here.
+
+**Commit:** `feat(api): add detection result with per-layer evidence and versioning`
