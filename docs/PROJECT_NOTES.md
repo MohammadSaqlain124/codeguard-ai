@@ -2863,3 +2863,102 @@ than a log entry for a change that never happened, which is worse
 because it is a false record.
 
 **Commit:** `feat(api): add append-only audit log`
+
+## 2026-09-13 — Day 6 — File 027: apps/api/src/models/plugins.ts
+
+**What we built:** A Mongoose plugin holding the JSON serialisation
+rule shared by every model — strip __v, plus any model-specific
+fields passed as { hide: [...] }. Eighteen lines replacing
+forty-two, applied to all seven schemas.
+
+**Why we built it:** The toJSON transform had been written seven
+times, six lines each, differing only in which extra fields get
+hidden — passwordHash in User, objectKey in Submission. But
+duplication alone is not the argument. The real one is
+forward-looking: the React frontend will receive { "_id": "6aa3..." }
+and writing user._id throughout a React codebase is ugly, so
+packages/shared-types will want `id`. That rename is a *global*
+serialisation decision — seven edits with a chance to miss one, or
+one line with a plugin.
+
+**Plan correction:** I had said File 027 would be models/index.ts
+*and* the place the transform gets extracted. Those cannot be the
+same file. A Mongoose plugin must be applied before model() is
+called, and each model file calls model() at import — so a plugin
+living in index.ts would mean every model importing the barrel,
+which imports every model. Circular. The plugin needs its own file,
+imported *by* the models. Corrected: 027 plugins.ts, 028 index.ts,
+029 seed.ts. Phase 1 grows from 10 files to 11.
+
+**Rule of three, deliberately over-applied.** The threshold was met
+at File 022, and I deferred until seven instances on purpose. With
+three I would have been guessing at the variation axis; with seven
+it is visible and exactly one wide — which fields to hide. The cost
+of waiting was 24 duplicated lines; the cost of guessing wrong would
+have been an abstraction shaped around the wrong thing.
+
+**Libraries introduced:** None new. First use of Mongoose plugins —
+which turn out to be nothing more than a function (schema, options)
+=> void, applied with schema.plugin(fn, opts). No base class, no
+registration, no interface. The plugin system is a convention rather
+than machinery.
+
+**Functions written:**
+* `serialize(schema, options)` — configures the schema's toJSON to
+  strip __v and every field in options.hide. Mutates the schema,
+  returns nothing. No failure modes: a non-existent field name in
+  hide is a silent no-op, since delete on a missing key is harmless.
+  Constraint: must run before model() compiles the schema.
+
+**Concepts learned:** Mongoose plugin · closure · nullish coalescing
+(??) · toJSON vs toObject · virtual · DRY · rule of three
+
+**Decision made:** Deliberately did NOT configure toObject, only
+toJSON. toJSON fires on JSON.stringify(), which res.json() calls, so
+it governs what *clients* see. toObject() is for internal
+conversion, where we generally want the full document — server-side
+code needs objectKey to generate presigned URLs at File 037, and
+stripping it internally would break that in a way that is hard to
+trace. The asymmetry is the point: hide fields on the way *out to a
+client*, not on the way *into our own code*. Verified in testing.
+
+**Decision made:** _id → id rename deferred. It would change every
+API response shape today, before a frontend exists to consume it,
+and would invalidate test expectations already written. The plugin
+makes it a one-line change when the frontend needs it — which was
+the whole justification for extracting.
+
+**Decision made:** A plugin rather than a shared base schema.
+Mongoose supports inheritance via clone() or discriminators, but
+discriminators are for storing multiple types in one collection,
+which is not our case. A plugin composes without imposing a
+hierarchy.
+
+**Decision made:** A plugin rather than a plain helper function
+called in each file. Nearly identical in effect, but .plugin() is
+the idiomatic Mongoose form and is the extension point other plugins
+use — a softDelete plugin at Tier 2 would sit naturally alongside.
+
+**Decision made:** `hide` as an array parameter rather than seven
+per-model plugin functions. serializeUser, serializeSubmission and
+so on would move the duplication rather than remove it.
+
+**Small note on readability:** the call site now reads
+`userSchema.plugin(serialize, { hide: ["passwordHash"] })`, which is
+*more* informative than six lines of delete statements — it names
+the intent directly. The indirection costs one jump to read the
+mechanism and buys a clearer statement of purpose at every call
+site.
+
+**Also note:** `import type { Schema }` rather than a plain import,
+because Schema is used only as a type annotation here. That is the
+verbatimModuleSyntax rule from File 008 — without `type`, tsx would
+keep the import and Node would try to import an unused value.
+
+**Confirmed working:** every model still hides __v; User still hides
+passwordHash and Submission still hides objectKey; toObject() keeps
+objectKey so server-side code is unaffected; and the transform still
+applies through populate(), so a hidden field does not leak by being
+reached indirectly.
+
+**Commit:** `refactor(api): extract shared json serialisation into a mongoose plugin`
