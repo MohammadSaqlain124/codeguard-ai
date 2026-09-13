@@ -2341,3 +2341,32 @@ returns before its effect lands. The first was Mongoose building
 unique indexes in the background at File 020.
 
 **Commit:** `feat(api): add submission model with provenance and content hash`
+
+**Battle — TS2349/TS2722 on the pre-validate hook.** The callback
+style `pre("validate", function (next) {...})` failed to type-check
+with four errors: "This expression is not callable. Type
+'Record<string, any>' has no call signatures." Cause: schema.pre()
+has several overloads, one taking (event, options, fn) and one
+taking (event, fn). TypeScript picked the wrong one and inferred
+`next` as an options object, so calling it is an error.
+
+**How we solved it:** dropped the callback entirely. A zero-argument
+hook is treated by Mongoose as promise-returning, so it proceeds
+when the function returns and there is no callback to mistype. And
+instead of throwing, the hook now calls
+`this.invalidate("w1", message)`, which is the proper Mongoose
+mechanism for cross-field validation — it marks a path invalid and
+lets the normal validation cycle produce the error.
+
+**This also corrects a claim made earlier in this entry.** I had
+said the hook would produce a Mongoose ValidationError, the same
+shape as an enum failure. With next(new Error(...)) that would NOT
+have been true — the raw Error propagates unwrapped and File 026
+would have needed a special case for it. With invalidate() the claim
+is now accurate: confirmed in testing that both the sum-must-be-1
+failure and the max:1 range failure report as ValidationError, so
+one handler covers both.
+
+**Lesson:** when a library's TypeScript types reject an API you
+copied from a tutorial, check whether the tutorial predates a newer
+form of that API. The types were correct; the API was old.
