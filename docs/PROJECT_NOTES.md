@@ -2452,13 +2452,27 @@ and comparable across courses. If one course used weights summing to
 2, its scores would be twice as large and cross-course review queue
 ordering would be meaningless.
 
-**The floating-point trap:** 0.5 + 0.3 + 0.2 is 1.0000000000000002
-in JavaScript, and 0.1 + 0.2 is 0.30000000000000004. Floats are
-binary fractions and 0.1 has no exact binary representation, the
-same way 1/3 has no exact decimal one. So `sum === 1` rejects
-perfectly valid weights. The fix is Math.abs(sum - 1) > 1e-6. This
-will come up again in similarity scores and z-scores — never compare
-floats with ===.
+**The floating-point trap — and a correction.** I claimed
+0.5 + 0.3 + 0.2 evaluates to 1.0000000000000002 in JavaScript. It
+does not: testing showed it is exactly 1, and strict equality
+returns true. The canonical inexact example is 0.1 + 0.2, which is
+0.30000000000000004. I reached for a three-term version to match our
+weights and asserted it behaved the same way without checking.
+
+**The epsilon is still correct, and here is the actual evidence.**
+Enumerating every triple of two-decimal weights that sums to 1 gives
+4,851 valid combinations, of which **204 fail strict equality** —
+about 4%. Examples: 0.06 + 0.57 + 0.37 and 0.06 + 0.84 + 0.10 both
+produce 0.9999999999999999. Without the epsilon, a faculty member
+setting those weights would be rejected with a message saying they
+do not sum to 1, while looking at three numbers that plainly do.
+Math.abs(sum - 1) > 1e-6 accepts all 4,851.
+
+**Two lessons.** Floats are binary fractions and 0.1 has no exact
+binary representation, the same way 1/3 has no exact decimal one —
+but *which* specific sums round exactly is not something to guess.
+And a defensive measure can be right for a reason other than the one
+first given: verify the mechanism, not just the conclusion.
 
 **Why a hook here when one was rejected at File 020:** the
 distinction is cost and purity. The bcrypt hook was ~100ms,
