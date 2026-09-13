@@ -2724,3 +2724,142 @@ Submission — these are stable references, so the immutability
 reasoning does not apply here.
 
 **Commit:** `feat(api): add detection result with per-layer evidence and versioning`
+
+## 2026-09-13 — Day 6 — File 026: apps/api/src/models/AuditLog.ts
+
+**What we built:** The append-only audit trail — actor with a
+snapshotted actorRole, an eleven-value dotted action vocabulary, a
+polymorphic targetType/targetId pair, an optional course scope, a
+Mixed before/after changes object, a reason string, and an explicit
+`at` timestamp with Mongoose's own timestamps fully disabled. Two
+compound indexes, and two hooks enforcing immutability.
+
+**Why we built it:** DetectionResult records what the *system*
+computed; this records what a *person* did. When a submission
+reaches a disciplinary committee two separate questions get asked —
+what evidence did the system produce, and who looked at it, when,
+and what did they decide. Without the second, a faculty member could
+dismiss a flag and later deny it. An evidence system whose own
+operation is unauditable is not credible. The spec requires it in
+three places: the contestability workflow, the faculty confirmation
+that makes a take-home submission baseline-eligible, and weight
+changes, since a weight change alters every subsequent score.
+
+**Why a separate file:** Separate from DetectionResult by actor and
+by immutability. A result has one mutable region — the review
+subdocument — because the queue query would otherwise need a join.
+An audit entry has none. Mixing mutable and immutable data in one
+document means neither guarantee holds. Worth naming the
+complementarity: DetectionResult.review holds the *current* state
+and is fast to query; AuditLog holds the *history* and is complete.
+Both, not either.
+
+**Libraries introduced:** None new. First use of regex hook
+registration, Schema.Types.Mixed, and selectively disabled
+timestamps.
+
+**Functions written:**
+* The save guard — throws if !this.isNew, so creating works and
+  re-saving a loaded document does not.
+* The query guard — one regex registration covering eight middleware
+  names (updateOne, updateMany, replaceOne, findOneAndUpdate,
+  findOneAndReplace, deleteOne, deleteMany, findOneAndDelete). Both
+  are needed because document middleware catches doc.save() while
+  query middleware catches Model.updateOne(), which never loads a
+  document at all.
+* The toJSON transform — seventh and final instance before
+  extraction at File 027.
+
+**Concepts learned:** audit trail · polymorphic reference · refPath ·
+Schema.Types.Mixed · markModified() · document vs query middleware ·
+isNew · hash chain · operational log vs audit log
+
+**Decision made — eleven actions, not everything.** No user.login, no
+submission.uploaded, no result.viewed. Those are *operational* logs,
+and logging every page view would mean thousands of entries a day
+drowning the roughly fifty decisions that actually matter. pino at
+File 027 handles operational logging, where entries are disposable
+and high-volume. The test for inclusion: would a disciplinary
+committee ask about this? "Who dismissed the flag?" yes. "Who viewed
+the page?" no.
+
+**Decision made:** dotted domain.verb namespacing. A flat vocabulary
+drifts — three developers write "dismissed", "dismiss" and
+"review_dismissed" for one event and the audit view cannot group
+anything. The prefix also enables find({ action: /^baseline\./ }) to
+retrieve every baseline change.
+
+**Decision made — actorRole snapshotted.** Same immutability
+argument as provenance on Submission: if a faculty member later
+becomes admin, the entry must still say what authority they held at
+the time. Populating actor would show their *current* role, which is
+a subtly false statement about a past event. Two denormalisations
+now, both for the same reason — a record must describe the
+conditions it was created under, not the current configuration.
+
+**Decision made — Mixed for changes, despite Mixed normally being a
+smell.** The shape genuinely differs per action: weights_updated
+carries { w1, w2, w3 }, escalated carries { status },
+provenance_changed carries { provenance }. A union of eleven
+subdocument schemas is considerable machinery for data that is only
+ever displayed, never queried into. And Mixed's known trap — that
+Mongoose cannot detect mutations inside it without markModified() —
+only bites on updates, which this collection rejects entirely. The
+weakness is neutralised by the immutability constraint.
+
+**Decision made:** enum on targetType rather than free text. A typo
+producing "DetetcionResult" would make that entry invisible to every
+query, and a silent gap in an audit trail is worse than a loud
+error.
+
+**Decision made:** No refPath despite the polymorphic reference.
+refPath would enable populate() across collections, which is
+convenient — but the audit view shows *what happened*, and a target
+that was later modified would populate with its *current* state,
+contradicting the snapshot stored in changes. The stored before/after
+is the truth; the live document is not.
+
+**Decision made:** timestamps fully disabled in favour of an
+explicit `at`. updatedAt on an append-only collection is a lie about
+the data model — its presence implies the entry can be updated. And
+an explicit field makes the timestamp something the code sets
+deliberately rather than framework magic, which is worth one extra
+line in a record whose whole value is trustworthiness.
+
+**Decision made:** No IP address or user agent. Standard in
+enterprise audit logs, omitted here because it is personal data with
+no stated requirement, and collecting personal data "in case it is
+useful" is poor practice in a system already handling sensitive
+academic records.
+
+**MAJOR LIMITATION — the hooks are a guardrail, not a guarantee.**
+Three ways around them, and the test script demonstrates the first
+rather than just describing it. (1) Model.collection.* bypasses
+Mongoose entirely — our own scratch scripts have used
+.collection.drop() — because middleware sits above the driver and
+the driver API is still reachable. (2) mongosh bypasses the
+application: anyone with database credentials can run
+db.auditlogs.deleteMany({}). (3) MongoDB has no native immutability
+— no append-only collection type, no write-once storage.
+
+What real systems do: a **hash chain** (each entry stores the
+previous entry's hash, so tampering breaks the chain and becomes
+*detectable*), a **write-only database user** (the application can
+insert but not delete), or **external log shipping** to append-only
+storage. Recommendation taken: accept the limitation now and add a
+hash chain at Tier 2 — about fifteen lines plus a verification
+function, and it converts "we hope nobody tampered" into "tampering
+is detectable", which is a genuinely different claim. Report wording:
+"Append-only is enforced at the application layer through Mongoose
+middleware. Anyone with direct database access can modify entries. A
+hash chain, making tampering detectable rather than merely
+inconvenient, is the identified next step."
+
+**Connects to the File 019 transaction limitation.** We cannot
+atomically write a DetectionResult update and an AuditLog entry.
+That is exactly why the plan is AuditLog *last* — a crash between
+them leaves a real change with no log entry, which is bad, rather
+than a log entry for a change that never happened, which is worse
+because it is a false record.
+
+**Commit:** `feat(api): add append-only audit log`
