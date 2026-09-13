@@ -2195,3 +2195,149 @@ may need different treatment, so extracting from five real cases at
 File 027 beats guessing from three.
 
 **Commit:** `feat(api): add assignment model with language and provenance`
+
+## 2026-09-13 — Day 6 — File 023: apps/api/src/models/Submission.ts
+
+**What we built:** The Submission schema — references to assignment
+and student, attempt number, provenance and language denormalised
+from the assignment, originalFilename, objectKey pointing into
+MinIO, sizeBytes, a SHA-256 contentHash validated by regex,
+lineCount, submittedAt, isLate, a five-state status machine,
+failureReason, and a baselineEligible flag. Three compound indexes
+and a transform hiding objectKey.
+
+**Why we built it:** Everything the system does happens to a
+submission — uploaded, stored, queued, parsed, fingerprinted,
+compared, scored, reviewed. Four fields carry the core design:
+provenance decides baseline eligibility, contentHash enables an
+exact-duplicate short-circuit before any parsing, objectKey points
+at the bytes in MinIO, and status distinguishes a running job from a
+dead one.
+
+**Why a separate file:** Separate from DetectionResult because a
+submission is *what the student gave us* — immutable evidence —
+while a detection result is *what the system concluded*, and will be
+recomputed when weights are retuned or the parser improves. Merged,
+re-running detection would overwrite the record of what was
+submitted. Separate from the file bytes because MongoDB caps
+documents at 16MB, but the better reason is that presigned URLs let
+a browser download directly from object storage without proxying
+through the API.
+
+**Libraries introduced:** None new. First cross-model enum reuse —
+importing LANGUAGES and PROVENANCE from Assignment.ts, so a
+submission can never claim a language an assignment could not have
+specified. The `as const` pattern from File 022 paying off.
+
+**Functions written:** Only the toJSON transform, and it is the
+fourth instance but **the first that differs meaningfully** — it
+strips objectKey as well as __v. Useful information for File 027's
+extraction: the common part is __v, and the variable part is
+per-model.
+
+**Concepts learned:** SHA-256 · avalanche effect · object key ·
+state machine · short-circuit · atomicity gap
+
+**The denormalisation, executed:** provenance and language are
+copied from the assignment at creation and never updated. Two
+reasons, both stated at File 022 and now concrete. Immutability — if
+faculty later correct an assignment's provenance, submissions
+already scored under the old value keep it, because a result
+computed under invigilated assumptions must not silently become a
+takehome result. Query cost — the Layer 2 anchor query is "all
+invigilated Python submissions by this student across every course",
+which with provenance only on Assignment would be four steps
+(courses → assignments → filter → submissions) and is now one
+indexed find. Language is denormalised for the same reason, since
+baselines are per-language: a student's Python style and Java style
+are legitimately different.
+
+**contentHash — the cheapest layer.** SHA-256 is 32 bytes,
+hex-encoded as exactly 64 characters, hence the regex; lowercase
+normalises because hex can be written either case and two
+representations of one hash would defeat the point. Identical bytes
+give an identical hash, so a single indexed lookup finds byte-exact
+copies before any tree-sitter parse, fingerprinting or APTED.
+Honest scope: this catches *only* exact copies — change one space
+and the hash is completely different, which is the avalanche
+property of a cryptographic hash. That is precisely why Layers 1, 2
+and 3 exist. The hash is a free short-circuit, not a detection
+layer.
+
+**Decision made:** contentHash indexed but NOT unique. Two students
+legitimately submitting identical trivial code should not be blocked
+from submitting. Detecting duplication is the system's job;
+preventing submission is not.
+
+**Decision made:** objectKey stripped from JSON output. Two reasons.
+Information disclosure — the key encodes bucket layout, naming
+scheme and other students' identifiers, and a client has no use for
+it. And enforcing the access path — files are downloaded via
+presigned URLs generated after an authorisation check, so if the key
+were in every response a client might construct a direct MinIO URL
+and bypass that check. MinIO being bound to localhost today is a
+deployment accident, not a design guarantee. Same principle as
+passwordHash at File 020.
+
+**baselineEligible — mitigation 2 made concrete.** Defaults to
+false, and becomes true only when provenance is invigilated (trusted
+by construction) or the submission passed all three layers cleanly
+*and* a faculty member explicitly confirmed it. A submission is
+evaluated against the baseline but never joins it automatically.
+That is what blocks slow poisoning across a semester — the failure
+mode where dishonest work gradually becomes "their style" so the
+eventual honest submission gets flagged. Stored rather than derived
+from provenance, because take-home work *can* become eligible at
+trust weight 0.3 through confirmation, which a derived value could
+not express, and because it must be auditable: we have to be able to
+answer "which submissions are in this student's baseline, and why?"
+
+**Decision made:** isLate stored rather than computed on read. If
+faculty extend a deadline, submissions that *were* late at the time
+should stay marked late. Same immutability argument as provenance —
+the record describes what happened, not what the current
+configuration implies.
+
+**Three compound indexes, each for a real query:**
+* { assignment, student, attempt } unique — prevents a
+  double-clicked upload creating two attempt-3 records.
+* { student, provenance, language } — the Layer 2 anchor query, run
+  on every take-home submission.
+* { status, submittedAt } — the worker scan, oldest first so a
+  backlog drains fairly instead of starving old jobs.
+
+**Limitation recorded — atomicity gap.** Enforcing maxSubmissions
+needs a count before insert, and count-then-insert is not atomic.
+Two simultaneous uploads could both read "2 existing" and both
+insert attempt 3. The unique index rejects the second, which is the
+right outcome, but it surfaces as E11000 rather than a clean "limit
+reached" message. File 040 must catch and translate it. This is the
+same class of problem as the missing transactions noted at File 019.
+
+**Why `analyzing` is a distinct state:** without it, a worker crash
+leaves the submission stuck in queued forever, indistinguishable
+from one nobody has picked up. With it, a submission sitting in
+analyzing for an hour is visibly a dead job and can be requeued by a
+sweep.
+
+**Decision made:** failed is not a dead end — failureReason records
+the cause ("syntax error at line 42", "detector timeout"), which the
+student sees. Detection failing is not the student's fault and
+should not look like an accusation.
+
+**Decision made:** No grade or feedback field. Out of scope — that
+is the LMS's job. This system produces evidence, not marks. And no
+previousAttempt back-reference, because the { assignment, student }
+prefix of the compound index already finds every attempt in one
+query.
+
+**Bug found in the File 022 test script:** collection.drop() returns
+when MongoDB *accepts* the request, not when the drop completes, so
+Model.init() raced it and MongoDB refused with IndexBuildAborted
+(code 276). Fixed by using deleteMany({}) instead, which removes
+documents while leaving the collection and indexes intact. This is
+the second instance of the same class of problem — an operation that
+returns before its effect lands. The first was Mongoose building
+unique indexes in the background at File 020.
+
+**Commit:** `feat(api): add submission model with provenance and content hash`
