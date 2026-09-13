@@ -1,8 +1,55 @@
-# CodeGuard AI — Project Notes, 
+# CodeGuard AI — Project Notes
 
-## Conventions, 
+The engineering log for CodeGuard AI. One entry per file built, dated,
+in the order it was built.
+
+This is the raw material for the final report's methodology,
+design-decisions and problems-encountered chapters. It is also the
+answer sheet for the viva.
+
+## Conventions
+
+**Append-only.** New entries go at the bottom. Existing entries are
+never edited, even when a decision is later reversed. If we change our
+mind, we write a new entry saying so and why. The log is a history, not
+a description of the present — that is what the README is for.
+
+**One entry per file.** Every file gets an entry, including trivial
+config files. If a file was worth creating it was worth a reason.
+
+**Dated and numbered.** `YYYY-MM-DD — Day N — File NNN: path`. The file
+number is the join key across this log, the notebook documents, and the
+git history.
+
+**Revisits get their own entry.** When we return to an existing file and
+change it, that is a new dated entry headed `File NNN (revisit)`, not an
+edit to the original.
+
+**Commit prefixes.** `feat:` new capability · `fix:` bug fix ·
+`docs:` documentation · `chore:` maintenance · `test:` tests ·
+`refactor:` restructuring with no behaviour change.
 
 ## Entry template
+
+```
+## YYYY-MM-DD — Day N — File NNN: path/to/file
+
+**What we built:**
+**Why we built it:**
+**Why a separate file:**
+**Libraries introduced:**
+**Functions written:**
+**Concepts learned:**
+**Problem faced:**
+**How we solved it:**
+**Decision made:**
+**Commit:**
+```
+
+Omit a heading only when it genuinely does not apply — a config file has
+no functions. Do not omit it because writing it is inconvenient.
+
+---
 
 ## 2026-09-04 — Day 1 — File 001: README.md
 
@@ -2342,6 +2389,133 @@ unique indexes in the background at File 020.
 
 **Commit:** `feat(api): add submission model with provenance and content hash`
 
+## 2026-09-13 — Day 6 — File 024: apps/api/src/models/DetectionConfig.ts
+
+**What we built:** The per-course detection tuning schema — w1, w2,
+w3 bounded [0,1] with a pre-validate hook forcing them to sum to 1,
+reviewThreshold, minBaselineConfidence, lowVariancePercentile,
+minAnchorsForBaseline, a version counter and updatedBy. Plus an
+exported DEFAULT_DETECTION_CONFIG constant used when a course has no
+override row.
+
+**Why we built it:** The RPS formula needs weights faculty can
+change, and the spec is explicit about per-course configurability.
+The right weighting genuinely differs by course — a first-year
+course where everyone writes the same twenty-line exercise has
+naturally high structural similarity, so w1 should be low or the
+queue floods; a final-year project course has almost no structural
+overlap, so w1 matters more when it does fire. This file is also
+where transparency becomes a data structure: a black box says
+"0.82", an evidence system says "0.82 = 0.5x0.9 + 0.3x0.7 +
+0.2x0.85, with weights set by your department on 3 March".
+
+**Why a separate file:** Separate from Course despite being keyed by
+course — different owners (administrative vs operational tuning),
+different change frequency (a course is created once; weights are
+adjusted after seeing a semester's queue behaviour), and it is
+optional, so embedding four nullable fields in every course document
+to serve the minority that override them is wasteful and makes "is
+this configured?" ambiguous. Separate from Assignment because the
+spec says per-course; per-assignment would mean faculty tuning
+weights thirty times a semester.
+
+**Libraries introduced:** None new. First use of Mongoose middleware
+— schema.pre("validate", fn).
+
+**Functions written:**
+* The pre-validate hook — sums w1+w2+w3 from `this` and calls
+  this.invalidate("w1", message) if the absolute difference from 1
+  exceeds 1e-6. Written as `function`, not an arrow, because arrows
+  do not bind `this` and the hook needs `this` to be the document.
+* The toJSON transform — fifth instance.
+
+**Concepts learned:** Mongoose middleware/hook · cross-field
+validation · floating-point representation error · epsilon
+comparison · override table · spread syntax · configuration
+versioning
+
+**Decision made — defaults in code, overrides in the database.** The
+obvious alternative is a "global default" row with course: null,
+which breaks: MongoDB's unique index treats null as a value, so two
+null rows collide, and sparse (which saved us at File 020) excludes
+*missing* fields, not null ones. Constants are strictly better — one
+version-controlled source of truth visible in a diff, no bootstrap
+step so the system works on a fresh database with zero rows, course
+stays required and unique with no null cases, and faculty can read
+the defaults in the UI without a database round-trip. The read
+pattern is `findOne({ course }) ?? DEFAULT_DETECTION_CONFIG`. This
+is an *override table*, not a settings table — a row existing means
+"this course deviates".
+
+**Why the weights must sum to 1:** so the RPS is bounded in [0,1]
+and comparable across courses. If one course used weights summing to
+2, its scores would be twice as large and cross-course review queue
+ordering would be meaningless.
+
+**The floating-point trap:** 0.5 + 0.3 + 0.2 is 1.0000000000000002
+in JavaScript, and 0.1 + 0.2 is 0.30000000000000004. Floats are
+binary fractions and 0.1 has no exact binary representation, the
+same way 1/3 has no exact decimal one. So `sum === 1` rejects
+perfectly valid weights. The fix is Math.abs(sum - 1) > 1e-6. This
+will come up again in similarity scores and z-scores — never compare
+floats with ===.
+
+**Why a hook here when one was rejected at File 020:** the
+distinction is cost and purity. The bcrypt hook was ~100ms,
+deliberately slow, pulled a native module into every file importing
+User, and made save() mysteriously slow at call sites that could not
+see why. This hook is two additions and a comparison, has no
+dependency, and is instant. A hook is right for cheap, pure,
+always-applicable rules; wrong for expensive operations with
+external dependencies.
+
+**HONEST NOTE ON THE DEFAULT WEIGHTS (0.4 / 0.3 / 0.3):** these are
+defensible placeholders, not empirically derived values. There is no
+labelled data yet, so nobody could derive them. The reasoning is
+that w1 (structural) is slightly highest because it is the most
+*reliable* signal — AST similarity is deterministic and needs no
+student history — while w2 and w3 are equal because behavioural is
+the most informative signal when it works but depends entirely on
+baseline quality, and AI-content is tuned for precision so it fires
+rarely but meaningfully. **The report must say this plainly:**
+initial weights are reasonable defaults, faculty-configurable, and
+deriving empirically optimal weights requires labelled outcome data,
+which is explicit future work. Claiming they were optimised would be
+indefensible under questioning.
+
+**Three thresholds, each a mitigation made concrete:**
+* minBaselineConfidence 0.4 — mitigation 3. Below this, w2 is
+  attenuated toward zero and the RPS leans on Layers 1 and 3. This
+  is the threshold at which the system says "I do not know this
+  student well enough to judge".
+* lowVariancePercentile 5 — mitigation 4. A student whose
+  intra-submission style variance sits in the bottom 5% of the
+  cohort distribution is flagged. Humans are stylistically noisy;
+  consistent AI output is not. Bounded 0.5–25 because 0 would never
+  fire and 50 would flag half the class.
+* minAnchorsForBaseline 3 — matches the spec's "three to five
+  anchors per student per language". Fewer and Layer 2 does not run.
+
+**Decision made:** version and updatedBy are both required.
+DetectionResult will store a snapshot of the weights it used plus
+this version number, because without it a result computed in March
+under w1=0.4 is indistinguishable from one computed in April under
+w1=0.6. In a disciplinary hearing, "we cannot tell you which weights
+produced this score" is a fatal answer. Same immutability principle
+as provenance on Submission.
+
+**Decision made:** No enabledLayers array. Tempting, to let faculty
+disable Layer 3 if CodeBERT is unavailable — but setting w3: 0
+already achieves it, and two mechanisms for one outcome invite
+inconsistency.
+
+**Noticed — four different uniqueness shapes so far**, each matching
+the real constraint: User.email single-field (an email identifies
+one person); Course { code, academicYear } (a code repeats across
+years); Submission { assignment, student, attempt } (attempt numbers
+repeat across students); DetectionConfig.course single-field (one
+config per course).
+
 **Battle — TS2349/TS2722 on the pre-validate hook.** The callback
 style `pre("validate", function (next) {...})` failed to type-check
 with four errors: "This expression is not callable. Type
@@ -2358,15 +2532,22 @@ instead of throwing, the hook now calls
 mechanism for cross-field validation — it marks a path invalid and
 lets the normal validation cycle produce the error.
 
-**This also corrects a claim made earlier in this entry.** I had
-said the hook would produce a Mongoose ValidationError, the same
-shape as an enum failure. With next(new Error(...)) that would NOT
-have been true — the raw Error propagates unwrapped and File 026
-would have needed a special case for it. With invalidate() the claim
-is now accurate: confirmed in testing that both the sum-must-be-1
-failure and the max:1 range failure report as ValidationError, so
-one handler covers both.
+**This also corrected an earlier claim.** I had said the hook would
+produce a Mongoose ValidationError, the same shape as an enum
+failure. With next(new Error(...)) that would NOT have been true —
+the raw Error propagates unwrapped and File 026 would have needed a
+special case for it. With invalidate() the claim is accurate: a
+cross-field rule and a field-level rule now produce the same error
+shape, so one handler covers both.
 
-**Lesson:** when a library's TypeScript types reject an API you
-copied from a tutorial, check whether the tutorial predates a newer
-form of that API. The types were correct; the API was old.
+**Lesson:** when a library's TypeScript types reject an API copied
+from a tutorial, check whether the tutorial predates a newer form of
+that API. The types were correct; the API was old.
+
+**Correction to File 023's expected output:** I said five indexes;
+there are nine. index: true on assignment, student, contentHash and
+status each creates its own, plus objectKey_1 from unique, _id_, and
+the three compound ones. Worth recording because it is a real cost —
+that collection updates nine index entries per insert.
+
+**Commit:** `feat(api): add detection config with weight validation`
