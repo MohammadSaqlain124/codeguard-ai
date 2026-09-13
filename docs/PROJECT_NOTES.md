@@ -1968,3 +1968,112 @@ both saved. db.users.getIndexes() showed _id_, email_1, role_1 and
 rollNo_1 with sparse: true.
 
 **Commit:** `feat(api): add user model with roles and protected password field`
+
+## 2026-09-13 — Day 6 — File 021: apps/api/src/models/Course.ts
+
+**What we built:** The Course schema — code (uppercased, trimmed),
+title, academicYear validated by regex, a faculty reference to User,
+an array of enrolledStudents references with a multikey index, an
+isArchived soft-delete flag, timestamps, and a compound unique index
+on { code, academicYear }.
+
+**Why we built it:** A course is the unit of scope for almost
+everything. The faculty field decides who may configure detection
+weights and make decisions — requireRole says what kind of user you
+are, this says which courses are yours. The enrolledStudents list is
+what makes cohort-relative analysis possible, and two of our core
+ideas depend on it: difficulty-normalised similarity (z-scores
+against the cohort distribution, so "sort an array" does not flood
+the queue) and cohort-controlled change-point detection (if the
+whole class shifted, the instructor taught something new; if only
+one student shifted, that is signal). Neither works without knowing
+who the cohort is, so this file is a prerequisite for the project's
+stated research contribution.
+
+**Why a separate file:** One file per model, forced by
+OverwriteModelError. Separate from User because the lifecycles
+differ — a user exists for years across many courses, a course for
+one semester with many users. Separate from Assignment even though
+assignments always belong to a course, because a Submission must
+reference one assignment directly and embedded assignments would
+have no stable identifier to point at.
+
+**Libraries introduced:** None new. Mongoose used for references
+(Schema.Types.ObjectId with ref), populate(), compound indexes and
+multikey indexes for the first time.
+
+**Functions written:** Only the toJSON transform, stripping __v.
+
+**Concepts learned:** ObjectId · reference · populate() · embedding ·
+referential integrity · compound index · prefix rule · multikey
+index · unbounded array anti-pattern · document size limit · rule of
+three · regex validator
+
+**Decision made:** A compound unique index on { code, academicYear }
+rather than unique: true on code. The same course code runs every
+year, so uniqueness is a property of the pair — which field-level
+unique cannot express, since it only ever constrains one field.
+Confirmed in testing: CS-501 in 2027-28 saved fine, CS-501 in
+2026-27 twice threw E11000.
+
+**Learned — the prefix rule:** a compound index on { code,
+academicYear } serves queries filtering on code alone, or on both,
+but not on academicYear alone. If "all courses in 2026-27" becomes a
+common dashboard query it would do a collection scan and need its
+own index. Fine at a few dozen courses; noted as a known property
+rather than a surprise.
+
+**Decision made:** Reference students rather than embed them. Three
+reasons. Students belong to many courses, so embedding duplicates
+data and a student changing their email means updating every course
+— missing one leaves inconsistency. Submissions need a stable _id to
+point at, which embedded copies do not have. And the two entities
+change independently. General rule: embed data owned by and read
+with its parent that has no independent identity; reference data
+that exists on its own. We *will* embed DetectionResult's evidence
+payload for exactly that reason — matched subtree pairs belong to
+nothing else and are always read with the result.
+
+**Decision made:** An array of references rather than a separate
+Enrolment collection. At 30–60 students the array is comfortably
+bounded — even 500 ObjectIds is 6KB against MongoDB's 16MB document
+limit — and a third collection would mean a join on every query for
+metadata the spec does not require. Trigger to revisit: if enrolment
+date or dropped status is needed. Plausible, because a student who
+enrolled late has fewer anchor samples and therefore lower baseline
+confidence. Likely Tier 2.
+
+**Important limitation, worth conceding in the viva:** MongoDB has
+no foreign keys. `ref: "User"` is Mongoose metadata for populate(),
+not a database constraint — we can store an ObjectId pointing at a
+user that does not exist, and nothing objects. Postgres would
+enforce this. We enforce it at the application layer instead, and a
+deleted user would leave dangling references. This is exactly why
+User has an isActive soft-delete flag rather than being removed. The
+two decisions connect directly.
+
+**Decision made:** default: [] on enrolledStudents. Without it the
+field is undefined on a new course and
+course.enrolledStudents.length throws. An empty array means every
+consumer can iterate without a null check.
+
+**Decision made:** Multikey index on enrolledStudents. It makes
+find({ enrolledStudents: studentId }) fast — note the syntax matches
+against the array as if it were a scalar, and MongoDB checks whether
+any element matches. That is the student dashboard's primary query.
+Cost is 30 index entries updated per insert instead of 1, acceptable
+because enrolment changes rarely and is read constantly.
+
+**Decision made:** academicYear as a regex-validated string rather
+than a number or a date. A number cannot express "2026-27" spanning
+two calendar years; a date implies a precision nobody has. Without
+the regex, three people would enter three formats and the "courses
+this year" query would silently miss some.
+
+**Deliberately not done yet:** the toJSON transform is now nearly
+identical in two models and will be written seven times by File 026.
+Not extracting a shared plugin yet — with two instances we would be
+guessing what varies. File 027 (models/index.ts) has all seven in
+view. Rule of three.
+
+**Commit:** `feat(api): add course model with faculty and enrolment references`
