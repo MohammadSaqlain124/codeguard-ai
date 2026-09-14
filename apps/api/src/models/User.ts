@@ -1,5 +1,5 @@
 import { Schema, model, type InferSchemaType, type HydratedDocument } from "mongoose";
-
+import { serialize } from "./plugins.js";
 const userSchema = new Schema(
   {
     email: {
@@ -43,14 +43,7 @@ const userSchema = new Schema(
   { timestamps: true },
 );
 
-userSchema.set("toJSON", {
-  transform: (_doc, ret) => {
-    const obj = ret as Record<string, unknown>;
-    delete obj.passwordHash;
-    delete obj.__v;
-    return obj;
-  },
-});
+userSchema.plugin(serialize, { hide: ["passwordHash"] });
 
 export type User = InferSchemaType<typeof userSchema>;
 export type UserDoc = HydratedDocument<User>;

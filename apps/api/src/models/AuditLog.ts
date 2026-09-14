@@ -1,4 +1,5 @@
 import { Schema, model, type InferSchemaType, type HydratedDocument } from "mongoose";
+import { serialize } from "./plugins.js";
 
 export const AUDIT_ACTIONS = [
   // review workflow
@@ -107,13 +108,7 @@ auditLogSchema.pre(
   },
 );
 
-auditLogSchema.set("toJSON", {
-  transform: (_doc, ret) => {
-    const obj = ret as Record<string, unknown>;
-    delete obj.__v;
-    return obj;
-  },
-});
+auditLogSchema.plugin(serialize);
 
 export type AuditLog = InferSchemaType<typeof auditLogSchema>;
 export type AuditLogDoc = HydratedDocument<AuditLog>;

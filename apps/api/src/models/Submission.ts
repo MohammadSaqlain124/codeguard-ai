@@ -1,5 +1,5 @@
 import { Schema, model, type InferSchemaType, type HydratedDocument } from "mongoose";
-
+import { serialize } from "./plugins.js";
 import { LANGUAGES, PROVENANCE } from "./Assignment.js";
 
 export const SUBMISSION_STATUS = [
@@ -112,14 +112,8 @@ submissionSchema.index({ student: 1, provenance: 1, language: 1 });
 // the worker: "what needs processing?"
 submissionSchema.index({ status: 1, submittedAt: 1 });
 
-submissionSchema.set("toJSON", {
-  transform: (_doc, ret) => {
-    const obj = ret as Record<string, unknown>;
-    delete obj.__v;
-    delete obj.objectKey;
-    return obj;
-  },
-});
+submissionSchema.plugin(serialize, { hide: ["objectKey"] });
+
 
 export type Submission = InferSchemaType<typeof submissionSchema>;
 export type SubmissionDoc = HydratedDocument<Submission>;

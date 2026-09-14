@@ -1,5 +1,5 @@
 import { Schema, model, type InferSchemaType, type HydratedDocument } from "mongoose";
-
+import { serialize } from "./plugins.js";
 import { LANGUAGES } from "./Assignment.js";
 
 export const LAYER_STATUS = ["ok", "skipped", "failed"] as const;
@@ -178,13 +178,7 @@ detectionResultSchema.index({ assignment: 1, isCurrent: 1, rps: -1 });
 // faculty dashboard: unreviewed work across a course
 detectionResultSchema.index({ course: 1, "review.status": 1, rps: -1 });
 
-detectionResultSchema.set("toJSON", {
-  transform: (_doc, ret) => {
-    const obj = ret as Record<string, unknown>;
-    delete obj.__v;
-    return obj;
-  },
-});
+detectionResultSchema.plugin(serialize);
 
 export type DetectionResult = InferSchemaType<typeof detectionResultSchema>;
 export type DetectionResultDoc = HydratedDocument<DetectionResult>;

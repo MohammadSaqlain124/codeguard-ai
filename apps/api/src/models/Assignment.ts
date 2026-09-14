@@ -1,4 +1,5 @@
 import { Schema, model, type InferSchemaType, type HydratedDocument } from "mongoose";
+import { serialize } from "./plugins.js";
 
 export const LANGUAGES = ["python", "java"] as const;
 export const PROVENANCE = ["invigilated", "takehome", "unknown"] as const;
@@ -66,13 +67,7 @@ assignmentSchema.index({ course: 1, title: 1 }, { unique: true });
 // review queue: "open assignments for this course, soonest first"
 assignmentSchema.index({ course: 1, dueAt: -1 });
 
-assignmentSchema.set("toJSON", {
-  transform: (_doc, ret) => {
-    const obj = ret as Record<string, unknown>;
-    delete obj.__v;
-    return obj;
-  },
-});
+assignmentSchema.plugin(serialize);
 
 export type Assignment = InferSchemaType<typeof assignmentSchema>;
 export type AssignmentDoc = HydratedDocument<Assignment>;

@@ -1,4 +1,5 @@
 import { Schema, model, type InferSchemaType, type HydratedDocument } from "mongoose";
+import { serialize } from "./plugins.js";
 
 // used when a course has no override row
 export const DEFAULT_DETECTION_CONFIG = {
@@ -81,13 +82,7 @@ detectionConfigSchema.pre("validate", function () {
   }
 });
 
-detectionConfigSchema.set("toJSON", {
-  transform: (_doc, ret) => {
-    const obj = ret as Record<string, unknown>;
-    delete obj.__v;
-    return obj;
-  },
-});
+detectionConfigSchema.plugin(serialize);
 
 export type DetectionConfig = InferSchemaType<typeof detectionConfigSchema>;
 export type DetectionConfigDoc = HydratedDocument<DetectionConfig>;

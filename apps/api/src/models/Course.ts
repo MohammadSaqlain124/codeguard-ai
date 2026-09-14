@@ -1,4 +1,5 @@
 import { Schema, model, type InferSchemaType, type HydratedDocument } from "mongoose";
+import { serialize } from "./plugins.js";
 
 const courseSchema = new Schema(
   {
@@ -44,13 +45,7 @@ const courseSchema = new Schema(
 // a course code is unique within a year, not across all time
 courseSchema.index({ code: 1, academicYear: 1 }, { unique: true });
 
-courseSchema.set("toJSON", {
-  transform: (_doc, ret) => {
-    const obj = ret as Record<string, unknown>;
-    delete obj.__v;
-    return obj;
-  },
-});
+courseSchema.plugin(serialize);
 
 export type Course = InferSchemaType<typeof courseSchema>;
 export type CourseDoc = HydratedDocument<Course>;
