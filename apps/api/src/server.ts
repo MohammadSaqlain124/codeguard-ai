@@ -1,11 +1,13 @@
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { connectDb, disconnectDb } from "./db/connect.js";
+import { initModels } from "./models/index.js";
 
 try {
   await connectDb();
-} catch {
-  console.error("could not connect to mongo, exiting");
+  await initModels();
+} catch (err) {
+  console.error("startup failed:", err);
   process.exit(1);
 }
 

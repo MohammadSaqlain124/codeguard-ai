@@ -2962,3 +2962,120 @@ applies through populate(), so a hidden field does not leak by being
 reached indirectly.
 
 **Commit:** `refactor(api): extract shared json serialisation into a mongoose plugin`
+
+## 2026-09-14 — Day 7 — File 028: apps/api/src/models/index.ts
+
+**What we built:** The model barrel — explicit re-exports of all
+seven models, their inferred types, their hydrated document types
+and their `as const` vocabularies — plus two helpers: initModels(),
+which waits for every model's indexes to finish building, and
+clearAllCollections(), a guarded test and seed helper. Wired
+initModels() into server.ts between connectDb() and listen().
+
+**Why we built it:** Two jobs. One import instead of seven at each
+call site, and more importantly one place that knows what the model
+layer contains. But the real reason is initModels(). At File 020 the
+unique index did not fire because Mongoose builds indexes
+asynchronously in the background and our insert won the race; we
+fixed it with await UserModel.init(), and every scratch script since
+has repeated that once per model — and forgotten it at least twice.
+Until now nothing called init() at startup at all, so a fresh
+deployment would accept uploads before its unique indexes existed
+and duplicate attempt numbers would pass silently.
+
+**Why a separate file:** Separate from plugins.ts — that is
+behaviour applied *to* schemas, this is an inventory *of* models —
+and merging them would be circular, since the models import
+plugins.ts and this imports the models. Separate from db/connect.ts
+because connecting and registering models are different concerns;
+connect.ts is a leaf importing no model, so a test can open a
+connection without loading the schema layer.
+
+**Libraries introduced:** None new. First real use of Promise.all.
+
+**Functions written:**
+* `initModels()` — Promise.all over Model.init() for all seven.
+  Rejects on the first index-build failure; server.ts catches and
+  exits 1.
+* `clearAllCollections()` — Promise.all over deleteMany({}) behind a
+  NODE_ENV guard. Empties collections but keeps indexes.
+
+**Concepts learned:** barrel file · re-export · tree-shaking ·
+Promise.all · Promise.allSettled · index build race · tripwire vs
+lock
+
+**Why the file both re-exports and imports the models:** re-exports
+do not bring names into local scope — `export { X } from "./Y.js"`
+forwards X without making it usable here — so initModels() needs
+real imports to get the values.
+
+**Decision made:** Promise.all rather than sequential awaits.
+init() is I/O-bound, so seven sequential awaits means seven round
+trips instead of one. The failure semantics matter too: Promise.all
+rejects as soon as any promise rejects and does not cancel the
+others, which is exactly right here — a failed index build means a
+broken constraint and the server should refuse to start rather than
+run with partial enforcement. Promise.allSettled would report every
+failure, which is better diagnostics but loses fail-fast.
+
+**Decision made:** Model.init() rather than mongoose.syncIndexes().
+syncIndexes also *drops* indexes not present in the schema —
+convenient in development, genuinely dangerous in production, where
+an accidental schema edit would drop a live index and silently
+degrade every query using it. init() only builds what is missing.
+
+**Decision made:** initModels() wired into server.ts rather than
+called on import. Index building is slow I/O that can fail, and a
+test merely importing a model should not trigger it. Same reasoning
+as connectDb() at File 019, and deliberately the opposite of env.ts,
+which *does* run on import because validation is instant and must
+precede everything.
+
+**Ordering:** connect → build indexes → bind the port. The server
+must not accept a request before its constraints exist.
+
+**Also changed in server.ts:** the bare `catch {}` around connectDb
+now logs the actual error. The original swallowed it, which would
+have made an index-build failure invisible — and that is precisely
+the error most likely to surface at this point.
+
+**Decision made:** explicit re-exports rather than `export *`. One
+line versus thirty, but export * hides what is exported, so reading
+this file would tell you nothing about the model layer, and it
+silently forwards anything a model file adds later including things
+meant to stay internal. Explicit is worth the thirty lines — being
+the inventory is this file's job.
+
+**Decision made:** named exports rather than a `models` object.
+models.User is no shorter than UserModel, and it defeats
+tree-shaking, since a bundler can drop an unused named export but
+cannot reason about object properties. Irrelevant on the server
+today, relevant when packages/shared-types is shared with the
+frontend.
+
+**The `as const` arrays are re-exported too** — LANGUAGES,
+PROVENANCE, SUBMISSION_STATUS, LAYER_STATUS, REVIEW_STATUS,
+AUDIT_ACTIONS, AUDIT_TARGETS and DEFAULT_DETECTION_CONFIG. That
+matters because File 031's Zod schemas need them, so one import now
+gives the model, its type and its vocabulary. This is the File 022
+pattern reaching its intended shape: one declaration serving the
+database, the type system and the API boundary.
+
+**Honest limitation on the production guard:** it reads
+process.env.NODE_ENV directly rather than the validated env from
+File 009, deliberately — importing env.ts here would make the model
+layer depend on configuration, and env.ts exits the process on
+invalid config, which would be a harsh side effect of importing a
+model. The cost is that if NODE_ENV is unset the guard does not
+fire. It is a tripwire, not a lock — the same honest framing as the
+AuditLog hooks. The real protection is that production credentials
+should not be in a developer's .env at all.
+
+**Decision made:** deleteMany rather than drop() in
+clearAllCollections. The File 023 lesson — drop() returns before the
+drop completes, so a following init() races it and MongoDB refuses
+with IndexBuildAborted. deleteMany leaves indexes intact, confirmed
+in testing: nine submission indexes survived a clear, and a unique
+constraint fired immediately afterwards.
+
+**Commit:** `feat(api): add model barrel with index initialisation at startup`
