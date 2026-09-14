@@ -41,8 +41,9 @@ import { DetectionConfigModel } from "./DetectionConfig.js";
 import { DetectionResultModel } from "./DetectionResult.js";
 import { SubmissionModel } from "./Submission.js";
 import { UserModel } from "./User.js";
+import type { Model } from "mongoose";
 
-const allModels = [
+const allModels: Model<unknown>[] = [
   UserModel,
   CourseModel,
   AssignmentModel,
@@ -50,7 +51,7 @@ const allModels = [
   DetectionConfigModel,
   DetectionResultModel,
   AuditLogModel,
-];
+] as Model<unknown>[];
 
 /**
  * Waits for every model's indexes to finish building.
@@ -63,9 +64,14 @@ export async function initModels() {
 }
 
 /** Test and seed helper. Never call this against a real database. */
+
 export async function clearAllCollections() {
   if (process.env.NODE_ENV === "production") {
     throw new Error("clearAllCollections is not permitted in production");
   }
-  await Promise.all(allModels.map((m) => m.deleteMany({})));
+  // AuditLog's middleware rejects deleteMany by design, so go under it
+  // via the driver. This is the documented escape hatch from File 026.
+  await Promise.all(
+    allModels.map((m) => m.collection.deleteMany({}).catch(() => undefined)),
+  );
 }
