@@ -3079,3 +3079,63 @@ in testing: nine submission indexes survived a clear, and a unique
 constraint fired immediately afterwards.
 
 **Commit:** `feat(api): add model barrel with index initialisation at startup`
+
+## 2026-09-14 — Day 7 — File 028 (fix): two guards colliding
+
+**Battle — clearAllCollections() could not clear the AuditLog.**
+The helper called deleteMany on all seven models. File 026's query
+middleware rejects deleteMany by design, so the helper threw on its
+own audit log with "AuditLog is append-only; updates and deletes are
+not permitted".
+
+**The guard was right.** At the Mongoose layer a test cleanup and a
+tamper are the same operation — the hook cannot tell them apart.
+
+**Fix:** Model.collection.deleteMany() for all seven, going to the
+native driver below the middleware. Not a hack: File 026 had already
+documented .collection.* as the boundary of the guarantee. The
+workaround and the limitation are the same fact, which is worth
+saying plainly in the viva — anything that can clear a test database
+can also tamper with a production audit log. Added
+.catch(() => undefined) because the native deleteMany throws
+NamespaceNotFound on a collection that does not exist yet, and a
+collection that does not exist is already empty.
+
+**Second bug, same file — TS2740 on deleteMany({}).** TypeScript
+could not narrow a union of seven different model types, so
+m.deleteMany resolved to an unusable intersection. Fixed by
+annotating the array as Model<unknown>[] — both init() and
+deleteMany({}) exist on every model regardless of its document type,
+so that is all the type the array needs.
+
+**Commit:** `fix(api): type the model array and bypass audit-log guard when clearing`
+
+## 2026-09-14 — Day 7 — File 028 (fix): two guards colliding
+
+**Battle — clearAllCollections() could not clear the AuditLog.**
+The helper called deleteMany on all seven models. File 026's query
+middleware rejects deleteMany by design, so the helper threw on its
+own audit log with "AuditLog is append-only; updates and deletes are
+not permitted".
+
+**The guard was right.** At the Mongoose layer a test cleanup and a
+tamper are the same operation — the hook cannot tell them apart.
+
+**Fix:** Model.collection.deleteMany() for all seven, going to the
+native driver below the middleware. Not a hack: File 026 had already
+documented .collection.* as the boundary of the guarantee. The
+workaround and the limitation are the same fact, which is worth
+saying plainly in the viva — anything that can clear a test database
+can also tamper with a production audit log. Added
+.catch(() => undefined) because the native deleteMany throws
+NamespaceNotFound on a collection that does not exist yet, and a
+collection that does not exist is already empty.
+
+**Second bug, same file — TS2740 on deleteMany({}).** TypeScript
+could not narrow a union of seven different model types, so
+m.deleteMany resolved to an unusable intersection. Fixed by
+annotating the array as Model<unknown>[] — both init() and
+deleteMany({}) exist on every model regardless of its document type,
+so that is all the type the array needs.
+
+**Commit:** `fix(api): type the model array and bypass audit-log guard when clearing`
