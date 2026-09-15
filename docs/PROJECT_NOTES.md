@@ -3329,3 +3329,114 @@ small output change." Comparing counts across a code change tells
 you nothing.
 
 **Commit:** `feat(api): add deterministic seed script with realistic detection data`
+
+## 2026-09-15 — Day 8 — File 030: apps/api/src/utils/AppError.ts
+
+**What we built:** A custom error class carrying an HTTP status, a
+machine-readable code from a fourteen-value `as const` vocabulary,
+an isOperational flag and optional details. Eleven static factories
+for the cases we actually raise, and an isAppError type guard.
+
+**Why we built it:** The API had no way to fail properly — throwing
+anything gave Express's default 500 with a stack trace, the state
+flagged as "unacceptable in production" at File 010. A plain Error
+carries only a message, so a handler seeing "Course not found" has
+no idea whether that is a 404 (genuinely absent) or a 403 (exists,
+but not yours). In an academic-integrity system that difference is a
+real information leak: a 404 tells you nothing, a 403 confirms the
+resource exists.
+
+**Why a separate file:** Separate from File 031's error handler by
+role — this defines *what an error is*, that defines *what to do
+with it*. Controllers import this and never touch the handler, and
+tests can assert on an AppError with no HTTP layer. In utils/ rather
+than middleware/ because it is a value type, not a function with the
+(req, res, next) signature.
+
+**Libraries introduced:** None. Pure TypeScript, and the first file
+in the project with zero imports — a true leaf, importable anywhere
+with no cycle risk.
+
+**Functions written:**
+* The constructor — super(message), assigns statusCode, code and
+  details, then fixes the stack origin. Cannot fail.
+* Eleven static factories, each returning a pre-configured instance.
+  Pure, no side effects.
+* isAppError(err) — a type guard returning `err is AppError`.
+
+**Concepts learned:** custom error class · operational vs programmer
+error · static factory method · type guard / type predicate ·
+Error.captureStackTrace · error envelope · user enumeration ·
+readonly
+
+**Why codes as well as HTTP statuses:** statuses are too coarse. A
+401 could mean no token, an expired token or a malformed token, and
+the frontend must respond differently to each — TOKEN_EXPIRED
+triggers a silent refresh while TOKEN_INVALID forces a re-login.
+With only the status, the frontend would have to match on message
+text.
+
+**isOperational, and why it matters.** It distinguishes expected
+failures we chose to raise (a missing submission, an expired token,
+an oversized file — the system working correctly and saying "no")
+from genuine bugs. That drives three different behaviours in the
+handler: log at warn versus error; send the real message versus
+"something went wrong"; omit versus log the full stack. The client
+must not see a programmer error's message because a stack trace
+leaks file paths and library versions, and "Cannot read property
+'passwordHash' of undefined" hands an attacker our field names.
+Same secure-by-default reasoning as select: false at File 020.
+
+**Error.captureStackTrace(this, this.constructor)** — without it the
+first stack frame is `at new AppError`, the constructor, which is
+never where the bug is. The second argument tells V8 to start the
+trace above the constructor so the top frame is the real throw site.
+A V8-specific API, so Node and Chrome only; safe here, and it would
+throw in a non-V8 runtime.
+
+**Decision made — static factories rather than a bare constructor.**
+Shorter at the call site, but the real benefit is that invalid
+pairings become unconstructable. Nothing stops
+`new AppError(200, "NOT_FOUND", ...)` — a 200 response announcing a
+failure. The factories name each valid combination once, the same
+argument as the `as const` arrays.
+
+**Two factories carry security decisions in their signatures:**
+* `notFound(resource)` takes a resource *type*, never an id, so the
+  message is "Course not found" and never "Course 6aa3e707 not
+  found". Echoing the id confirms the guess was well-formed.
+* `unauthenticated()` defaults to a vague "Authentication required"
+  and will be used for *both* an unknown email and a wrong password
+  at File 038. If those differed, an attacker could enumerate every
+  valid institutional email by reading which error came back — a
+  list worth having for phishing. There is a subtler timing leak,
+  since the wrong-password path runs bcrypt and the unknown-email
+  path does not, but that is File 038's problem.
+
+**Decision made:** No 500 factory. A 500 is by definition
+unanticipated — the handler produces them for non-AppError throws.
+A static internal() would invite marking genuine bugs as
+operational, hiding them from the logs.
+
+**Decision made:** `details` typed unknown rather than any. Forces
+the handler to decide how to treat it rather than silently
+serialising something unexpected. Note the contrast with File 029,
+where I used unknown for values whose type I knew — that was wrong.
+Here the type genuinely varies by error. unknown is right when you
+actually do not know, and lazy when you do.
+
+**Decision made:** an `as const` array rather than a TypeScript
+enum. A TS enum generates a runtime object and has known pitfalls
+with const enum and bundlers; `as const` gives the same union type
+with a plain array the frontend can import and iterate. Fifth use of
+this pattern after LANGUAGES, PROVENANCE, SUBMISSION_STATUS and
+AUDIT_ACTIONS.
+
+**Decision made:** isAppError as a function rather than inline
+instanceof. One place to change if the check needs to get cleverer —
+instanceof compares prototype chains and fails if two copies of a
+module are loaded, which some bundler configurations allow. If that
+happens it becomes a duck-type check on code and statusCode, and
+only one line changes.
+
+**Commit:** `feat(api): add typed application error with status codes and factories`
