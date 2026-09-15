@@ -3588,3 +3588,120 @@ because only the middleware knows whether an expired token means
 "refresh" or "reject").
 
 **Commit:** `feat(api): add central error handler reconciling four error shapes`
+
+## 2026-09-15 — Day 8 — File 032: apps/api/src/config/logger.ts
+
+**What we built:** A shared pino logger configured from env — level
+from LOG_LEVEL, ISO timestamps, a service field on every line,
+pino-pretty in development only, and nineteen redaction paths. Plus
+componentLogger(), returning a child logger with a component field
+bound. Replaced every console call in db/connect.ts,
+middleware/errorHandler.ts and server.ts.
+
+**Why we built it:** Three reasons. console.log produces
+unsearchable prose — "403 FORBIDDEN GET /app-error" cannot answer
+"show me every 403 for this student in the last hour" without a
+regex against English. There is no runtime-filterable severity, so
+the warn-versus-error distinction from File 019 exists only by
+convention. And redaction: in two files we handle passwords and in
+three, JWTs, and the commonest way a credential leaks is not an
+attack but a developer logging a request body while debugging.
+Redaction makes that mistake harmless — the logger refuses to print
+password, token or authorization regardless of what it is passed.
+The mechanism has to exist *before* the code that handles secrets,
+or adding it means auditing every call site.
+
+**Why a separate file:** In config/ beside env.ts because logging is
+configuration — level, format, redaction paths — and it imports env,
+so it is not a leaf. Separate from errorHandler because logging is
+not error handling; the handler is one consumer among several.
+
+**Libraries introduced:**
+* `pino` — a structured JSON logger optimised for throughput. Chosen
+  over winston, which has more transports and more configuration
+  surface and is measurably slower; winston's flexibility solves
+  problems we do not have, while pino's redaction is the feature we
+  actually need.
+* `pino-http` — installed but unused until File 037.
+* `pino-pretty` — devDependency. Development-only terminal
+  formatting.
+
+**Functions written:** componentLogger(component) — returns
+logger.child({ component }), so every line from that module carries
+the field without repeating it. The module body runs once at import,
+constructing the logger and opening its transport — a deliberate
+side effect on import, like env.ts.
+
+**Concepts learned:** structured logging · log level · redaction ·
+child logger · transport · NDJSON · serialiser · non-enumerable
+property · spread-a-conditional-object
+
+**LOG_LEVEL finally does something.** It has been in .env since
+File 005 and validated since File 009. The hierarchy is trace, debug,
+info, warn, error, fatal, and a level below the threshold is never
+*serialised* at all rather than filtered later — which is where
+pino's speed comes from. fatal is new: it means the process is about
+to die, which is exactly server.ts's uncaught-exception and
+startup-failure paths, and monitoring treats it differently from
+error.
+
+**Redaction, and its honest limitation.** Nineteen paths in three
+forms: literal keys, wildcards like *.password to catch one level of
+nesting, and bracket notation for res.headers['set-cookie'] because
+a hyphen is not valid in a dotted path. req.headers.authorization is
+the most important — every authenticated request carries a bearer
+token, and logging a request object once without redaction writes a
+valid, still-usable token to disk. But redaction is **path-based,
+not value-based**: log a token under a key not in the list and pino
+has no idea what it is. It is a safety net for the obvious mistakes,
+not a guarantee. Same honest framing as the AuditLog hooks at
+File 026 — name the boundary rather than overclaim. Demonstrated in
+testing with a `credential` key that was not redacted.
+
+**Two pino gotchas worth remembering:**
+* The signature is log.level(mergingObject, message) — the object
+  comes *first*, the reverse of console.log. Getting it backwards
+  produces "[object Object]" as the message text.
+* The error key must be exactly `err` for the built-in serialiser to
+  fire. { error: err } serialises as {} because Error's message and
+  stack are non-enumerable properties, which JSON.stringify skips.
+  Confirmed in testing, and it is the kind of thing that costs
+  twenty confused minutes once.
+
+**Decision made:** ISO timestamps rather than pino's epoch-millis
+default. The default exists because generating a number is faster
+and pino optimises hard for throughput, but at our volume that is
+the wrong trade — we read these logs directly in a terminal, and
+1758024293115 is not legible.
+
+**Decision made:** pino-pretty in development only, and not merely
+for aesthetics. It runs in a worker thread and adds overhead, and
+log aggregators expect newline-delimited JSON, so pretty output
+would have to be re-parsed badly. Configured with a
+spread-a-conditional-object so the transport key simply does not
+exist in production.
+
+**Decision made:** stdout rather than a file transport. Twelve-Factor,
+and Docker already collects stdout — a file inside a container dies
+with the container and would need volume mounts and rotation. Same
+principle as config-in-the-environment at File 005.
+
+**Decision made:** one shared instance rather than a factory. The
+transport should open once per process, not per import.
+Deliberately the opposite of createApp() at File 010, for a concrete
+reason rather than inconsistency.
+
+**Decision made:** left initModels()'s console.log alone. Importing
+config/logger.ts into the model layer would mean a test that merely
+imports a model constructs a logger and opens a transport. One
+inconsistency is cheaper than that coupling.
+
+**Deferred:** pino-http is installed but not wired. Per-request
+logging means touching app.ts's middleware order, and doing that
+alongside this file's three revisits is too much at once. File 037
+is the natural point — the validate middleware lands there and
+app.ts is being edited anyway — and it is also where the request-ID
+gap noted at File 031 gets closed properly, since the ID should be
+attached to *every* request rather than generated at error time.
+
+**Commit:** `feat(api): add structured logging with credential redaction`

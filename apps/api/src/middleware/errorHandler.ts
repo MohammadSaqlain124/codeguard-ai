@@ -6,6 +6,9 @@ import { ZodError } from "zod";
 
 import { env } from "../config/env.js";
 import { AppError, isAppError, type ErrorCode } from "../utils/AppError.js";
+import { componentLogger } from "../config/logger.js";
+
+const log = componentLogger("http");
 
 /** Every error response has exactly this shape. */
 interface ErrorBody {
@@ -92,13 +95,14 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
 
   // operational failures are expected; anything else is a bug and gets the full stack
   if (operational) {
-    console.warn(
-      `[${requestId}] ${status} ${code} ${req.method} ${req.originalUrl} — ${message}`,
+    log.warn(
+      { requestId, status, code, method: req.method, url: req.originalUrl },
+      message,
     );
   } else {
-    console.error(
-      `[${requestId}] 500 INTERNAL ${req.method} ${req.originalUrl}`,
-      err instanceof Error ? err.stack : err,
+    log.error(
+      { requestId, method: req.method, url: req.originalUrl, err },
+      "unhandled error",
     );
   }
 
