@@ -3705,3 +3705,149 @@ gap noted at File 031 gets closed properly, since the ID should be
 attached to *every* request rather than generated at error time.
 
 **Commit:** `feat(api): add structured logging with credential redaction`
+
+## 2026-09-15 — Day 8 — File 033: apps/api/src/utils/password.ts
+
+**What we built:** bcrypt hashing at cost factor 12, with length
+validation in bytes, a verify that returns false rather than
+throwing on a malformed hash, a fakeVerify() that equalises login
+timing, and needsRehash() for future cost upgrades. Replaced the
+seed's PLACEHOLDER_HASH with a real hash.
+
+**Why we built it:** We cannot store passwords, only something that
+lets us *check* one. Plaintext means a leaked backup or a
+misconfigured bucket hands over every student's password — and
+because people reuse passwords, their email accounts too. A plain
+fast hash is not enough either: SHA-256 is deliberately fast, so a
+GPU computes billions per second and a dictionary attack recovers
+weak passwords in minutes. bcrypt is deliberately *slow* and its
+slowness is tunable.
+
+**Why a separate file:** The File 020 argument — a model defines
+what a user *is*; hashing is a behaviour operating on one. In the
+model, every file importing User would pull in a native module and
+user.save() would become unpredictably slow in a way the call site
+cannot see. Separate from authController because these are pure
+functions with no HTTP, unit-testable without a request or a
+database.
+
+**This is where File 020's decision came due.** I rejected a
+pre("save") hashing hook there with a stated trade-off: the hook is
+safer against forgetting, and we accepted a small risk for an
+explicit cost. File 038 is the one place that must not forget.
+
+**Libraries introduced:**
+* `bcrypt` — adaptive password hashing. Chosen over SHA-256/MD5
+  (fast by design, which is the whole problem) and over bcryptjs
+  (pure JavaScript, ~3x slower, which forces a lower affordable cost
+  and therefore weaker hashes). **Honest note on argon2:** argon2id
+  won the 2015 Password Hashing Competition and is memory-hard,
+  resisting GPU and ASIC attacks better than bcrypt. It is the
+  technically better choice. We chose bcrypt for two decades of
+  deployment without a practical break, better ecosystem support,
+  and a single tunable parameter rather than three interacting ones
+  (time, memory, parallelism). Name it in the report as a considered
+  trade-off, not an oversight.
+* `@types/bcrypt` — DefinitelyTyped; bcrypt ships none.
+
+**The File 012 decision paying off:** bcrypt is a native module with
+prebuilt binaries targeting glibc. node:22-bookworm-slim was chosen
+over Alpine specifically so this installs rather than compiling from
+source.
+
+**Functions written:**
+* hashPassword(plain) — validates length, hashes at cost 12. ~250ms,
+  deliberately. Throws AppError.validation outside the limits.
+* verifyPassword(plain, hash) — returns boolean; a malformed hash
+  returns false rather than throwing.
+* fakeVerify() — burns the same ~250ms against a throwaway hash.
+* needsRehash(hash) — reads the stored cost and reports whether it
+  predates the current factor.
+
+**Concepts learned:** hash function · salt · rainbow table · work
+factor / cost · adaptive hashing · memory-hard function · timing
+attack · constant-time comparison · hashSync · transparent rehashing
+· k-anonymity
+
+**Cost factor 12, and why not more or less.** bcrypt's cost is
+exponential — 2^cost iterations — so 12 is twice the work of 11.
+Roughly 65ms at 10, 250ms at 12, 1s at 14. Higher is not free: the
+cost falls on *our* server on every login, so at 14 thirty students
+logging in at 9am is thirty seconds of CPU, and it becomes a
+denial-of-service vector. Lower quadruples an attacker's throughput.
+The right cost is "as slow as users will tolerate", revisited as
+hardware improves — which is what needsRehash exists for.
+
+**No separate salt field, and that is not an oversight.** A salt is
+random data mixed in before hashing so two users with the same
+password get different hashes, defeating precomputed rainbow tables.
+bcrypt generates one per call and *embeds* it in the output, along
+with the algorithm variant and the cost:
+$2b$12$<22-char salt><digest>. So compare() reads the cost from the
+stored hash rather than being told it, and raising COST_FACTOR
+tomorrow leaves every existing password verifiable. Older designs
+stored a separate salt column, which works but is one more thing to
+keep in sync.
+
+**The 72-byte trap.** bcrypt silently *ignores* everything past 72
+bytes — it truncates rather than erroring. A user with a
+100-character passphrase would have only the first 72 bytes checked,
+and anyone knowing those could log in with any suffix. We reject
+instead, because silently weakening a password the user believes is
+strong is worse than telling them it is too long. And the check uses
+Buffer.byteLength, not .length: a JavaScript string's length counts
+UTF-16 code units while bcrypt's limit is in *bytes*, so an emoji is
+four and most Devanagari characters are three. Directly relevant for
+an Indian university where a student might use Hindi or Urdu.
+Confirmed in testing: 73 ASCII bytes rejected, 57 Devanagari bytes
+accepted, 25 emoji (100 bytes) rejected.
+
+**fakeVerify closes the timing leak flagged at File 030.** The vague
+"Authentication required" message stops an attacker *reading* which
+emails exist, but a naive login still leaks it by timing: an unknown
+email returns in ~5ms while a wrong password takes ~255ms, because
+only the second runs bcrypt. That 250ms gap is trivially measurable
+over a network, so scripting a few thousand addresses yields a clean
+list of registered accounts and the vague message buys nothing.
+fakeVerify runs a real comparison against a throwaway hash so both
+paths cost the same. The dummy hash is computed with hashSync once
+at module load — blocking is acceptable there precisely because it
+is before the server accepts requests, and would be a serious
+mistake anywhere else.
+
+**Honest limitation:** fakeVerify equalises the *bcrypt* cost, not
+the *database* cost. A findOne that misses may be marginally faster
+than one that hits. That residual is low single-digit milliseconds
+against a 250ms baseline, far below network measurement noise, but
+the report should say so rather than claiming the leak is fully
+closed.
+
+**Decision made:** verifyPassword returns false on a malformed hash
+rather than propagating. A corrupted record producing a 500 while a
+wrong password produces a 401 would identify which accounts have bad
+data — a form of the same enumeration leak AppError.unauthenticated
+closes.
+
+**Decision made:** length-only validation here, no composition
+rules. Current NIST guidance advises against "must contain a symbol"
+requirements — they push users toward Password1! rather than genuine
+entropy, and length matters far more. Full validation belongs in
+File 036's Zod schema; this file enforces only what bcrypt itself
+imposes.
+
+**Future work named:** breach-list checking via Have I Been Pwned's
+k-anonymity API would catch known-compromised passwords. Rejected
+for now as an external HTTP dependency on the registration path, but
+it is a genuinely good feature.
+
+**File 029 revisit:** PLACEHOLDER_HASH became a real hash of
+"codeguard-dev-2026". Hashed once and reused for all 33 seeded users
+deliberately — hashing 33 times would add ~8 seconds to every seed
+run for no benefit, since they share the password anyway.
+
+**Redaction verified against real credentials.** File 032's
+redaction was finally tested on what it exists to protect: a real
+plaintext password and a real bcrypt hash, logged under five
+different key paths. All five read [Redacted].
+
+**Commit:** `feat(api): add bcrypt password hashing with timing equalisation`

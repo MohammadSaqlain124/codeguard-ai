@@ -16,8 +16,10 @@ import {
 } from "../models/index.js";
 
 // bcrypt arrives in Phase 2; nobody can log in with this
-const PLACEHOLDER_HASH = "seed-placeholder-replace-when-bcrypt-lands";
+import { hashPassword } from "../utils/password.js";
 
+const SEED_PASSWORD = "codeguard-dev-2026";
+  const PLACEHOLDER_HASH = await hashPassword(SEED_PASSWORD);
 // deterministic PRNG (mulberry32) so every teammate seeds identical data
 function makeRng(seed: number) {
   return () => {
