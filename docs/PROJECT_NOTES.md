@@ -3283,4 +3283,49 @@ schemas, compound and sparse and multikey indexes, an append-only
 audit trail, a shared serialisation plugin, a barrel with startup
 index initialisation, and a deterministic dataset to build against.
 
+**Bug found on first run:** exact-duplicate count was 30 of 51, not
+the expected ~5. RENAMED and REFORMATTED had no per-student suffix,
+so every student sharing an i % 11 bucket produced byte-identical
+source and the hash short-circuit fired on all of them. Fixed by
+appending "# student N" to both. Arguably more correct anyway:
+levels 1 and 2 of the obfuscation harness exist to test whether AST
+analysis catches what hashing misses, and if they are byte-identical
+the hash short-circuits and Layer 1 never runs — defeating the point
+of including them.
+
+**Second bug, found by actually counting.** After adding the
+"# student N" suffix the duplicate count was still 26 of 51, not the
+expected handful. The arithmetic explains it exactly: variantFor(i)
+took only the student index, so hw1 and hw2 received identical
+source for the same student, and byHash was global across both
+assignments — so every student's second submission was flagged as a
+duplicate of their first. 30 students with i % 11 buckets gives 25
+distinct sources; 51 submissions from 25 sources is 26 duplicates.
+
+**It was also a design mismatch.** File 023's short-circuit query is
+scoped to one assignment, because File 022 established that
+comparing a sorting exercise against a graph traversal is
+meaningless. The seed's global byHash was doing exactly that.
+
+**Fixed three ways:** variantFor now takes an assignment tag so the
+source differs per assignment; byHash is keyed
+`${assignment}:${hash}` to match the real query's scope; and
+takehomeSubs carries the assignment, which also fixed a separate bug
+where every DetectionResult hardcoded `assignment: hw1._id`, so
+results for hw2 submissions claimed to belong to hw1.
+
+**Lesson — verify counts against arithmetic, not intuition.** The
+first fix looked right and the number stayed wrong. Working out what
+the count *should* be (submissions minus distinct sources) located
+the cause in one step, where guessing would not have.
+
+**Also learned about seeded PRNGs.** After the first fix the flagged
+count went *up*, from 30 to 34, which looked like a regression. It
+was not: `const structural = twin ? 1 : round2(between(...))` skips
+the between() call when a twin exists, so fewer duplicates means
+more random draws, which shifts the entire downstream sequence.
+Determinism means "same code, same output" — not "small code change,
+small output change." Comparing counts across a code change tells
+you nothing.
+
 **Commit:** `feat(api): add deterministic seed script with realistic detection data`

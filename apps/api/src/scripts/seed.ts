@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
+
 import { Types } from "mongoose";
+
 import { connectDb, disconnectDb } from "../db/connect.js";
 import {
   AssignmentModel,
@@ -71,12 +73,15 @@ const INDEPENDENT = `def solve(nums):
     return sorted(x * 2 for x in nums if not x % 2)
 `;
 
-function variantFor(i: number) {
-  if (i % 11 === 0) return BASE;          // the "original"
-  if (i % 11 === 1) return BASE;          // exact duplicate — tests the hash short-circuit
-  if (i % 11 === 2) return `${RENAMED}# student ${i}\n`;     // level 1: text differs, AST matches
-  if (i % 11 === 3) return `${REFORMATTED}# student ${i}\n`; // level 2: whitespace only
-  return `${INDEPENDENT}# student ${i}\n`;
+// tag makes the source differ per assignment, so a student's hw1 and hw2
+// are not byte-identical to each other
+function variantFor(i: number, tag: string) {
+  // these two share a source *within* one assignment — the pair the hash short-circuit should find
+  if (i % 11 === 0) return `${BASE}# ${tag}\n`;
+  if (i % 11 === 1) return `${BASE}# ${tag}\n`;
+  if (i % 11 === 2) return `${RENAMED}# ${tag} ${i}\n`;     // level 1: text differs, AST matches
+  if (i % 11 === 3) return `${REFORMATTED}# ${tag} ${i}\n`; // level 2: whitespace only
+  return `${INDEPENDENT}# ${tag} ${i}\n`;
 }
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -146,7 +151,6 @@ async function seed() {
     w1: 0.2,
     w2: 0.5,
     w3: 0.3,
-    updatedAt: new Date(),
   });
   console.log("courses: CS-501 (defaults), CS-101 (w1 lowered to 0.2)");
 
@@ -178,14 +182,19 @@ async function seed() {
 
   // ---- submissions ----
   let created = 0;
-  const takehomeSubs: { id: Types.ObjectId; student: Types.ObjectId; source: string }[] = [];
+  const takehomeSubs: {
+    id: Types.ObjectId;
+    student: Types.ObjectId;
+    assignment: Types.ObjectId;
+    source: string;
+  }[] = [];
 
   for (const [i, student] of students.entries()) {
     for (const a of [lab, hw1, hw2]) {
       // not everyone submits everything
       if (a !== lab && rand() < 0.12) continue;
 
-      const source = a === lab ? `${BASE}# lab ${i}\n` : variantFor(i);
+      const source = a === lab ? `${BASE}# lab ${i}\n` : variantFor(i, a.title);
       const hash = sha256(source);
 
       const sub = await SubmissionModel.create({
@@ -206,19 +215,28 @@ async function seed() {
       });
       created++;
 
-      if (a !== lab) takehomeSubs.push({ id: sub._id, student: student._id, source });
+      if (a !== lab) {
+        takehomeSubs.push({
+          id: sub._id,
+          student: student._id,
+          assignment: a._id,
+          source,
+        });
+      }
     }
   }
   console.log(`submissions: ${created}`);
 
   // ---- detection results ----
+  // keyed by assignment, because the real short-circuit query is scoped to one
+  // assignment — comparing a sorting exercise against a graph traversal is meaningless
   const byHash = new Map<string, Types.ObjectId>();
   let flagged = 0;
 
   for (const s of takehomeSubs) {
-    const hash = sha256(s.source);
-    const twin = byHash.get(hash);
-    byHash.set(hash, s.id);
+    const key = `${s.assignment}:${sha256(s.source)}`;
+    const twin = byHash.get(key);
+    byHash.set(key, s.id);
 
     const structural = twin ? 1 : round2(between(0.08, 0.72));
     // most students have the lab anchor; a few do not, so Layer 2 skips
@@ -236,18 +254,28 @@ async function seed() {
     const rps = round2(w1 * structural + effectiveW2 * (behavioral ?? 0) + w3 * aiScore);
 
     // the layers disagree when one is high and another is near zero
-    const disagreement =
-      aiScore > 0.75 && behavioral !== undefined && behavioral < 0.2;
+    const disagreement = aiScore > 0.75 && behavioral !== undefined && behavioral < 0.2;
 
     await DetectionResultModel.create({
       submission: s.id,
-      assignment: hw1._id,
+      assignment: s.assignment,
       course: daa._id,
       student: s.student,
       language: "python",
       structural: twin
-        ? { status: "ok", score: 1, durationMs: 12, exactDuplicateOf: twin, candidatesConsidered: 0 }
-        : { status: "ok", score: structural, durationMs: Math.floor(between(800, 2400)), candidatesConsidered: 29 },
+        ? {
+            status: "ok",
+            score: 1,
+            durationMs: 12,
+            exactDuplicateOf: twin,
+            candidatesConsidered: 0,
+          }
+        : {
+            status: "ok",
+            score: structural,
+            durationMs: Math.floor(between(800, 2400)),
+            candidatesConsidered: 29,
+          },
       behavioral: hasBaseline
         ? {
             status: "ok",
@@ -287,9 +315,7 @@ async function seed() {
   console.log(`detection results: ${takehomeSubs.length} (${flagged} at or above threshold)`);
 
   // ---- audit trail ----
-  const top = await DetectionResultModel.find({ course: daa._id })
-    .sort({ rps: -1 })
-    .limit(2);
+  const top = await DetectionResultModel.find({ course: daa._id }).sort({ rps: -1 }).limit(2);
 
   for (const r of top) {
     await AuditLogModel.create({
@@ -304,7 +330,11 @@ async function seed() {
     });
     await DetectionResultModel.updateOne(
       { _id: r._id },
-      { "review.status": "escalated", "review.reviewedBy": sharma._id, "review.reviewedAt": new Date() },
+      {
+        "review.status": "escalated",
+        "review.reviewedBy": sharma._id,
+        "review.reviewedAt": new Date(),
+      },
     );
   }
 
