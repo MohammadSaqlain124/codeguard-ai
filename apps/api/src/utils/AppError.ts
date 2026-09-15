@@ -41,6 +41,9 @@ export class AppError extends Error {
 
     // without this, the stack starts inside this constructor rather than at the throw site
     Error.captureStackTrace(this, this.constructor);
+    // hides the constructor frame; the static factory frame remains one level up,
+    // so the throw site is the *second* line of the stack rather than the first
+    Error.captureStackTrace(this, this.constructor);
   }
 
   // ---- the cases we actually raise ----

@@ -3439,4 +3439,15 @@ module are loaded, which some bundler configurations allow. If that
 happens it becomes a duck-type check on code and statusCode, and
 only one line changes.
 
+**Correction — captureStackTrace does less than I claimed.** I said
+the first stack frame would be the throw site. It is not: it is the
+static factory, because captureStackTrace removes frames up to and
+including the *constructor*, and `AppError.notFound` sits above it.
+Verified: the throw site is the *second* frame. Fixing it properly
+would mean an extra captureStackTrace call inside all eleven
+factories — eleven lines to remove one frame from a trace that
+already contains everything needed. Left as is, with a comment.
+Lesson repeated from the floating-point example at File 024: verify
+what a mechanism actually produces, not what you expect it to.
+
 **Commit:** `feat(api): add typed application error with status codes and factories`
