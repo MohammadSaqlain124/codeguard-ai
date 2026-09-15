@@ -32,7 +32,7 @@ const between = (lo: number, hi: number) => lo + rand() * (hi - lo);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const FIRST = [
-  "Aarav", "Vanshika", "Trisha", "Shubham", "Priya", "Rohan", "Ananya", "Karan",
+  "Krishna", "Vanshika", "Trisha", "Shubham", "Priya", "Rohan", "Ananya", "Karan",
   "Ishita", "Devansh", "Meera", "Arjun", "Sneha", "Kabir", "Riya", "Aditya",
   "Nisha", "Varun", "Pooja", "Harsh", "Simran", "Yash", "Kavya", "Manav",
   "Diya", "Rahul", "Tanya", "Nikhil", "Shreya", "Aman",
@@ -74,8 +74,8 @@ const INDEPENDENT = `def solve(nums):
 function variantFor(i: number) {
   if (i % 11 === 0) return BASE;          // the "original"
   if (i % 11 === 1) return BASE;          // exact duplicate — tests the hash short-circuit
-  if (i % 11 === 2) return RENAMED;       // level 1 obfuscation
-  if (i % 11 === 3) return REFORMATTED;   // level 2 obfuscation
+  if (i % 11 === 2) return `${RENAMED}# student ${i}\n`;     // level 1: text differs, AST matches
+  if (i % 11 === 3) return `${REFORMATTED}# student ${i}\n`; // level 2: whitespace only
   return `${INDEPENDENT}# student ${i}\n`;
 }
 
