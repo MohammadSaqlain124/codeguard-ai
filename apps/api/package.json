@@ -12,7 +12,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "seed": "tsx --env-file=../../infra/.env src/scripts/seed.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",

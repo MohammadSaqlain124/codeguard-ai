@@ -3139,3 +3139,148 @@ deleteMany({}) exist on every model regardless of its document type,
 so that is all the type the array needs.
 
 **Commit:** `fix(api): type the model array and bypass audit-log guard when clearing`
+
+## 2026-09-15 — Day 8 — File 029: apps/api/src/scripts/seed.ts
+
+**What we built:** A deterministic seed script — 1 admin, 2 faculty,
+30 students, 2 courses (one with a DetectionConfig override), 3
+assignments (1 invigilated, 2 take-home), roughly 83 submissions
+drawn from four source variants, a detection result per take-home
+submission with computed RPS and attenuation, and three audit
+entries. Plus an `npm run seed` script.
+
+**Why we built it:** Seven collections and an empty database. Every
+screen from here — review queue, evidence view, student dashboard —
+needs data to render against, and hand-creating 30 students through
+a UI that does not exist yet is impossible. Three things it buys: a
+working review queue on day one of Phase 7 rather than building the
+UI blind; shared reality across four people, so "works on my
+machine" becomes checkable; and a reproducible demo in two commands.
+
+**Why a separate file:** Separate from the models because it *uses*
+them. Separate from tests because tests need tiny precise fixtures
+created inline so each test reads as a self-contained statement,
+while seed data is large and realistic — sharing them would make
+tests depend on a 200-line dataset that breaks whenever a student is
+added.
+
+**Why src/scripts/ rather than a root scripts/:** forced by
+tsconfig. File 008 set rootDir "src" and include ["src/**/*.ts"], so
+a file outside src is neither type-checked nor compiled. Honest
+consequence: it ships in the production image as dist/scripts/
+seed.js, about 3KB of dev tooling in production — the same instinct
+File 012 rejected when excluding the Dockerfile from its own image.
+The alternative is a second tsconfig to maintain. Shipping 3KB beats
+maintaining a second compiler configuration, but name it in the
+report rather than pretending it is clean.
+
+**Libraries introduced:** None new. node:crypto for SHA-256 hashes;
+Mongoose's Model.create() with an array for bulk insert, which is
+one round trip rather than thirty.
+
+**Functions written:**
+* `makeRng(seed)` — returns a deterministic PRNG closure
+  (mulberry32).
+* `pick(xs)` — generic, returns a random element typed as the array's
+  element type.
+* `between(lo, hi)`, `round2(n)` — range and rounding helpers.
+* `variantFor(i)` — selects one of four source templates by index.
+  Deterministic rather than random, so the duplicate and rename
+  distribution is exactly reproducible.
+* `sha256(s)` — hex digest.
+* `seed()` — the script. Any rejection propagates to the bottom
+  handler, which logs, disconnects and exits 1.
+
+**Concepts learned:** seed data / fixture · deterministic PRNG ·
+mulberry32 · generic function · bulk insert · idempotence
+
+**Decision made — a seeded PRNG rather than Math.random().** With
+Math.random, two teammates running npm run seed get different data:
+her review queue has different students at the top, and a bug one
+sees the other cannot reproduce. "Works on my machine" becomes
+literally true and completely useless. A seeded generator gives
+byte-identical data on every machine, forever. Worth contrasting
+with File 005, where JWT secrets used a cryptographically secure
+generator precisely because unpredictability was the point. Same
+tool category, opposite requirement.
+
+**Decision made:** hardcoded names and code samples rather than
+@faker-js/faker. Faker would be a dependency for something forty
+lines of arrays solve, its output is not deterministic without extra
+configuration, and it cannot produce AST-similar Python variants —
+which the code samples have to be anyway.
+
+**The four source variants each exercise a different path:** BASE
+used twice gives byte-identical submissions for the contentHash
+short-circuit; RENAMED is level 1 of the obfuscation harness
+(AST-identical after normalisation, text-different); REFORMATTED is
+level 2 (whitespace only); INDEPENDENT is a genuinely different
+approach using a generator expression, as the control case. The
+i % 11 distribution makes roughly 9% exact copies and 9% renames —
+realistic proportions, because most students write their own work
+and the queue should reflect that rather than being uniformly
+suspicious.
+
+**Decision made:** realistic distributions rather than uniform data.
+Every RPS at 0.5 would let us build a queue UI that looks fine and
+breaks on real data. 15% skipped baselines, a long tail of low
+scores, a handful above threshold — layout and threshold problems
+become visible now rather than in Phase 7.
+
+**Mitigation 2, seeded correctly:** baselineEligible is true only
+for invigilated submissions. Take-home work is false — evaluated
+against the baseline but never joining it without faculty
+confirmation. That makes the data honest: most students have one
+anchor against a minAnchorsForBaseline of 3, which is why roughly
+15% of results have behavioral.status "skipped" with a stated
+reason.
+
+**Mitigation 3, computed rather than faked:** effectiveW2 scales
+linearly with baselineConfidence when it falls below 0.4, so the RPS
+leans on Layers 1 and 3. One line matters —
+`effectiveW2 * (behavioral ?? 0)`. A skipped layer has no score, and
+undefined * 0.09 is NaN, which would propagate and produce rps: NaN.
+That NaN risk is exactly why File 025 made score optional rather
+than defaulting to 0: the schema records ignorance honestly and the
+aggregator handles it explicitly. Defaulting to 0 in the schema
+would have hidden the distinction and made this line unnecessary, at
+the cost of the evidence view being unable to say "we do not know".
+
+**Decision made:** rollNo omitted entirely for faculty, not set to
+null. The File 020 sparse-index sharp edge — a sparse index skips
+documents *missing* the field, while an explicit null is a value and
+enters the index, so a second null collides with E11000. Two faculty
+in the seed proves it.
+
+**Known temporary state:** PLACEHOLDER_HASH, because bcrypt arrives
+in Phase 2. Deliberately not an invented bcrypt-format string — one
+that looks like a hash and silently fails every comparison is worse
+than one that obviously is not a hash. Greppable, and a scheduled
+revisit: when utils/password.ts exists this becomes
+await hashPassword("seed-password-123").
+
+**Ordering inconsistency flagged rather than silently fixed:** the
+seed writes the AuditLog entry *before* the DetectionResult update,
+which is the opposite of the File 019 plan (AuditLog last, so a
+crash leaves a real change with no log entry rather than a log entry
+for a change that never happened). Harmless in a seed script, since
+a crash means re-running from scratch — but File 045's controller
+must do it the other way round, and having the wrong order in code
+someone might copy is a real hazard. Recorded here deliberately.
+
+**Decision made:** clear-then-insert rather than upsert. Upserting
+would be idempotent without wiping, but it means matching on natural
+keys and reconciling partial data. Clearing is simpler and honest
+about what it does — hence the NODE_ENV guard inherited from
+File 028's clearAllCollections.
+
+**Decision made:** No BullMQ jobs enqueued. The queue arrives in
+Phase 3, and seeding jobs for a worker that does not exist would
+leave Redis holding entries nothing will ever consume.
+
+**Phase 1 complete.** 11 files. Seven collections with validated
+schemas, compound and sparse and multikey indexes, an append-only
+audit trail, a shared serialisation plugin, a barrel with startup
+index initialisation, and a deterministic dataset to build against.
+
+**Commit:** `feat(api): add deterministic seed script with realistic detection data`
