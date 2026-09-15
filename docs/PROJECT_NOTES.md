@@ -3451,3 +3451,140 @@ Lesson repeated from the floating-point example at File 024: verify
 what a mechanism actually produces, not what you expect it to.
 
 **Commit:** `feat(api): add typed application error with status codes and factories`
+
+## 2026-09-15 — Day 8 — File 031: apps/api/src/middleware/errorHandler.ts
+
+**What we built:** The single funnel for every error — four
+translators (AppError, ZodError, Mongoose ValidationError, MongoDB
+E11000, plus CastError), one response envelope, a per-error request
+ID, and operational-versus-programmer logging. Plus a notFoundHandler
+that routes unmatched routes through the same funnel.
+
+**Why we built it:** File 030 gave us a way to *raise* errors; this
+is where they land. An unhandled error previously produced Express's
+default 500 with a full stack trace in the response body, leaking
+file paths, Node and library versions, and field names. But the more
+interesting job is reconciliation: errors arrive in four
+incompatible shapes, and File 020 proved the first two are genuinely
+different — an invalid role gives a Mongoose ValidationError while a
+duplicate email gives a MongoDB E11000. A client should not have to
+know which of our internal libraries produced a failure.
+
+**Why a separate file:** Separate from AppError by role — that
+defines *what an error is* and has zero imports; this defines *what
+to do with it* and imports Express, Zod, Mongoose and AppError.
+Separate from app.ts because it is registered there but defined
+here, the same split as route files. In middleware/ because it
+genuinely is middleware, and a specific kind.
+
+**Libraries introduced:** None new. First use of Express's
+Request/Response/NextFunction types (import type, per
+verbatimModuleSyntax), ZodError, and Mongoose's Error namespace
+renamed on import because `Error` would shadow the global.
+
+**Functions written:**
+* errorHandler(err, req, res, next) — classifies any thrown value,
+  logs appropriately, sends one envelope. Cannot fail: if every
+  branch misses, the 500 defaults apply.
+* notFoundHandler(req, res, next) — converts an unmatched route into
+  an AppError and calls next(err).
+* isDuplicateKeyError(err) — a type guard, duck-typed on code ===
+  11000 rather than instanceof, because the driver's error class is
+  not reliably exported across versions.
+* fromZod, fromMongooseValidation, fromDuplicateKey — pure
+  translators, separate so the main handler stays a flat else-if
+  chain and each can be unit-tested without HTTP.
+
+**Concepts learned:** error middleware · arity · error envelope ·
+request ID / correlation ID · CastError · keyPattern vs keyValue ·
+duck typing · destructuring assignment to existing variables ·
+fail-closed
+
+**The four-parameter rule, and the trap in it.** Express counts
+parameters to decide what a function is — three means normal
+middleware, four means error middleware. It reads fn.length at
+registration time. So removing the unused `_next` silently turns
+this into normal middleware: it stops receiving errors, every
+failure falls through to Express's default handler, and nothing
+tells you why.
+
+**err typed unknown, not Error.** JavaScript lets you throw
+anything — a string, a number, null. Typing it Error would be a lie,
+and unknown forces every branch to prove what it is holding. Same
+reasoning as catch (err) under strict at File 019. Confirmed in
+testing: a thrown string produced a clean 500 rather than crashing
+the handler.
+
+**Two libraries, two shapes, one output.** Zod 4 exposes .issues (an
+array, each with a path array and a message) while Mongoose stores
+failures in an .errors *object* keyed by field path, so Object.values
+gets the list. Both translate to the same { field, message }[] under
+VALIDATION_FAILED. That reconciliation is the point of this file.
+
+**Decision made — never echo the duplicate value.** MongoDB's E11000
+carries both keyPattern (which index) and keyValue (the actual
+value). We use only keyPattern. If registration returned "A record
+with email sam@invertis.ac.in already exists", that is user
+enumeration through a different door — the exact leak
+AppError.unauthenticated() closes on the login path. Naming the
+*field* is enough for the frontend to highlight the right input;
+echoing the *value* confirms an account exists. fields.join(" and ")
+handles compound indexes, so the { code, academicYear } index from
+File 021 produces both names.
+
+**Decision made:** CastError gets its own branch. Mongoose throws it
+when a string cannot be cast to a schema type — in practice, someone
+requesting /api/courses/not-an-objectid. That is a malformed
+request, not a server fault, so 400 rather than 500. Without the
+branch it would fall through to the generic 500 and be logged as a
+bug, filling the error stream with noise from ordinary bad input.
+
+**The operational flag driving three behaviours.** This is
+File 030's isOperational doing its work: log at warn versus error,
+omit versus log the full stack, and send the real message versus
+"Something went wrong". The client gets nothing specific on a 500
+because a stack trace leaks absolute file paths (revealing directory
+structure and username), library versions (so an attacker can look
+up known CVEs), and field names. And warn rather than error for
+operational failures matters because a student requesting a
+submission they do not own is the system *working correctly* — if
+those logged at error, a real bug would be invisible in the noise.
+Same reasoning as console.warn for a dropped Mongo connection at
+File 019.
+
+**Development escape hatch, with two safety properties.** In
+development the real message is attached as details.devOnly, so we
+are not switching to the terminal for every failure in Postman. It
+is gated on env.NODE_ENV — the *validated* value from File 009, not
+raw process.env — so a missing or malformed NODE_ENV crashes at
+startup rather than silently enabling this in production. And it
+attaches only the message, never the stack, so a screenshot of a dev
+response cannot leak paths.
+
+**File 010 revisit:** the inline 404 handler was replaced.
+notFoundHandler calls next(AppError.notFound(...)) rather than
+responding directly, so an unmatched route produces the identical
+envelope as every other error. The old version returned
+{ error: "Not found" } with `error` as a *string*, while everything
+else returns an *object* — a frontend would have had to handle both.
+Ordering is absolute: notFoundHandler then errorHandler, both after
+every route.
+
+**Known limitation — the request ID is generated at error time**, so
+it only exists on failures. A proper implementation attaches one to
+every request in middleware, so successful requests are traceable
+too. Small addition at File 032, since pino has request-ID support
+built in.
+
+**Known temporary state:** console.warn and console.error rather
+than structured logging. pino at File 032 swaps them, and adds
+redaction so a password or token can never reach the logs.
+
+**Deliberately not translated here:** multer errors (Phase 3 — the
+codes exist in AppError for when that lands) and jsonwebtoken errors
+(File 034 — they will be caught in the auth middleware and
+re-thrown as AppError.tokenExpired(), translating at the source
+because only the middleware knows whether an expired token means
+"refresh" or "reject").
+
+**Commit:** `feat(api): add central error handler reconciling four error shapes`

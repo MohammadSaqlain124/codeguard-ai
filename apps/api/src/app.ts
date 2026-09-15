@@ -1,6 +1,7 @@
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 import { env } from "./config/env.js";
 
@@ -16,9 +17,8 @@ export function createApp() {
     res.json({ status: "ok", uptime: process.uptime() });
   });
 
-  app.use((_req, res) => {
-    res.status(404).json({ error: "Not found" });
-  });
+  app.use(notFoundHandler);
+  app.use(errorHandler);
 
   return app;
 }
