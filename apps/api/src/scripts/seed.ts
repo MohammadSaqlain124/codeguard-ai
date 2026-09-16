@@ -15,11 +15,10 @@ import {
   initModels,
 } from "../models/index.js";
 
-// bcrypt arrives in Phase 2; nobody can log in with this
+
 import { hashPassword } from "../utils/password.js";
 
 const SEED_PASSWORD = "codeguard-dev-2026";
-  const PLACEHOLDER_HASH = await hashPassword(SEED_PASSWORD);
 // deterministic PRNG (mulberry32) so every teammate seeds identical data
 function makeRng(seed: number) {
   return () => {
@@ -89,6 +88,7 @@ function variantFor(i: number, tag: string) {
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 async function seed() {
+  const PLACEHOLDER_HASH = await hashPassword(SEED_PASSWORD);
   await connectDb();
   await initModels();
   await clearAllCollections();
@@ -352,7 +352,7 @@ async function seed() {
   });
   console.log(`audit entries: ${top.length + 1}`);
 
-  console.log(`\nlogin emails (no password until bcrypt lands):`);
+  console.log(`\nlogin (password: ${SEED_PASSWORD}):`);
   console.log(`  admin    ${admin.email}`);
   console.log(`  faculty  ${sharma.email}`);
   console.log(`  student  ${students[0].email}`);
