@@ -1,6 +1,6 @@
-export { UserModel, type User, type UserDoc } from "./User.js";
-export { CourseModel, type Course, type CourseDoc } from "./Course.js";
 export { UserModel, type User, type UserDoc, ROLES, type Role } from "./User.js";
+export { CourseModel, type Course, type CourseDoc } from "./Course.js";
+
 export {
   AssignmentModel,
   type Assignment,
