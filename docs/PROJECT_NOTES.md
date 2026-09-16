@@ -3998,3 +3998,134 @@ the controller that sets the response), and the token deny-list
 (needs Redis, Phase 3).
 
 **Commit:** `feat(api): add jwt signing and verification with algorithm pinning`
+
+## 2026-09-16 — Day 9 — File 035: apps/api/src/middleware/auth.ts
+
+**What we built:** Four middleware functions — requireAuth (verify
+the bearer token, attach req.user, no database call), optionalAuth
+(attach if present, never fail), requireRole(...allowed) as a
+factory, and requireActiveUser (one projected lean query, rejecting
+deactivated accounts and correcting a stale role). Plus a
+declare-global block adding req.user to Express's Request type.
+
+**Why we built it:** File 034 can say whether a token is *valid*;
+this decides whether a request may *proceed*. Two different
+questions, and conflating them is a classic source of security
+holes: authentication asks who you are and fails with 401,
+authorisation asks what you may do and fails with 403. Without
+middleware, every controller would repeat the same fifteen lines,
+and the one that forgot would be an open endpoint we found out about
+from an incident.
+
+**Why a separate file:** Separate from utils/jwt.ts by the split
+argued at File 034 — that is a pure function over a string, this
+touches req, res and HTTP semantics. Separate from controllers
+because it runs *before* them, so a controller can assume req.user
+exists rather than checking.
+
+**Libraries introduced:** None new.
+
+**Functions written:**
+* requireAuth — extract, verify, attach. Throws
+  AppError.unauthenticated() with no token; verifyAccessToken throws
+  on a bad one. Note there is no try/catch: Express 5 forwards a
+  synchronous throw to the error handler automatically, which is the
+  version note from File 007 paying off.
+* optionalAuth — same, but swallows a bad token.
+* requireRole(...allowed) — a higher-order function returning
+  middleware, so roles can be configured per route.
+* requireActiveUser — async, one query.
+
+**Concepts learned:** authentication vs authorisation · declaration
+merging · ambient declaration · higher-order function · rest
+parameters · projection · .lean() · RBAC · role hierarchy · stale
+claim
+
+**Declaration merging, and why it is needed.** Express's Request
+type lives in @types/express, in node_modules, and we cannot edit a
+file we do not own. TypeScript merges two same-named interface
+declarations rather than replacing one with the other, so
+`declare global { namespace Express { interface Request { user?: ...
+} } }` adds the field project-wide. `declare global` is required
+because this file is a module and everything in it would otherwise
+be module-scoped.
+
+**Decision made:** req.user is optional, not an AuthenticatedRequest
+type with user required. The precise version is more accurate and
+means casting at every route registration, because Express's handler
+types expect Request. Optional field plus a runtime check is the
+common pattern; the awkwardness (req.user!.id in controllers) is
+real but small.
+
+**Decision made — no database lookup in requireAuth.** The role is
+in the token precisely to avoid a query per request, which is the
+File 034 decision executed. **Honest counter-argument for the
+report:** at thirty students a findById is about 1ms and always
+checking would be entirely affordable. The stateless design is a
+*scalability* choice, not a performance necessity at our scale, and
+we should say that rather than implying the lookup would be costly.
+
+**requireActiveUser is the escape hatch, opt-in per route.** A JWT
+cannot be revoked, so a user deactivated via isActive keeps working
+for up to 15 minutes, and a demoted faculty member keeps faculty
+access for the same window. For browsing a dashboard that is
+acceptable; for escalating a flag to a disciplinary committee it is
+not. Confirmed in testing: the *same* deactivated-faculty token
+returns 200 on /faculty-only and 401 on /escalate, and the same
+demoted token returns 200 on the token-only route and 403 on the
+checked one. Those four lines are the honest picture of JWT
+authorisation and are worth showing an examiner rather than claiming
+the system is always current.
+
+**Three details in requireActiveUser:** .select("role isActive") is
+a projection fetching two fields rather than the whole document,
+which also removes any risk of handling a password hash; .lean()
+returns a plain object rather than a hydrated document, skipping
+methods and change tracking we do not need for a read; and a stale
+role is *corrected in place* rather than rejected, because a demoted
+user should still be able to do student things.
+
+**Ordering dependency worth noting:** requireActiveUser must come
+*before* requireRole, or the role check runs against the stale
+value. The type system cannot enforce that, so File 040's tests
+should cover it.
+
+**Decision made — no role hierarchy.** Admin is not automatically
+granted faculty permissions; every route lists exactly who may
+access it. A hierarchy would make routes read shorter, but an
+implicit grant is invisible at the call site — reading
+requireRole("faculty") you cannot tell whether admin is included
+without checking the implementation. In a system where
+authorisation decisions end up in a disciplinary record, explicit
+beats concise.
+
+**Decision made:** a misconfigured route throws a plain Error, not
+an AppError. If requireRole runs without requireAuth, that is a
+programmer error — a route wired wrongly — not something a client
+did. File 031's handler turns a non-AppError into a 500 with a
+generic message and a full stack in the logs, which is exactly
+right: returning a 403 would hide a real bug behind a plausible
+response and make the route appear to work.
+
+**Decision made:** log 403s but not 401s. A 401 is noise —
+logged-out sessions, expired tokens, bots probing. A 403 means
+someone authenticated *successfully* and then tried something they
+are not permitted to do, which is either a UI bug showing a control
+it should not, or probing. The logged fields (userId, role, allowed,
+url) make "which user is hitting 403s, and on what?" a query rather
+than a regex — File 032's structured logging paying off.
+
+**Deliberately not here:** ownership checks ("is this submission
+yours?") and course-scoped permissions ("does this faculty member
+own *this* course?"). Both need the resource, which the controller
+is already fetching; putting them here would mean a second query.
+Controllers handle ownership, middleware handles role. Rate limiting
+is Phase 3, sharing the Redis store with upload limits.
+
+**Possibly premature:** optionalAuth is not used by anything yet. It
+is included because the review queue will likely want it — a page
+whose content differs for a signed-in user without requiring one.
+Seven lines, and the pattern is worth having named, but it is fair
+to call it speculative.
+
+**Commit:** `feat(api): add auth and role middleware with stale-token check`
