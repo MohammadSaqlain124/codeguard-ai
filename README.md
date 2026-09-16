@@ -148,6 +148,8 @@ git clone https://github.com/MohammadSaqlain124/codeguard-ai.git
 cd codeguard-ai
 cp infra/.env.example infra/.env
 docker compose -f infra/docker-compose.yml up --build
+Then populate a development dataset:
+cd apps/api && npm run seed
 ```
 
 Once running:
@@ -171,10 +173,14 @@ OCR of handwritten work · any automated disciplinary decision.
 
 ## Status
 
-Tier 1 (must ship) · Phase 0 — scaffolding. In progress.
+Tier 1 (must ship) · Phase 2 — authentication and authorisation. In progress.
 
-Detection logic is not yet implemented. See `docs/PROJECT_NOTES.md` for the
-day-by-day build log.
+Phase 0 (scaffolding) and Phase 1 (data model) are complete: a five-service
+Docker stack with health-gated startup, seven validated collections, an
+append-only audit trail, and a deterministic seed dataset. Detection logic
+is not yet implemented.
+
+See `docs/PROJECT_NOTES.md` for the day-by-day build log.
 
 ## Team
 
