@@ -1,5 +1,7 @@
 import { Schema, model, type InferSchemaType, type HydratedDocument } from "mongoose";
 import { serialize } from "./plugins.js";
+export const ROLES = ["student", "faculty", "admin"] as const;
+export type Role = (typeof ROLES)[number];
 const userSchema = new Schema(
   {
     email: {
@@ -24,7 +26,7 @@ const userSchema = new Schema(
     role: {
       type: String,
       required: true,
-      enum: ["student", "faculty", "admin"],
+      enum: ROLES,
       index: true,
     },
     // students only; sparse so faculty and admin are exempt from the unique index

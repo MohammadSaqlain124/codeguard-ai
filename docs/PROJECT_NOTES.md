@@ -3851,3 +3851,150 @@ plaintext password and a real bcrypt hash, logged under five
 different key paths. All five read [Redacted].
 
 **Commit:** `feat(api): add bcrypt password hashing with timing equalisation`
+
+## 2026-09-16 — Day 9 — File 034: apps/api/src/utils/jwt.ts
+
+**What we built:** JWT signing and verification — separate access
+and refresh tokens with their own secrets, HS256 with the algorithm
+pinned on verify, registered claims (sub, iss, aud, exp, jti) plus
+private role and type claims, error translation into AppError, and a
+bearer-header parser. Plus the ROLES export added to User.ts.
+
+**Why we built it:** HTTP is stateless, so something must let a
+request say "I am Sam, and I logged in." A server-side session
+stores { sessionId -> userId } and costs a lookup per request; a JWT
+carries the claims inside itself, signed so they cannot be altered,
+so the server reads the user id straight out. That matters here
+because the spec requires one API serving both a React app and an
+Android app — a token in an Authorization header works identically
+for both, while cookie sessions are a browser mechanism.
+
+**Why a separate file:** Separate from middleware/auth.ts by
+concern — this answers "is this token valid and what does it say?",
+a pure function over a string, while the middleware answers "should
+this request proceed?", which involves req, res and HTTP semantics.
+That split lets us unit-test expiry, tampering and type confusion
+with no HTTP request, the same reasoning as password.ts. Separate
+from authController because the controller *composes* these.
+
+**Libraries introduced:**
+* `jsonwebtoken` — signs and verifies JWTs. Chosen over `jose`,
+  which is more modern and promise-based and supports the full JOSE
+  suite including encryption, because jsonwebtoken is the ecosystem
+  standard with far more examples and we need none of the extra
+  surface. Critical usage note: always pass `algorithms` on verify.
+* `@types/jsonwebtoken` — verified against the published package
+  that jsonwebtoken ships no types of its own, the same situation as
+  bcrypt.
+
+**Functions written:**
+* signAccessToken({ userId, role }) — 15-minute HS256 token.
+* signRefreshToken({ userId, role }) — returns { token, jti }, 7
+  days. The jti is returned so the caller can store it for
+  revocation without decoding the token again.
+* verify(token, secret, expected) — private. Checks signature,
+  algorithm, issuer, audience and expiry, then the type claim and
+  required fields.
+* verifyAccessToken / verifyRefreshToken — thin wrappers binding the
+  right secret and expected type.
+* extractBearerToken(header) — returns the token or null, never
+  throws.
+
+**Concepts learned:** JWT · claim · registered claims · HMAC ·
+symmetric vs asymmetric signing · alg:none attack · algorithm
+confusion attack · token type confusion · bearer token · deny-list ·
+TTL · satisfies
+
+**The most important property: a JWT payload is base64, not
+encrypted.** Anyone holding the token can decode and read it —
+confirmed in testing by decoding the payload segment with no secret.
+The one consequence: never put a secret in a JWT. Our claims are a
+user id and a role, both of which the user already knows about
+themselves. The signature is what makes it trustworthy, not
+secrecy.
+
+**Pinning `algorithms` on verify is not optional.** Omitting it
+enables two well-known forgeries. The alg:none attack: the JWT spec
+permits an algorithm named "none" meaning unsigned, so an attacker
+edits the header to {"alg":"none"}, sets role to admin, and drops
+the signature — a library that trusts the header accepts it. The
+HS/RS confusion attack: with RS256 an attacker switches the header
+to HS256 and signs with the *public* key, and a trusting library
+uses that public key as an HMAC secret. Both work by making the
+library trust the token's own claim about how it was signed. Pinning
+means the header's alg is ignored. **Never let the token tell you
+how to verify it.** Confirmed in testing: an alg:none forgery was
+rejected.
+
+**Decision made:** HS256 rather than RS256. Asymmetric signing
+matters when a *separate* service must verify without being able to
+sign; our detector never verifies tokens and only our API does
+either. One fewer key to distribute.
+
+**Decision made — a `type` claim as well as separate secrets.** The
+attack: a refresh token lives 7 days while an access token lives 15
+minutes, so without a type check a stolen refresh token presented as
+an access token turns a 15-minute exposure into a 7-day one.
+Separate secrets already prevent this, since a refresh token fails
+verification against the access secret — but the type check is a
+second independent mechanism that still holds if the two secrets
+were ever accidentally set identical. Same defence-in-depth as
+select: false plus the toJSON transform at File 020.
+
+**Decision made — role inside the token.** It makes requireRole a
+pure function with no database call, so every authenticated request
+avoids a query. The cost is that the role is *frozen at login*:
+demote a faculty member and their existing access token still says
+faculty for up to 15 minutes. **That window is the entire reason the
+access token is short-lived — the two decisions are one decision.**
+An hour-long token would mean an hour of stale privileges. Honest
+note for the report: a genuinely sensitive action, like changing
+another user's role, should still re-read the user from the
+database rather than trust the claim.
+
+**jti now, deny-list later.** A JWT cannot be revoked before it
+expires — there is no server-side record to delete. The standard
+answer is a deny-list: on logout, store the refresh token's jti in
+Redis with a TTL matching its remaining life, and check it on
+refresh. That makes refresh stateful, which sounds like it defeats
+the point and does not: the access token is verified on *every*
+request with no lookup, while the refresh happens every 15 minutes
+and pays one Redis check. Stateless where the volume is, stateful
+where revocation is needed. Adding jti later would mean every
+existing token lacks it, so two lines now.
+
+**Honest counter-argument for the report:** server-side sessions are
+*revocable immediately*; JWTs are not. We compensate with a
+15-minute access token and a jti for refresh revocation, but "log
+this user out now" is genuinely harder with JWTs. A real trade, not
+a free win.
+
+**Decision made:** issuer and audience checks. Low value today — we
+run one API with secrets nobody else has — but they become valuable
+with a staging environment alongside production, where a staging
+token must not work against production data. Two lines, standard
+practice, named as belt-and-braces rather than pretended essential.
+
+**Error translation here, which File 031 deferred deliberately.**
+TokenExpiredError becomes AppError.tokenExpired(); everything else
+becomes tokenInvalid(). The distinction matters to a client:
+TOKEN_EXPIRED means "your session is fine, refresh silently" while
+TOKEN_INVALID means "something is wrong, log in again". Different
+responses need different codes — exactly the argument for codes
+alongside HTTP statuses at File 030. Everything else collapses to
+tokenInvalid deliberately, because distinguishing "bad signature"
+from "malformed" tells an attacker how close their forgery came.
+
+**File 020 revisit:** added `export const ROLES = [...] as const` and
+`export type Role`, the inconsistency noticed at File 022 when
+Assignment.ts exported LANGUAGES the same way. Needed here, and by
+requireRole and the auth Zod schemas.
+
+**Deliberately not here:** refresh-token rotation (best practice is
+to issue a new refresh token on every refresh and invalidate the
+old, so a stolen token is detectable through reuse — but it needs
+storage, so File 038), cookie versus header handling (File 038, with
+the controller that sets the response), and the token deny-list
+(needs Redis, Phase 3).
+
+**Commit:** `feat(api): add jwt signing and verification with algorithm pinning`
