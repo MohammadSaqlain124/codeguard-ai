@@ -3,10 +3,12 @@ import { env } from "./config/env.js";
 import { connectDb, disconnectDb } from "./db/connect.js";
 import { initModels } from "./models/index.js";
 import { logger } from "./config/logger.js";
+import { connectRedis, disconnectRedis } from "./db/redis.js";
 
 try {
   await connectDb();
   await initModels();
+  await connectRedis();
 } catch (err) {
   logger.fatal({ err }, "startup failed");
   process.exit(1);
@@ -36,6 +38,8 @@ function shutdown(signal: string) {
       logger.fatal({err},"error closing server:");
       process.exit(1);
     }
+    await disconnectRedis();
+    await disconnectDb();
     await disconnectDb();
     logger.info("shutdown complete");
     process.exit(0);

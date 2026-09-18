@@ -4412,3 +4412,129 @@ params behave exactly like body — unknown keys are gone.
 **Lesson:** "it validated correctly" is not the same as "the parsed
 result was used." The rejection tests all passed while the success
 path silently threw its output away.
+
+## 2026-09-18 — Day 10 — File 038: apps/api/src/controllers/authController.ts
+
+**What we built:** Six handlers — register, createUser, login,
+refresh, logout, me — composing everything from Files 030–037 into
+operations a user can perform. Plus db/redis.ts, an ioredis client
+with a jti deny-list, wired into server.ts startup and shutdown.
+
+**Why we built it:** This is the first file that *does something*
+rather than defining a capability. Files 033–037 are primitives —
+hash a password, sign a token, verify a role, parse a body — and
+none of them is an operation a user can perform.
+
+**Why a separate file:** Separate from the routes because a route
+says which URL maps to which handler while a controller says what
+the handler does. That split makes a controller testable by direct
+call and keeps the route file a readable table of endpoints.
+Separate from the utils because those are pure functions with no
+HTTP; this is the composition layer.
+
+**Libraries introduced:** ioredis — chosen over node-redis (the
+official client, and fine) because ioredis has better cluster
+support and is what BullMQ uses internally, so Phase 3's queue pulls
+it in anyway. One client rather than two. Redis over MongoDB for
+revocation because TTL expiry is native and a deny-list is pure
+key-value with no query needs.
+
+**File 020's deferred decision came due.** I rejected a pre("save")
+hashing hook there with a stated trade-off: the hook is safer
+against forgetting, and we accept a small risk for an explicit cost.
+This controller is the one place that must not forget. There are
+exactly two write paths — here and the seed — and both hash
+explicitly.
+
+**File 030's deferred timing leak, closed.** I wrote there that the
+identical "Authentication required" message stops an attacker
+*reading* which emails exist, but a subtler leak remained: a naive
+login returns in ~5ms for an unknown email and ~255ms for a wrong
+password, because only the second runs bcrypt. That 250ms gap is
+trivially measurable over a network, so scripting a few thousand
+addresses would yield a clean list of registered accounts and the
+identical message would have bought nothing. fakeVerify() on the
+not-found path closes it. **Ordering detail:** the isActive check
+comes *after* password verification — reversed, a deactivated
+account would return faster than a wrong password and reintroduce
+the signal.
+
+**File 034's deferred rotation, implemented.** refresh revokes the
+presented token's jti and issues a new pair, so a stolen refresh
+token is usable exactly once and its reuse is *detectable* — the
+legitimate user's next refresh presents an already-revoked token and
+fails. **Honest gap:** best practice treats a revoked-token
+presentation as evidence of compromise and invalidates the entire
+token family, logging the user out everywhere. We log a warning and
+reject. Better than nothing, short of best practice — name it in the
+report.
+
+**The role is re-read from the database on refresh**, so a demotion
+takes effect within 15 minutes rather than 7 days. That bounds the
+stale-role window flagged at File 034 to the access token's life.
+
+**Decision made — header tokens rather than httpOnly cookies, and
+this is the weakest security decision in Phase 2.** An httpOnly
+cookie is meaningfully safer against XSS, since JavaScript cannot
+read it and an injected script cannot steal the token, while a
+header token usually lives in localStorage where any script can read
+it. But cookies are a *browser* mechanism: the Android app would
+need a cookie jar and withCredentials, and cookies bring CSRF into
+scope needing its own mitigation. One token format for two clients
+is the constraint the spec sets. Mitigated by a 15-minute access
+token and rotation, which bound the damage rather than preventing
+it. A production system serving only a browser should use httpOnly
+cookies. **Report limitation.**
+
+**Decision made:** explicit fields rather than ...req.body in
+register. .strict() already rejects a role key and File 037 replaces
+req.body with parsed output containing only schema fields — this is
+the *third* independent layer, and the one that holds even if a
+future schema drops .strict(). role: "student" is a literal in the
+source, so there is no code path by which a client can influence it.
+
+**.select("+passwordHash") appears exactly once in the codebase.**
+That was the whole argument for select: false at File 020 — the
+dangerous case is the forgotten one, and res.json(await
+UserModel.find()) in some list endpoint would otherwise serialise
+every hash. And res.json({ user, ...tokens }) is safe even with the
+hash loaded, because the serialize plugin from File 027 strips it at
+the JSON boundary. Two independent mechanisms, and the second is
+what saves us here.
+
+**Decision made:** audit entry written *second*, after the state
+change. This is the File 019 transaction limitation designed around:
+we cannot do both atomically on a standalone node, so a crash
+between them leaves either a real account with no log entry (bad) or
+a log entry for an account that never existed (worse, because it is
+a *false record*). An audit trail containing entries for things that
+never happened is untrustworthy in a way a missing entry is not.
+Note the seed script gets this backwards, as flagged at File 029 —
+this file is the correct pattern.
+
+**Decision made:** a deny-list rather than an allow-list. Storing
+every issued token would mean a Redis write per login and a set
+growing with usage. tokensFor discards the jti at issue time and it
+is read back out of the token when presented, so Redis holds only
+revocations and the TTL cleans them up.
+
+**Decision made:** logout returns 204 even on a garbage token. A
+client that has lost or corrupted its token still needs to clear
+local state, and returning 401 would leave the frontend unable to
+log out — a worse experience than an ineffective revocation, which
+achieves nothing anyway on a token that was never valid.
+
+**Known smell:** REFRESH_TTL_SECONDS is hardcoded as 7*24*60*60,
+duplicating JWT_REFRESH_EXPIRY=7d in .env. Change one and the other
+silently disagrees. Not derived because the env value is a string
+like "7d" and parsing durations properly means a dependency or a
+hand-written parser. **The better fix is to read the token's own exp
+claim** and compute the remaining seconds, which is more correct
+anyway since a token presented on day six needs only one more day of
+revocation. Two lines once verifyRefreshToken returns exp.
+
+**No try/catch anywhere in this file.** Express 5 forwards a
+rejected promise from an async handler to the error middleware
+automatically — the File 007 version note doing real work.
+
+**Commit:** `feat(api): add auth controller with token rotation and revocation`
