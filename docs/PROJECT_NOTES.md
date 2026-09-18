@@ -4390,3 +4390,25 @@ and at runtime (`module.exports.pinoHttp = pinoLogger`).
 **Lesson:** when a default import of a CommonJS package fails under
 NodeNext, look for a named export of the same thing. It usually
 exists.
+
+**Battle — query coercion silently discarded.** Validation ran and
+rejected limit=500 correctly, but req.query.page was still the
+string "3" and schema defaults were not applied.
+
+**Cause:** in Express 5, req.query is a *getter that re-parses the
+URL on every access*. Object.assign mutates a throwaway object, and
+the next read returns strings again. Verified against Express 5
+directly: Object.assign gave {"page":"9"} (string) while
+Object.defineProperty gave {"page":3} (number).
+
+**Fix:** Object.defineProperty(req, source, { value, writable,
+configurable }) replaces the property outright.
+
+**This also corrects an earlier claim in this entry.** I wrote that
+unknown keys survive on query because Object.assign copies over
+them. With defineProperty the whole object is replaced, so query and
+params behave exactly like body — unknown keys are gone.
+
+**Lesson:** "it validated correctly" is not the same as "the parsed
+result was used." The rejection tests all passed while the success
+path silently threw its output away.

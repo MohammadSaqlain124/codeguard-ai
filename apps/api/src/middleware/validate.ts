@@ -21,8 +21,13 @@ export function validate(schema: ZodType, source: Source = "body") {
     if (source === "body") {
       req.body = parsed.data;
     } else {
-      // req.query and req.params are getter-only in Express 5, so mutate in place
-      Object.assign(req[source], parsed.data);
+      // req.query and req.params are getters that re-parse on every access in
+      // Express 5, so Object.assign mutates a throwaway object. Redefine instead.
+      Object.defineProperty(req, source, {
+        value: parsed.data,
+        writable: true,
+        configurable: true,
+      });
     }
 
     next();
