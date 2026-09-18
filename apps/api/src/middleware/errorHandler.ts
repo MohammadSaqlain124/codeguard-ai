@@ -62,7 +62,8 @@ function fromDuplicateKey(err: { keyPattern?: Record<string, unknown> }) {
  * Express identifies this as error middleware by its four parameters.
  */
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
-  const requestId = randomUUID();
+  // pino-http attaches req.id; fall back if this handler is used without it
+  const requestId = String(req.id ?? randomUUID());
 
   let status = 500;
   let code: ErrorCode = "INTERNAL";

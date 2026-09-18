@@ -4253,3 +4253,140 @@ and email-verification tokens (needs email delivery, out of scope —
 name it in the report's limitations).
 
 **Commit:** `feat(api): add auth validation schemas with strict object parsing`
+
+## 2026-09-18 — Day 10 — File 037: apps/api/src/middleware/validate.ts
+
+**What we built:** A generic factory turning any Zod schema into
+Express middleware, parsing body, query or params and *replacing*
+the parsed part with the result. Three convenience wrappers. Plus
+pino-http wired into app.ts and errorHandler switched to read
+req.id.
+
+**Why we built it:** File 036 declared what valid input looks like;
+nothing ran those schemas. Without middleware every controller opens
+with the same three lines, and the one that forgets means
+unvalidated input reaching the database — a worse failure than a
+forgotten error handler. The second job is what makes it more than
+boilerplate: replacing req.body means the controller receives
+normalised, typed data rather than raw input plus a promise to be
+careful.
+
+**Why a separate file:** Separate from the schemas because a schema
+is data and this is behaviour — one generic function serves all
+twenty schemas, and they do not need to know Express exists.
+Separate from errorHandler despite both being middleware: that one
+is the funnel at the *end*, this runs *before* a controller. The
+split is what lets this file simply throw, since File 031 already
+knows how to turn a ZodError into a 400 with a field list.
+
+**Libraries introduced:** None new. pino-http, installed at File 032
+and unused until now, is finally wired.
+
+**Functions written:**
+* validate(schema, source) — returns middleware. Same higher-order
+  pattern as requireRole at File 035, and for the same reason: the
+  schema differs per route.
+* The returned validator — safeParse, then next(error) or replace
+  and continue. Never throws directly.
+* validateBody / validateQuery / validateParams — pre-configured
+  wrappers. Arguably unnecessary, kept because routes are read far
+  more than written and validateQuery(schema) says what it does
+  without checking a second argument.
+
+**Concepts learned:** getter-only property · Object.assign · request
+ID / correlation ID · ZodType · type gymnastics
+
+**Replacing req.body is the line that matters.** Without it the
+middleware only *checks* and hands the controller the original
+object, so req.body.email would still be "  Sam@X.COM  " and every
+transform from File 036 would be discarded. Replacement also means
+unknown keys are gone even without .strict(), so { ...req.body } in
+a controller is safe — a second layer under .strict() where either
+alone is sufficient. Confirmed in testing: the controller received
+"sam@invertis.ac.in" and "BCS2023126".
+
+**Express 5 change worth knowing: req.query and req.params are
+getter-only.** Assigning throws "Cannot set property query of
+#<IncomingMessage> which has only a getter". Object.assign mutates
+in place instead. **Honest consequence:** for query and params,
+unknown keys are *not* removed — Object.assign copies the parsed
+fields over and leaves anything else. So .strict() is the real guard
+on query parameters, and the belt-and-braces stripping only applies
+to body. Worth knowing rather than assuming symmetry.
+
+**Why query validation matters:** every query value arrives as a
+*string*, so ?limit=50 gives "50". A schema with z.coerce.number()
+converts it — the same coercion problem as env.ts at File 009, at a
+different boundary. Confirmed: typeof req.query.page was "number"
+after validation.
+
+**Decision made — ZodType rather than a generic ZodSchema<T>.** The
+generic version would let TypeScript infer the parsed shape and flow
+it into req.body's type. It also means fighting Express's Request
+generics, which are four type parameters deep and produce error
+messages nobody can read. **Honest trade:** req.body stays typed as
+any after validation, and controllers cast with
+`req.body as RegisterInput`. The cast is *sound*, because this
+middleware guarantees the shape — but it is less elegant than
+inference, and that is simplicity chosen over type gymnastics rather
+than a free win.
+
+**Decision made:** next(error) rather than throw. Both work in
+Express 5, but next(err) is explicit about routing to error
+middleware and also works in Express 4, which matters if a teammate
+copies the pattern from a tutorial-based project. And safeParse
+rather than parse, so success and failure are both visible in the
+code rather than one being implicit in a thrown exception — the same
+reasoning as env.ts.
+
+**Decision made:** no error translation here. File 031 already
+handles ZodError. Two places knowing Zod's error shape is one too
+many.
+
+**File 031 and File 010 revisit — the request-ID gap closed.**
+File 031 generated a correlation ID at *error* time, so only
+failures were traceable and a student reporting "the page was slow"
+had no ID to give. pino-http now attaches one to every request,
+returns it as an x-request-id response header, and errorHandler
+reads req.id rather than generating its own. Previously an error
+body and its log line carried *different* UUIDs for the same
+request, which would have been actively confusing during a real
+investigation. Confirmed in testing: the header and the error body
+carry the same id.
+
+**customLogLevel drops /health to debug.** Without it every request
+logs at info, and the Docker healthcheck hits /health every ten
+seconds — 8,640 lines a day of pure noise burying everything else.
+At debug it is filtered out by default but still available.
+pino-http is registered *first*, before helmet, so a request failing
+inside any later middleware is still logged with its timing and
+status.
+
+**Deliberately not here:** header validation (headers are set by
+clients and proxies we do not control, and rejecting unexpected ones
+breaks in ways that are hard to diagnose — the one header that
+matters, Authorization, is parsed by extractBearerToken), file
+validation (multipart is not JSON; multer handles it in Phase 3),
+response validation (overkill — we control what we send), and input
+sanitisation (XSS is the frontend's concern since React escapes by
+default, and sanitising on input would corrupt legitimate code
+submissions, which contain < and > constantly).
+
+**Commit:** `feat(api): add validation middleware and per-request logging`
+
+**Battle — pinoHttp default import not callable.** TS2349: "Type
+'typeof import(...pino-http/index)' has no call signatures." Cause:
+pino-http v11 is CommonJS but its .d.ts uses `export default`, and
+our tsconfig has module: NodeNext without esModuleInterop — so a
+default import from a CJS module resolves to the module *namespace*
+rather than the function. express and pino work because their
+definitions use `export = express`, the TypeScript form for "this
+module's whole export is one value", which NodeNext handles.
+
+**Fix:** `import { pinoHttp } from "pino-http"`. The package exports
+it by name at both the type level (`export { PinoHttp as pinoHttp }`)
+and at runtime (`module.exports.pinoHttp = pinoLogger`).
+
+**Lesson:** when a default import of a CommonJS package fails under
+NodeNext, look for a named export of the same thing. It usually
+exists.
