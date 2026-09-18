@@ -4129,3 +4129,127 @@ Seven lines, and the pattern is worth having named, but it is fair
 to call it speculative.
 
 **Commit:** `feat(api): add auth and role middleware with stale-token check`
+
+## 2026-09-18 — Day 10 — File 036: apps/api/src/validation/authSchemas.ts
+
+**What we built:** Four Zod schemas — registerSchema (public, no role
+field), createUserSchema (admin-only, with role and two cross-field
+rules), loginSchema (deliberately loose) and refreshSchema. Plus
+reusable email, password and rollNo field schemas, and four inferred
+types.
+
+**Why we built it:** Every request body is untrusted input from the
+internet, and TypeScript cannot help because types are erased at
+compile time — req.body is `any` at runtime, so
+req.body.email.toLowerCase() throws if someone sends
+{"email": 42}. But the more important job is what this file refuses
+to let a client decide: if registration accepted a role field,
+anyone could POST {"role":"admin"} and grant themselves access to
+every submission and detection result in the system. That is mass
+assignment, and it caused GitHub's 2012 breach.
+
+**Why a separate file:** Separate from the controller because a
+schema is a *declaration*, not behaviour. Separate from the Mongoose
+models even though both validate, because they guard different
+boundaries: Mongoose guards the database and sees what our code
+passes; Zod guards the HTTP boundary and sees what a stranger sends.
+A Mongoose schema cannot stop a client sending role: "admin" — by
+the time the model sees it, our controller has already decided to
+pass it. New validation/ folder because it will grow.
+
+**Libraries introduced:** None new. Zod used for boundary validation
+for the first time, having previously only validated environment
+variables.
+
+**Functions written:** No named functions. Three refine predicates:
+the bcrypt byte limit, students-must-have-a-rollNo, and
+non-students-must-not.
+
+**Concepts learned:** mass assignment · privilege escalation ·
+strict object validation · input vs output type · schema
+composition · implication in a predicate · boundary validation
+
+**.strict() is the most important line in the file.** By default Zod
+*ignores* unknown keys, so { email, password, name, rollNo, role:
+"admin" } would parse successfully and silently drop role. That
+sounds safe and is fragile: the moment a controller does
+`UserModel.create({ ...req.body, role: "student" })`, someone
+reorders the spread or adds a field and the dropped key comes back.
+.strict() makes the attempt fail loudly with "Unrecognized key:
+role" instead of silently succeeding. Defence in depth — the field
+is not in the schema, *and* sending it is an error. Honest cost: a
+client sending an extra harmless field gets a 400, so a frontend
+adding rememberMe before the backend knows about it breaks. The
+right trade for an endpoint granting access to academic-integrity
+records.
+
+**Decision made — two schemas rather than one with a conditional.**
+The rejected alternative was a single schema with
+role: z.enum(ROLES).optional() and the controller checking whether
+the caller is an admin. That works and puts the security decision
+inside a conditional where it can be missed while refactoring. Two
+schemas make it *structural*: RegisterInput has no role property at
+all, so a controller cannot accidentally pass one — it is a compile
+error, not a runtime check.
+
+**The second cross-field rule is the File 020 sparse-index trap
+surfacing at the HTTP boundary.** A sparse unique index skips
+*missing* fields, so a faculty account with rollNo undefined is
+fine — but sending rollNo: "" or null would put the document into
+the index, and the second such faculty account would collide with
+E11000. Rejecting it here means the model never sees it. Confirmed
+in testing: "faculty WITH rollNo" fails.
+
+**Decision made — loginSchema is deliberately loose**, with no
+.email() and no length rules. Three reasons. Strict validation is an
+information leak: if a well-formed-but-unregistered email returns
+401 while a malformed one returns 400, an attacker learns which
+addresses are *shaped* like real accounts — the same enumeration
+surface File 030 and File 033 both worked to close. Rules change
+over time: raising the password minimum to 12 would lock out every
+existing user with an 11-character password, rejected at the
+boundary before verifyPassword is reached. And the check that
+matters is the hash comparison, which length rules add nothing to.
+**Viva phrasing: registration enforces policy; login only checks
+credentials.**
+
+**Decision made:** password rules duplicated from File 033's
+password.ts, deliberately. Different purposes — the Zod layer gives
+a *useful* 400 naming the field so the frontend can highlight it,
+while password.ts is the backstop for code paths that do not come
+through HTTP, like the seed script. The byte-length check is
+non-negotiable in both: bcrypt silently truncates past 72 bytes, and
+Buffer.byteLength rather than .length matters because a Devanagari
+character is three bytes. Confirmed: 57 Devanagari bytes accepted,
+100 emoji bytes rejected.
+
+**Normalisation happens here *and* in the Mongoose setters**, which
+is intentional redundancy rather than duplication. Zod catches HTTP
+input; Mongoose catches the seed, migrations and admin tools.
+
+**z.infer cashes in the File 007 argument.** Zod was chosen over Joi
+on exactly this — one schema gives runtime validation *and* the
+compile-time type. RegisterInput is derived from the schema so it is
+always accurate, and it reflects the *output* type after transforms.
+File 038's controller signature makes req.body.role a compile error,
+because the property does not exist.
+
+**Uncertainty to resolve before the demo:** the rollNo regex
+/^[A-Z]{2,4}\\d{4,10}$/ is a generalisation of BCS2023126. If
+Invertis uses a different scheme — a slash, a hyphen, a different
+letter count — this will reject valid roll numbers, and that is the
+kind of thing that only surfaces in front of an examiner. Check it
+against a real list; /^[A-Z0-9-]{6,20}$/ is the safe fallback.
+
+**Used z.string().email() rather than Zod 4's newer top-level
+z.email().** Both should work; the chained form is *demonstrated*
+working in our exact version, since File 031's test produced
+"Invalid email address" from it. Preferred the form seen running
+over the one believed current.
+
+**Deliberately not here:** password confirmation (a frontend
+concern), CAPTCHA and rate limiting (Phase 3, with the Redis store),
+and email-verification tokens (needs email delivery, out of scope —
+name it in the report's limitations).
+
+**Commit:** `feat(api): add auth validation schemas with strict object parsing`
