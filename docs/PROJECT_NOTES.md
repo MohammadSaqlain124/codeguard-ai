@@ -4700,3 +4700,12 @@ both committed untested last week because of a stale MONGO_URI.
 ### Phase 2 closed — Files 030–040
 - Error envelope, logging with redaction and request ids, bcrypt passwords, JWT with type claim and rotation, Redis deny-list, auth/role/active-user middleware, strict Zod validation, auth routes, and 15 automated tests.
 - Carried into Tier 1: /refresh message says "Access token"; no rate limiting (register reveals whether an email exists); pino-http logs every response header.
+
+### File 041 — src/validation/common.ts (Day 11, 21 Sep) — Phase 3 begins
+- Purpose: shared Zod helpers for every Phase 3 schema: objectId, pagination (page/limit), queryBoolean, skipFor.
+- objectId requires a string of exactly 24 hex characters. It fails early with a field name and blocks NoSQL injection like {"$ne": null}.
+- pagination is a plain shape to spread into z.object(...). Coerces strings to numbers; limit is capped at 100.
+- Trap: z.coerce.boolean("false") === true, because non-empty strings are truthy. queryBoolean accepts only "true"/"false".
+- skipFor(page, limit) = (page - 1) * limit. Avoids the off-by-one that skips page 1.
+- Chose offset pagination over cursor pagination: simpler, and enough for hundreds of records.
+- Plan change: MinIO storage moved to File 047, just before upload.
