@@ -4605,3 +4605,75 @@ pino-http wiring (x-request-id present on a successful request) —
 both committed untested last week because of a stale MONGO_URI.
 
 **Commit:** `feat(api): add auth routes and mount them on the app`
+
+## 2026-09-21 — Day 11 — File 039: apps/api/src/routes/authRoutes.ts
+
+**What we built:** An Express Router with six auth endpoints —
+register, login, refresh, logout (public), me (signed in) and users
+(admin only) — mounted at /api/auth in app.ts before the not-found
+handler.
+
+**Why we built it:** Files 035–038 built middleware and handlers,
+and no URL reached any of them. After this file the running API
+accepts real logins for the first time.
+
+**Why a separate file:** The controller says what a handler does;
+the route file says which URL reaches it and what runs first.
+Reading this file should show every auth endpoint and its protection
+at a glance. Separate from app.ts, which assembles routers rather
+than defining them.
+
+**Libraries introduced:** None new. First use of express.Router —
+a mountable group whose paths are relative, so the prefix is decided
+where it is mounted.
+
+**Functions written:** None. Six route registrations.
+
+**Concepts learned:** router · mount point · middleware chain order ·
+safe method · API versioning
+
+**Decision made — authorise before validating on protected routes.**
+On /users the chain is requireAuth, requireActiveUser, requireRole,
+validate, createUser. Reversed, a stranger posting {} would get a
+400 with a field list — email, password, name, role, rollNo — which
+tells them the endpoint exists, what it creates, and that role is
+settable somewhere. Authorising first gives them a 401 and nothing
+else. Don't describe a door to someone not allowed to open it.
+Confirmed: an empty unauthenticated POST to /users returned 401,
+not 400.
+
+**requireActiveUser only on /users.** Creating an account with an
+arbitrary role is the most privileged operation in the system, and a
+deactivated admin's token works for up to 15 minutes otherwise. It
+sits before requireRole, honouring the ordering dependency flagged
+at File 035.
+
+**Decision made:** POST for refresh and logout. Both write to the
+Redis deny-list, and GET is meant to be safe to repeat — a
+GET /logout could be triggered by an <img> tag on any page.
+
+**Decision made:** no version prefix. /api/v1 exists so old clients
+keep working while the API changes; we have one client version of
+each app and control all of them. The router is prefix-agnostic, so
+adding one later is a one-line change in app.ts.
+
+**Ordering in app.ts:** the router mounts after /health and before
+notFoundHandler. After it, every auth request would 404, since
+Express runs handlers in registration order and the not-found
+handler matches everything.
+
+**Open gap:** no rate limiting on /login, the most obvious
+brute-force target. bcrypt's 250ms per attempt is a partial defence,
+not a real one. Phase 3, using the Redis connection from File 038.
+
+**Also verified by this file's test:** File 038's refresh rotation
+(a replayed refresh token returned 401 TOKEN_INVALID) and File 037's
+pino-http wiring (x-request-id present on a successful request) —
+both committed untested last week because of a stale MONGO_URI.
+
+**Commit:** `feat(api): add auth routes and mount them on the app`
+
+### File 039 — verified (Day 11, 21 Sep)
+- Full HTTP flow against the real app: 15/15 PASS. Covers register, duplicate, role injection, login (equal messages, ~220 ms either way thanks to fakeVerify), /me, token-type check, refresh rotation, logout, 403 for students, stale-role correction, and request ids.
+- Also confirms Files 034–038 and the File 037 x-request-id fix.
+- Known issues for later: (1) the refresh failure message says "Access token"; (2) /register 409 reveals that an email exists — rate limiting is the real defence; (3) pino-http logs every response header — trim with serializers.
