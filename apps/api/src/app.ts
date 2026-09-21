@@ -7,7 +7,7 @@ import { pinoHttp } from "pino-http";
 import { randomUUID } from "node:crypto";
 
 import { logger } from "./config/logger.js";
-
+import { authRouter } from "./routes/authRoutes.js";
 
 export function createApp() {
   const app = express();
@@ -38,7 +38,7 @@ export function createApp() {
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", uptime: process.uptime() });
   });
-
+  app.use("/api/auth", authRouter);
   app.use(notFoundHandler);
   app.use(errorHandler);
 
