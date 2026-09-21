@@ -4677,3 +4677,12 @@ both committed untested last week because of a stale MONGO_URI.
 - Full HTTP flow against the real app: 15/15 PASS. Covers register, duplicate, role injection, login (equal messages, ~220 ms either way thanks to fakeVerify), /me, token-type check, refresh rotation, logout, 403 for students, stale-role correction, and request ids.
 - Also confirms Files 034–038 and the File 037 x-request-id fix.
 - Known issues for later: (1) the refresh failure message says "Access token"; (2) /register 409 reveals that an email exists — rate limiting is the real defence; (3) pino-http logs every response header — trim with serializers.
+
+### File 040 — apps/api/tests/auth.test.ts (Day 11, 21 Sep) — closes Phase 2
+- Purpose: the auth flow as repeatable, automated tests (`npm test`) instead of throwaway scratch files.
+- Runs against the Docker Mongo/Redis on a separate `codeguard_test` database. A guard throws if the URI rewrite fails, so the dev data can never be wiped.
+- Key trick: static imports are hoisted, so app/db/models are imported dynamically in beforeAll, after MONGO_URI has been changed.
+- supertest calls the Express app in-process, with no port.
+- 15 tests: register (201, no hash, 409, role injection), login (equal failures, tokens), /me (ok, no token, refresh-as-access), refresh rotation, logout revocation, 403 for students, stale-role correction, request ids, and validateQuery coercion on a real Express app (proves the defineProperty fix).
+- Trade-offs: needs Docker up; tests share tokens, so read the first failure; tsc doesn't check tests/; audit-log write not tested yet.
+- Model export confirmed: `UserModel` is the model, `User` is the document type.
