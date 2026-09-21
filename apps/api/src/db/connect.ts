@@ -23,7 +23,7 @@ export async function connectDb() {
         serverSelectionTimeoutMS: 5000,
         maxPoolSize: 20,
       });
-      log.info({ db: env.MONGO_DB }, "mongo connected");
+      log.info({ db: mongoose.connection.name }, "mongo connected");
       return;
     } catch (err) {
       if (attempt === MAX_ATTEMPTS) throw err;

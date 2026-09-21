@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { existsSync } from "node:fs";
 import express from "express";
 import type { Express } from "express";
+import mongoose from "mongoose";
 import request from "supertest";
 import { z } from "zod";
 import { validateQuery } from "../src/middleware/validate.js";
@@ -28,6 +29,14 @@ beforeAll(async () => {
   const { createApp } = await import("../src/app.js");
 
   await db.connectDb();
+
+  // check the database we actually reached, not the URI we hoped would decide it;
+  // this runs before anything is cleared
+  if (mongoose.connection.name !== "codeguard_test") {
+    await db.disconnectDb();
+    throw new Error(`Refusing to run: connected to "${mongoose.connection.name}", not codeguard_test`);
+  }
+
   await models.initModels();
   await models.clearAllCollections();
   await redis.connectRedis();
@@ -35,6 +44,8 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
+  // if beforeAll refused to run, there is nothing to clean up
+  if (mongoose.connection.name !== "codeguard_test") return;
   await models.clearAllCollections();
   await redis.disconnectRedis();
   await db.disconnectDb();

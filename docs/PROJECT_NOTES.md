@@ -4686,3 +4686,17 @@ both committed untested last week because of a stale MONGO_URI.
 - 15 tests: register (201, no hash, 409, role injection), login (equal failures, tokens), /me (ok, no token, refresh-as-access), refresh rotation, logout revocation, 403 for students, stale-role correction, request ids, and validateQuery coercion on a real Express app (proves the defineProperty fix).
 - Trade-offs: needs Docker up; tests share tokens, so read the first failure; tsc doesn't check tests/; audit-log write not tested yet.
 - Model export confirmed: `UserModel` is the model, `User` is the document type.
+
+### File 040 follow-up — a lying log and a guard on the wrong thing (Day 11, 21 Sep)
+- Symptom: during `npm test` the "mongo connected" log said db "codeguard", which suggested the tests had wiped the dev database.
+- Check: listing the databases showed codeguard = 33 users (untouched) and codeguard_test = 0 (used, then cleared). The tests were fine; the log was wrong.
+- Cause: connect.ts logged `env.MONGO_DB`, a separate variable, while the real database comes from the URI. Two sources of truth that nothing keeps in sync.
+- Fix 1: log `mongoose.connection.name`, the database actually connected.
+- Fix 2: the test guard now checks `mongoose.connection.name === "codeguard_test"` after connecting and before clearing. The URI-string check alone verified the input, not the outcome.
+- Detail: vitest still runs afterAll when beforeAll throws, so afterAll must also check before cleaning up.
+- Lesson: logs and safety checks must report or verify real state, not the configuration expected to produce it.
+- Open: find out whether MONGO_DB is used anywhere else; if not, remove it from env.ts.
+
+### Phase 2 closed — Files 030–040
+- Error envelope, logging with redaction and request ids, bcrypt passwords, JWT with type claim and rotation, Redis deny-list, auth/role/active-user middleware, strict Zod validation, auth routes, and 15 automated tests.
+- Carried into Tier 1: /refresh message says "Access token"; no rate limiting (register reveals whether an email exists); pino-http logs every response header.
