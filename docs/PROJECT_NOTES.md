@@ -4709,3 +4709,12 @@ both committed untested last week because of a stale MONGO_URI.
 - skipFor(page, limit) = (page - 1) * limit. Avoids the off-by-one that skips page 1.
 - Chose offset pagination over cursor pagination: simpler, and enough for hundreds of records.
 - Plan change: MinIO storage moved to File 047, just before upload.
+
+### File 042 — src/validation/courseSchemas.ts (Day 11, 21 Sep)
+- Purpose: what a client may send for courses: create, update, enrol/remove, list, courseId param. Every body is .strict().
+- authSchemas.ts: `rollNo` is now exported so enrolment reuses the same rule (one source of truth).
+- code: trim, uppercase, then regex. Zod 4 runs these in order. Permissive on purpose (CS-501, BCSE-301A).
+- academicYear: regex for the shape, refine for the meaning (second year = (first + 1) % 100, which handles 2099-00).
+- Update omits code and academicYear, so they're immutable by omission. isArchived uses z.boolean() because JSON bodies carry real booleans; only query strings need queryBoolean. Empty update rejected.
+- Enrolment by roll number (faculty don't know Mongo ids). One schema for enrol and remove; duplicates removed after normalisation; max 200 per request.
+- `faculty` is optional in create. Role decides who may send it, which the controller (File 043) enforces: shape in the schema, permission in the controller.

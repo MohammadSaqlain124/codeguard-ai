@@ -22,7 +22,7 @@ const password = z
     message: `Must be at most ${MAX_PASSWORD_BYTES} bytes`,
   });
 
-const rollNo = z
+export const rollNo = z
   .string()
   .trim()
   .toUpperCase()
