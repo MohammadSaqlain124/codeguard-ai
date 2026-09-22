@@ -1,7 +1,7 @@
 import type { Request } from "express";
 
 import type { CourseDoc } from "../models/Course.js";
-import { AssignmentModel, CourseModel } from "../models/index.js";
+import { AssignmentModel, CourseModel, SubmissionModel } from "../models/index.js";
 import { AppError } from "../utils/AppError.js";
 
 export type Access = "view" | "manage";
@@ -41,4 +41,24 @@ export async function loadAssignmentFor(req: Request, access: Access) {
     throw AppError.notFound("Assignment");
   }
   return { assignment, course };
+}
+
+// Reads :submissionId from the URL. A student may see only their own work;
+// staff may see work in courses they manage. Everything else is a 404.
+export async function loadSubmissionFor(req: Request) {
+  const user = req.user!;
+  const submission = await SubmissionModel.findById(req.params.submissionId);
+  if (!submission) throw AppError.notFound("Submission");
+
+  if (user.role === "student") {
+    if (!submission.student.equals(user.id)) throw AppError.notFound("Submission");
+    return submission;
+  }
+
+  const assignment = await AssignmentModel.findById(submission.assignment);
+  const course = assignment ? await CourseModel.findById(assignment.course) : null;
+  if (!course || !canAccessCourse(user, course, "manage")) {
+    throw AppError.notFound("Submission");
+  }
+  return submission;
 }

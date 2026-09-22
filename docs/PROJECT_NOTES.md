@@ -5208,3 +5208,58 @@ detector's tree-sitter parse will fail and mark it failed, which is
 the right layer for that judgment.
 
 **Commit:** `feat(api): add upload middleware that accepts only small UTF-8 source files`
+
+## 2026-09-22 — Day 12 — File 051: apps/api/src/controllers/submissionController.ts
+
+**What we built:** createSubmission, listSubmissions,
+getSubmissionDetails and downloadSubmission. Also
+validation/submissionSchemas.ts (submissionIdParams,
+listSubmissionsQuery), and a File 046 revisit: access.ts gains
+loadSubmissionFor.
+
+**Why we built it:** This is where an upload becomes evidence: a
+record whose provenance and language are copied from the assignment
+and never change, plus the exact bytes in storage.
+
+**Why a separate file:** The workflow lives in the controller, input
+shape in the schema, and "who may read this code" in access.ts, so
+the review flow can reuse it without a second copy.
+
+**Libraries introduced:** None. First use of createHash("sha256"),
+Mongoose populate and res.attachment().
+
+**Functions written:** loadSubmissionFor (students: own work only;
+staff: courses they manage; else 404), the four handlers, and
+isDuplicateKey.
+
+**Concepts learned:** SHA-256 · race condition · unique index as a
+lock · populate · Content-Disposition
+
+**Decisions agreed (A–D):** A, every accepted upload counts as an
+attempt, and faculty can raise maxSubmissions. B, identical content
+is stored, never refused or announced; the hash is evidence for
+faculty, not a gate. C, lateness is decided by the server's clock
+when the upload finishes; submittedAt uses that same instant. D,
+students download only their own files; faculty only in courses they
+manage; downloads are logged.
+
+**Decision made — store, record, compensate.** putSubmission first
+(503 if storage is down, nothing half-done), then create the record.
+If that fails, removeSubmission. The try covers only create(), so a
+later failure can never delete a file whose record exists.
+
+**Decision made — the index settles the race.** Two simultaneous
+uploads both count the same attempts; the unique index {assignment,
+student, attempt} rejects one, whose file is removed, and it gets
+409 "try again". Verified: records equal files after a real
+concurrent pair.
+
+**Decision made:** students are forced to their own submissions in
+lists; ?student= is read only for staff. objectKey never reaches a
+client.
+
+**Limitations:** a crash between storing and recording leaves an
+orphan (File 049). SHA-256 catches byte-identical copies only; near
+copies are Layer 1's job.
+
+**Commit:** `feat(api): add submission controller with storage compensation and race handling`
