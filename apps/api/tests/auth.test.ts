@@ -1,64 +1,22 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { existsSync } from "node:fs";
 import express from "express";
 import type { Express } from "express";
-import mongoose from "mongoose";
 import request from "supertest";
 import { z } from "zod";
+
 import { validateQuery } from "../src/middleware/validate.js";
-
-// Static imports run before any line of this file. So the modules that read the
-// environment (app, db, models) are imported later, in beforeAll, after
-// MONGO_URI has been pointed at the test database.
-if (existsSync("../../infra/.env")) process.loadEnvFile("../../infra/.env");
-process.env.MONGO_URI = (process.env.MONGO_URI ?? "").replace("/codeguard?", "/codeguard_test?");
-
-if (!process.env.MONGO_URI.includes("/codeguard_test?")) {
-  throw new Error("Refusing to run: tests must use the codeguard_test database");
-}
+import { pick, startTestApp, stopTestApp } from "./helpers.js";
 
 let app: Express;
-let db: typeof import("../src/db/connect.js");
-let redis: typeof import("../src/db/redis.js");
-let models: typeof import("../src/models/index.js");
+let models: Awaited<ReturnType<typeof startTestApp>>["models"];
 
 beforeAll(async () => {
-  db = await import("../src/db/connect.js");
-  redis = await import("../src/db/redis.js");
-  models = await import("../src/models/index.js");
-  const { createApp } = await import("../src/app.js");
-
-  await db.connectDb();
-
-  // check the database we actually reached, not the URI we hoped would decide it;
-  // this runs before anything is cleared
-  if (mongoose.connection.name !== "codeguard_test") {
-    await db.disconnectDb();
-    throw new Error(`Refusing to run: connected to "${mongoose.connection.name}", not codeguard_test`);
-  }
-
-  await models.initModels();
-  await models.clearAllCollections();
-  await redis.connectRedis();
-  app = createApp();
+  ({ app, models } = await startTestApp());
 }, 30_000);
 
 afterAll(async () => {
-  // if beforeAll refused to run, there is nothing to clean up
-  if (mongoose.connection.name !== "codeguard_test") return;
-  await models.clearAllCollections();
-  await redis.disconnectRedis();
-  await db.disconnectDb();
+  await stopTestApp();
 });
-
-// finds a key at the top level or one level down (e.g. body.user.role)
-function pick(body: any, key: string): any {
-  if (key in body) return body[key];
-  for (const v of Object.values(body)) {
-    if (v && typeof v === "object" && key in v) return (v as any)[key];
-  }
-  return undefined;
-}
 
 const password = "codeguard-dev-2026";
 const student = { email: "sam@example.com", password, name: "Sam Test", rollNo: "BCS2023126" };

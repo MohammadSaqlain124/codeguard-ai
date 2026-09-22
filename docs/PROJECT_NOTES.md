@@ -5357,3 +5357,49 @@ minutes (every per-account limiter has this). Fixed windows allow a
 Nginx sits in front, or every request will share Nginx's IP.
 
 **Commit:** `feat(api): add Redis rate limiting for login, register, refresh and uploads`
+
+## 2026-09-22 — Day 12 — File 054: apps/api/tests/helpers.ts
+
+**What we built:** One shared, guarded test setup: startTestApp,
+stopTestApp, createUser, signIn, bearer, pick. File 040 revisit:
+auth.test.ts uses it (the 15 tests are unchanged). package.json:
+test script now runs vitest with --no-file-parallelism.
+
+**Why we built it:** File 055 adds two test files. Copying the setup
+would mean three copies of a safety guard. It also fixes the test
+pollution introduced by File 053: login counters survived between
+runs, so the fourth npm test within 15 minutes failed with 429.
+
+**Why a separate file:** Test files should read as what is being
+proven; the plumbing lives once. Named helpers.ts, not setup.ts,
+because vitest has its own setup-files feature.
+
+**Libraries introduced:** None.
+
+**Functions written:** see file. startTestApp: settings, dynamic
+imports, connect, guard, then clear the database, rl:* keys and test
+bucket. stopTestApp does nothing after a refused start.
+
+**Concepts learned:** test pollution · test fixture · file parallelism
+
+**Decision made — the guard is structural.** mods is set only after
+the connected database is verified, so stopTestApp can't clean
+anything after a refused start. The File 040 rule is now built into
+the code instead of being remembered in each file.
+
+**Decision made — sequential test files.** Parallel files sharing one
+test database would clear each other's data mid-run, giving random
+failures. --no-file-parallelism costs seconds.
+
+**Decision made:** tests use a separate MinIO bucket (submissions-test),
+emptied and removed at start and end, so no test can touch the real
+bucket.
+
+**Verified:** npm test four more times in a row, all 15 passed; no rl:*
+keys left afterwards; the guard still refuses without the URI rewrite.
+
+**Limitation:** tests share Redis database 0 with the dev server, so
+clearing rl:* also resets dev counters. A separate Redis db index for
+tests would fix it (small redis.ts change), deferred.
+
+**Commit:** `test(api): share a guarded test setup and clear rate-limit counters between runs`
