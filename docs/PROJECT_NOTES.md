@@ -5149,4 +5149,62 @@ if it can't delete, it logs an orphan.
 should use a bucket-scoped user). Orphans can accumulate; a cleanup
 job is a later concern.
 
+**npm audit (4 moderate, all transitive via minio):** decode-uri-
+component/query-string (DoS on malformed percent-encoding) and
+stream-json (DoS on deeply nested JSON). Accepted, not "fixed":
+their inputs are request URLs to our own MinIO (keys built from ids
+and a uuid, never user text) and responses from our own MinIO. The
+offered fix downgrades minio to 7.1.3, a breaking change. Re-check
+with `npm outdated minio` on each minio release.
+
 **Commit:** `feat(api): add MinIO storage module and create the bucket at startup`
+
+## 2026-09-22 — Day 12 — File 050: apps/api/src/middleware/upload.ts
+
+**What we built:** uploadSourceFile, which parses one multipart file
+into memory, checks it, and sets a typed req.upload (content,
+originalName, extension, sizeBytes, lineCount).
+
+**Why we built it:** This is where student code enters the system,
+and it is the most hostile input the API receives. Only a small, real
+UTF-8 text file with a .py or .java extension may reach the
+controller.
+
+**Why a separate file:** Multipart parsing and content checks are
+HTTP concerns. The submission controller receives req.upload and
+never touches multer; any later upload route can reuse it.
+
+**Libraries introduced:** multer (multipart parsing on busboy),
+@types/multer. Built-ins: path.win32, TextDecoder.
+
+**Functions written:** uploadSourceFile (exported), checkSourceFile,
+countLines, toAppError.
+
+**Concepts learned:** multipart/form-data · magic check · MIME type ·
+BOM · streaming limit
+
+**Decision made — checks from cheapest to most expensive:** size
+while streaming (413 at 256 KB, inclusive), extension (415), empty
+(400), NUL byte means binary (415), strict UTF-8 via TextDecoder
+fatal:true (415), at most 5,000 lines (400).
+
+**Decision made — the MIME type is ignored.** The client sets it, so
+it proves nothing; we judge the bytes.
+
+**Decision made — reject, never repair.** No re-encoding and no
+stripping: the stored file must be exactly what the student sent,
+because it is evidence.
+
+**Decision made — filenames:** win32.basename strips directories on
+any OS (it understands both \ and /); defParamCharset utf8 keeps
+non-English names intact. The name is stored in Mongo as data only;
+storage keys never contain it (File 049).
+
+**Decision made:** the route must run auth before this middleware,
+so strangers can't make the server buffer 256 KB.
+
+**Limitation:** garbage text with a .py extension passes here. The
+detector's tree-sitter parse will fail and mark it failed, which is
+the right layer for that judgment.
+
+**Commit:** `feat(api): add upload middleware that accepts only small UTF-8 source files`
