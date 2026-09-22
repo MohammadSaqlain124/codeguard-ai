@@ -4871,3 +4871,49 @@ including an identical 404 for "not yours", "not enrolled" and
 
 **Commit:** `feat(api): add course controller with ownership checks and atomic enrolment`
 
+## 2026-09-22 — Day 12 — File 044: apps/api/src/routes/courseRoutes.ts
+
+**What we built:** Six course endpoints on an Express Router, mounted
+at /api/courses in app.ts: list and get (any signed-in user), and
+create, update, enrol and remove (faculty and admin).
+
+**Why we built it:** File 043's handlers worked but no URL reached
+them. After this file the course feature is usable over HTTP by the
+web and Android clients.
+
+**Why a separate file:** A route file is a readable table of
+endpoints and their protection. The controller decides what happens;
+the routes decide who can reach it and in what order.
+
+**Libraries introduced:** None new. First use of router-level
+router.use() and of spreading a middleware array into a route.
+
+**Functions written:** None. Six route registrations, one
+router-level middleware, and the `staff` array.
+
+**Concepts learned:** router-level middleware · middleware chain ·
+action endpoint · idempotent
+
+**Decision made — requireAuth once, for the whole router.**
+router.use(requireAuth) guards every path under /api/courses, so no
+route can forget it. Unauthenticated requests to unknown course paths
+get 401, not 404.
+
+**Decision made — requireActiveUser on writes only.** It costs a
+database read per request. A deactivated faculty member reading for
+up to 15 more minutes is tolerable; changing rosters is not. It runs
+before requireRole because it corrects a stale role.
+
+**Decision made — roles on routes, ownership in the controller.**
+The route can check the role from the token; only the controller,
+after loading the course, can check "is it yours".
+
+**Decision made — POST /:courseId/students/remove, not DELETE with a
+body.** A DELETE body has no defined meaning in HTTP and some proxies
+and clients drop it. Less pure REST, reliable everywhere.
+
+**Order kept from File 039:** authorise, then validate params, then
+validate the body. A student posting {} gets 403, not a field list.
+
+**Commit:** `feat(api): add course routes and mount them at /api/courses`
+
