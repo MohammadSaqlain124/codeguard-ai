@@ -39,10 +39,7 @@ export class AppError extends Error {
     this.code = code;
     this.details = details;
 
-    // without this, the stack starts inside this constructor rather than at the throw site
-    Error.captureStackTrace(this, this.constructor);
-    // hides the constructor frame; the static factory frame remains one level up,
-    // so the throw site is the *second* line of the stack rather than the first
+    // start the stack trace at the caller, not inside this constructor
     Error.captureStackTrace(this, this.constructor);
   }
 
@@ -65,15 +62,15 @@ export class AppError extends Error {
     return new AppError(401, "TOKEN_EXPIRED", "Access token has expired");
   }
 
-  static tokenInvalid() {
-    return new AppError(401, "TOKEN_INVALID", "Access token is invalid");
+  static tokenInvalid(message = "Access token is invalid") {
+    return new AppError(401, "TOKEN_INVALID", message);
   }
 
   static forbidden(message = "You do not have permission to do that") {
     return new AppError(403, "FORBIDDEN", message);
   }
 
-  /** names the resource type only — never the id, which would confirm it exists */
+  /** names the resource type only, never the id, which would confirm it exists */
   static notFound(resource: string) {
     return new AppError(404, "NOT_FOUND", `${resource} not found`);
   }
@@ -92,6 +89,10 @@ export class AppError extends Error {
 
   static unsupportedMediaType(message: string) {
     return new AppError(415, "UNSUPPORTED_MEDIA_TYPE", message);
+  }
+
+  static tooManyRequests(retryAfterSeconds: number) {
+    return new AppError(429, "RATE_LIMITED", "Too many requests. Try again later.", { retryAfterSeconds });
   }
 
   static dependencyUnavailable(service: string) {

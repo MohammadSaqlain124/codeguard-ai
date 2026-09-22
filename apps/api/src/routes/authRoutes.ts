@@ -16,13 +16,14 @@ import {
   refreshSchema,
   registerSchema,
 } from "../validation/authSchemas.js";
+import { loginPerEmail, loginPerIp, refreshPerIp, registerPerIp } from "../middleware/rateLimit.js";
 
 export const authRouter = Router();
 
 // public
-authRouter.post("/register", validate(registerSchema), register);
-authRouter.post("/login", validate(loginSchema), login);
-authRouter.post("/refresh", validate(refreshSchema), refresh);
+authRouter.post("/register", registerPerIp, validate(registerSchema), register);
+authRouter.post("/login", loginPerIp, loginPerEmail, validate(loginSchema), login);
+authRouter.post("/refresh", refreshPerIp, validate(refreshSchema), refresh);
 authRouter.post("/logout", validate(refreshSchema), logout);
 
 // signed in

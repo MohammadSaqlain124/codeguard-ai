@@ -5302,3 +5302,58 @@ rate limiting (File 053) caps attempts.
 the other.
 
 **Commit:** `feat(api): add submission routes with auth before upload parsing`
+
+## 2026-09-22 — Day 12 — File 053: apps/api/src/middleware/rateLimit.ts
+
+**What we built:** A Redis fixed-window rate limiter, rateLimit(rule),
+and five policies: loginPerEmail (10 per 15 min), loginPerIp (300 per
+15 min), registerPerIp (100 per hour), refreshPerIp (60 per 15 min),
+uploadPerUser (10 per 10 min). Wired into authRoutes.ts and
+submissionRoutes.ts. File 030 revisit: AppError gains
+tooManyRequests(retryAfterSeconds), tokenInvalid accepts an optional
+message, and the duplicated captureStackTrace is removed.
+
+**Why we built it:** Closes two recorded gaps: unlimited password
+guessing on /login (File 039) and students hammering the upload path
+(File 052). bcrypt slows guessing; it doesn't stop it.
+
+**Why a separate file:** The mechanism is written once; each policy is
+a small rule object, so the routes read like a policy.
+
+**Libraries introduced:** None. First use of ioredis multi/exec.
+
+**Functions written:** rateLimit(rule), hashed(value), the five
+policies, AppError.tooManyRequests.
+
+**Concepts learned:** rate limiting · fixed window · Redis transaction
+· TTL · fail open vs fail closed · credential stuffing
+
+**Decision made — login keyed by email, not IP.** A whole lab can share
+one public IP; a per-IP login limit would lock out a class during its
+first practical. The per-IP rule is only a generous backstop. Emails
+are trimmed and lowercased before counting, so case changes can't
+dodge the limit.
+
+**Decision made — one transaction.** INCR, EXPIRE NX and TTL run as a
+unit. "INCR then EXPIRE if 1" as two round trips could leave a key
+with no expiry after a crash, locking an account forever.
+
+**Decision made — fail open.** If Redis is down, requests are allowed
+and an error is logged. Rate limits only slow attackers; the /refresh
+deny-list still fails closed, because it decides token validity.
+
+**Decision made:** keys hash emails and IPs (SHA-256, 32 hex chars),
+so Redis never holds a readable list of who logged in. Limiters run
+before validation, so malformed requests are counted too. 429
+responses carry Retry-After, plus retryAfterSeconds in the body.
+
+**Verified:** 3-per-5s rule gives 200 200 200 429, then resets. Eleven
+bad logins with mixed-case emails give ten 401s then 429, and the 429
+returns before bcrypt runs. With Redis disconnected, requests pass.
+
+**Limitations:** anyone knowing an email can block its logins for 15
+minutes (every per-account limiter has this). Fixed windows allow a
+2x burst at a boundary. app.set("trust proxy", 1) is needed once
+Nginx sits in front, or every request will share Nginx's IP.
+
+**Commit:** `feat(api): add Redis rate limiting for login, register, refresh and uploads`

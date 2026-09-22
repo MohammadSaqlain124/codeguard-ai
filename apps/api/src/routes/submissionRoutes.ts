@@ -7,6 +7,7 @@ import {
   listSubmissions,
 } from "../controllers/submissionController.js";
 import { requireActiveUser, requireAuth, requireRole } from "../middleware/auth.js";
+import { uploadPerUser } from "../middleware/rateLimit.js";
 import { uploadSourceFile } from "../middleware/upload.js";
 import { validateParams, validateQuery } from "../middleware/validate.js";
 import { assignmentIdParams } from "../validation/assignmentSchemas.js";
@@ -16,12 +17,13 @@ import { listSubmissionsQuery, submissionIdParams } from "../validation/submissi
 // already checked the token. mergeParams lets this router read :assignmentId.
 export const assignmentSubmissionRouter = Router({ mergeParams: true });
 
-// Order matters: who you are and whether the id is valid are checked before
-// the upload is read, so no one can make the server buffer a file for nothing.
+// Order matters: who you are, how often you've tried, and whether the id is
+// valid are all checked before the upload is read.
 assignmentSubmissionRouter.post(
   "/",
   requireActiveUser,
   requireRole("student"),
+  uploadPerUser,
   validateParams(assignmentIdParams),
   uploadSourceFile,
   createSubmission,
