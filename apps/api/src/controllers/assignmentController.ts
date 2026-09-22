@@ -88,8 +88,10 @@ export async function updateAssignment(req: Request, res: Response) {
   }
 
   assignment.set(input);
+  // what really changed, not just what was sent: Mongoose ignores a value set to itself
+  const changed = assignment.modifiedPaths();
   await assignment.save();
 
-  log.info({ assignmentId: assignment.id, changes: Object.keys(input), by: req.user!.id }, "assignment updated");
+  log.info({ assignmentId: assignment.id, changes: changed, by: req.user!.id }, "assignment updated");
   res.json({ assignment });
 }

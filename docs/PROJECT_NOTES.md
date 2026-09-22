@@ -5403,3 +5403,58 @@ clearing rl:* also resets dev counters. A separate Redis db index for
 tests would fix it (small redis.ts change), deferred.
 
 **Commit:** `test(api): share a guarded test setup and clear rate-limit counters between runs`
+
+## 2026-09-22 — Day 12 — File 055: apps/api/tests/courses.test.ts, submissions.test.ts
+
+**What we built:** 27 permanent tests for Phase 3: courses.test.ts (14:
+courses and assignments) and submissions.test.ts (13: upload, race,
+rate limit, reading). File 047 revisit: updateAssignment logs
+modifiedPaths(), the fields that really changed, instead of the keys
+that were sent.
+
+**Why we built it:** Every Phase 3 feature had only been checked by
+throwaway scratch files. These keep each decision re-checked on every
+npm test, and settle two owed items: the race's 409 and the
+exaggerating update log.
+
+**Why a separate file:** Courses and assignments are structure;
+submissions are evidence. Two files so a failure names the area. Both
+use helpers.ts, so neither contains setup or a copy of the guard.
+
+**Libraries introduced:** None.
+
+**Functions written:** submit, asBytes, idOf (test helpers).
+
+**Concepts learned:** regression test · flaky test · invariant
+
+**Decision made — assert invariants, not timings.** The race test
+accepts 201+409 or 201+201, but always requires: any non-201 is the
+409 "in progress", records equal the number of 201s, and files equal
+records. Demanding exactly one 409 would make a flaky test.
+
+**Decision made:** the rate-limit test layers limits (5 stored, 5
+refused with 409, then 429), proving the limiter counts refused
+uploads too.
+
+**Verified:** npm test, 42 passed across 3 files; race statuses printed;
+the update log shows "changes":["title"] for a request that also resent
+an unchanged language.
+
+**Gaps:** the log line itself isn't asserted (capturing pino in tests
+isn't worth it yet); admin downloads and pagination beyond page 1
+aren't tested.
+
+**Commit:** `test(api): add course, assignment and submission tests; log only fields that changed`
+
+## 2026-09-22 — Day 12 — Phase 3 closed (Files 041–055)
+
+Courses (enrolment by roll number, archiving), assignments (timezone-
+safe deadlines, provenance and language locked after submissions),
+submissions (upload checks, MinIO storage with compensation,
+race-safe attempts, downloads), a shared access service, Redis rate
+limiting, and 42 automated tests.
+
+Carried into Phase 4: the /refresh message (now a one-argument change
+via tokenInvalid(message)); trimming pino-http's logged headers;
+app.set("trust proxy", 1) at deployment; a separate Redis db index for
+tests; the MONGO_DB variable check; orphan cleanup.
