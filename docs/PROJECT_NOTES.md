@@ -4917,3 +4917,54 @@ validate the body. A student posting {} gets 403, not a field list.
 
 **Commit:** `feat(api): add course routes and mount them at /api/courses`
 
+## 2026-09-22 — Day 12 — File 045: apps/api/src/validation/assignmentSchemas.ts
+
+**What we built:** Schemas for creating, updating and listing
+assignments, and the assignmentId param.
+
+**Why we built it:** Assignments bring two risks courses didn't:
+time (deadlines have timezones) and baseline integrity (provenance
+decides what may ever enter a student's Layer 2 baseline).
+
+**Why a separate file:** One schema file per resource. LANGUAGES and
+PROVENANCE are imported from the model, so the database rule and the
+API rule cannot drift apart.
+
+**Libraries introduced:** None new. First use of Zod 4's
+z.iso.datetime({ offset: true }) and enum .exclude().
+
+**Functions written:** None. Four schemas, three inferred types.
+
+**Concepts learned:** ISO 8601 · UTC offset · local-time parsing ·
+provenance · state-dependent rule
+
+**Problem avoided — timezone-less deadlines.** JavaScript parses a
+date-time without an offset in the parsing machine's timezone: IST on
+the laptop, UTC in Docker. "23:59" would mean two different moments.
+The schema requires Z or an offset and rejects anything else.
+Verified: 23:59:00+05:30 is stored as 18:29:00Z, the same moment.
+
+**Decision made:** Date.now() is called inside each refine, so "the
+future" is measured per request. A module-level `now` would freeze at
+server start. Deadlines must also be within a year, which catches
+2062-for-2026 typos.
+
+**Decision made — provenance.** "unknown" is excluded from what
+faculty may choose (it exists for imported data only), and the model
+default is "takehome": if nobody decides, the work is treated as
+untrusted.
+
+**Decision made:** course comes from the URL, not the body, so the
+File 043 ownership check applies and there is no second source for
+the same fact.
+
+**Deferred to File 046:** language and provenance are accepted by the
+update schema, but the controller must refuse to change them once any
+submission exists. Otherwise homework could be retroactively made
+baseline-eligible, or parsed with the wrong grammar.
+
+**Decision made:** deadlines can be extended but not moved into the
+past; closing early would be a separate, explicit feature.
+
+**Commit:** `feat(api): add assignment validation schemas with timezone-safe deadlines`
+
