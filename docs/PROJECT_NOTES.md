@@ -4968,3 +4968,52 @@ past; closing early would be a separate, explicit feature.
 
 **Commit:** `feat(api): add assignment validation schemas with timezone-safe deadlines`
 
+## 2026-09-22 — Day 12 — File 046: apps/api/src/services/access.ts
+
+**What we built:** A shared access service: canAccessCourse (the rule
+as a pure function), loadCourseFor and loadAssignmentFor. Also a
+File 043 revisit: courseController.ts now imports loadCourseFor
+instead of defining it. No handler changed.
+
+**Why we built it:** Assignments need the same ownership rule as
+courses, since access to an assignment follows its course. A security
+rule copied into two controllers will eventually be wrong in one of
+them. Moved before the assignment controller exists, so there was
+never a second copy.
+
+**Why a separate file:** A controller importing from another
+controller is a tangle. Logic shared by several controllers, and not
+shaped like HTTP, belongs one level below them: the service layer.
+
+**Libraries introduced:** None.
+
+**Functions written:** canAccessCourse(user, course, access): admin
+always; owner for view and manage; enrolled students view only.
+loadCourseFor(req, access) and loadAssignmentFor(req, access): read
+the id from a fixed URL param, load, check, and return the same 404
+for missing and not-allowed.
+
+**Concepts learned:** service layer · pure function · refactor ·
+NonNullable<T>
+
+**Decision made — students never see unpublished work.** A draft
+returns 404 to a student even in a course they are enrolled in, the
+same answer as for an assignment that doesn't exist. Verified: s1 got
+404 on the draft, and OK once only isPublished changed.
+
+**Decision made:** loadAssignmentFor returns the course along with
+the assignment, so the controller can check isArchived without a
+second query. Two lookups by id rather than populate, for simpler
+types; both are fast at this scale.
+
+**Verified as a refactor:** loadCourseFor behaves exactly as in File
+043 (owner, enrolled, other faculty, admin), getCourse still hides
+the roster from students, and npm test still passes 15/15.
+
+**Plan renumbered:** 047 assignment controller, 048 assignment
+routes, 049 MinIO storage, 050 upload middleware, 051–052 submission
+controller and routes, 053 rate limiting, 054–055 course and
+submission tests.
+
+**Commit:** `refactor(api): move course and assignment access checks into a shared service`
+

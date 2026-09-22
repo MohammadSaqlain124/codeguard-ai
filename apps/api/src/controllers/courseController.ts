@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { componentLogger } from "../config/logger.js";
 import type { CourseDoc } from "../models/Course.js";
 import { CourseModel, UserModel } from "../models/index.js";
+import { loadCourseFor } from "../services/access.js";
 import { AppError } from "../utils/AppError.js";
 import { skipFor } from "../validation/common.js";
 import type {
@@ -21,23 +22,6 @@ function courseView(course: CourseDoc, withRoster: boolean) {
   json.studentCount = course.enrolledStudents.length;
   if (!withRoster) json.enrolledStudents = undefined;
   return json;
-}
-
-// Loads a course the current user may view or manage. A course they may not
-// touch gets the same 404 as a course that doesn't exist, so ids can't be probed.
-async function loadCourseFor(req: Request, access: "view" | "manage") {
-  const user = req.user!;
-  const course = await CourseModel.findById(req.params.courseId);
-  if (!course) throw AppError.notFound("Course");
-
-  const isAdmin = user.role === "admin";
-  const isOwner = course.faculty.equals(user.id);
-  const isEnrolled = course.enrolledStudents.some((s) => s.equals(user.id));
-
-  const allowed = access === "manage" ? isAdmin || isOwner : isAdmin || isOwner || isEnrolled;
-  if (!allowed) throw AppError.notFound("Course");
-
-  return course;
 }
 
 export async function createCourse(req: Request, res: Response) {
