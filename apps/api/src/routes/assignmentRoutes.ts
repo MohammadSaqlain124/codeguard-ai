@@ -15,6 +15,7 @@ import {
   updateAssignmentSchema,
 } from "../validation/assignmentSchemas.js";
 import { courseIdParams } from "../validation/courseSchemas.js";
+import { assignmentSubmissionRouter } from "./submissionRoutes.js";
 
 // same meaning as in courseRoutes.ts: re-check the account, then the role
 const staff = [requireActiveUser, requireRole("faculty", "admin")];
@@ -51,3 +52,6 @@ assignmentRouter.patch(
   validateBody(updateAssignmentSchema),
   updateAssignment,
 );
+
+// submissions to an assignment; requireAuth above already covers them
+assignmentRouter.use("/:assignmentId/submissions", assignmentSubmissionRouter);

@@ -5263,3 +5263,42 @@ orphan (File 049). SHA-256 catches byte-identical copies only; near
 copies are Layer 1's job.
 
 **Commit:** `feat(api): add submission controller with storage compensation and race handling`
+
+## 2026-09-22 — Day 12 — File 052: apps/api/src/routes/submissionRoutes.ts
+
+**What we built:** assignmentSubmissionRouter (submit and list at
+/api/assignments/:assignmentId/submissions, nested with mergeParams)
+and submissionRouter (details and file at /api/submissions/:id).
+File 048 revisit: assignmentRoutes.ts gains one mount line.
+
+**Why we built it:** File 051's handlers needed URLs, and the upload
+route needed its middleware in a deliberate order.
+
+**Why a separate file:** Same two-router pattern as File 048, so the
+API has one consistent shape: nested collections under their parent,
+single items at their own id.
+
+**Libraries introduced:** None.
+
+**Functions written:** None. Two routers, four routes, two mounts.
+
+**Concepts learned:** body parsing on demand · separate resource for
+file content
+
+**Decision made — check before reading the body.** The upload chain is
+requireAuth, requireActiveUser, requireRole("student"),
+validateParams, then uploadSourceFile. Verified: 300 KB with no token
+gets 401 and from faculty 403, not 413, because the body was never
+read.
+
+**Known gap:** the enrolment and published check runs in the
+controller, after the upload is buffered. A signed-in student could
+make the server read up to 256 KB for an assignment they can't
+access. Accepted: they must be an authenticated, active student, and
+rate limiting (File 053) caps attempts.
+
+**Decision made:** metadata at /submissions/:id (JSON) and bytes at
+/submissions/:id/file (download), so clients never parse one to get
+the other.
+
+**Commit:** `feat(api): add submission routes with auth before upload parsing`
