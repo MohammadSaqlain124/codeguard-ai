@@ -5103,3 +5103,50 @@ is mounted directly in app.ts, so it has its own.
 route files. Two lines; unify when middleware/auth.ts is next opened.
 
 **Commit:** `feat(api): add assignment routes, nested under courses and at /api/assignments`
+
+## 2026-09-22 — Day 12 — File 049: apps/api/src/storage/minio.ts
+
+**What we built:** The API's only door to MinIO: ensureBucket (run at
+startup from server.ts), submissionKey, putSubmission, getSubmission,
+removeSubmission.
+
+**Why we built it:** A submission is a Mongo record plus a file, and
+files belong in object storage. The manual bucket step after every
+`down -v` is retired: the API creates the bucket if it's missing.
+
+**Why a separate file:** One module per external service, like
+db/connect.ts and db/redis.ts. Controllers call putSubmission, never
+the SDK, so moving to AWS S3 or disk would change only this file.
+
+**Libraries introduced:** minio, the official SDK (types included).
+Chosen over @aws-sdk/client-s3: smaller and simpler against MinIO,
+and it still speaks S3.
+
+**Functions written:** ensureBucket, submissionKey, putSubmission,
+getSubmission, removeSubmission (see file).
+
+**Concepts learned:** object storage · idempotent startup · fail fast
+· compensating action · orphan · stream
+
+**Decision made — keys from ids only:** assignmentId/studentId/uuid.
+The student's filename stays in Mongo as data, so a hostile name
+("../../x") can't matter. The uuid matches objectKey's unique index.
+
+**Decision made — bytes, not strings.** Files are stored and read as
+Buffers, so code comes back byte-for-byte (verified with Hindi text).
+
+**Decision made — fail fast.** If MinIO is down at startup the server
+refuses to start, instead of accepting logins and failing every
+upload. Runtime failures become 503 dependencyUnavailable; a missing
+object is 404.
+
+**Decision made — compensate rather than pretend.** MinIO and Mongo
+can't share a transaction. The upload flow will store, record, and
+remove the file if recording fails. removeSubmission never throws;
+if it can't delete, it logs an orphan.
+
+**Limitations:** the API uses MinIO's root credentials (production
+should use a bucket-scoped user). Orphans can accumulate; a cleanup
+job is a later concern.
+
+**Commit:** `feat(api): add MinIO storage module and create the bucket at startup`
