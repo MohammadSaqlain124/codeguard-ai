@@ -3110,36 +3110,6 @@ so that is all the type the array needs.
 
 **Commit:** `fix(api): type the model array and bypass audit-log guard when clearing`
 
-## 2026-09-14 — Day 7 — File 028 (fix): two guards colliding
-
-**Battle — clearAllCollections() could not clear the AuditLog.**
-The helper called deleteMany on all seven models. File 026's query
-middleware rejects deleteMany by design, so the helper threw on its
-own audit log with "AuditLog is append-only; updates and deletes are
-not permitted".
-
-**The guard was right.** At the Mongoose layer a test cleanup and a
-tamper are the same operation — the hook cannot tell them apart.
-
-**Fix:** Model.collection.deleteMany() for all seven, going to the
-native driver below the middleware. Not a hack: File 026 had already
-documented .collection.* as the boundary of the guarantee. The
-workaround and the limitation are the same fact, which is worth
-saying plainly in the viva — anything that can clear a test database
-can also tamper with a production audit log. Added
-.catch(() => undefined) because the native deleteMany throws
-NamespaceNotFound on a collection that does not exist yet, and a
-collection that does not exist is already empty.
-
-**Second bug, same file — TS2740 on deleteMany({}).** TypeScript
-could not narrow a union of seven different model types, so
-m.deleteMany resolved to an unusable intersection. Fixed by
-annotating the array as Model<unknown>[] — both init() and
-deleteMany({}) exist on every model regardless of its document type,
-so that is all the type the array needs.
-
-**Commit:** `fix(api): type the model array and bypass audit-log guard when clearing`
-
 ## 2026-09-15 — Day 8 — File 029: apps/api/src/scripts/seed.ts
 
 **What we built:** A deterministic seed script — 1 admin, 2 faculty,
@@ -4606,115 +4576,292 @@ both committed untested last week because of a stale MONGO_URI.
 
 **Commit:** `feat(api): add auth routes and mount them on the app`
 
-## 2026-09-21 — Day 11 — File 039: apps/api/src/routes/authRoutes.ts
+## 2026-09-21 — Day 11 — File 039 (verified): the auth flow over HTTP
 
-**What we built:** An Express Router with six auth endpoints —
-register, login, refresh, logout (public), me (signed in) and users
-(admin only) — mounted at /api/auth in app.ts before the not-found
-handler.
+**What we did:** Ran File 039's test for the first time against a
+live server. It had been committed with a failing test, because Mongo
+refused the connection.
 
-**Why we built it:** Files 035–038 built middleware and handlers,
-and no URL reached any of them. After this file the running API
-accepts real logins for the first time.
+**Problem faced — duplicate keys in infra/.env.** MONGO_URI,
+REDIS_HOST, MINIO_ENDPOINT and DETECTOR_URL each appeared twice. At
+File 019 the localhost values were appended instead of replacing the
+container values. When a key repeats, the last value wins, and the
+effective MONGO_URI held an old password: "Authentication failed"
+(code 18).
 
-**Why a separate file:** The controller says what a handler does;
-the route file says which URL reaches it and what runs first.
-Reading this file should show every auth endpoint and its protection
-at a glance. Separate from app.ts, which assembles routers rather
-than defining them.
+**Why the check misbehaved:** a PowerShell check meant to print
+True/False printed a whole line. `-match` on one string returns a
+boolean; on an array it filters and returns the matching items. Two
+matching lines meant an array.
 
-**Libraries introduced:** None new. First use of express.Router —
-a mountable group whose paths are relative, so the prefix is decided
-where it is mounted.
+**Second trap:** the Mongo image applies MONGO_INITDB_ROOT_PASSWORD
+only when its data volume is first created. Changing .env afterwards
+changes nothing until `docker compose down -v`.
 
-**Functions written:** None. Six route registrations.
+**How we solved it:** removed the container-hostname lines, rotated
+the Mongo password (hex, so nothing needs URL-encoding in the URI;
+the old one had been printed into a shared file), ran `down -v` and
+`up -d`, recreated the submissions bucket, re-seeded.
 
-**Concepts learned:** router · mount point · middleware chain order ·
-safe method · API versioning
+**Problem faced — a type imported as a value.** The rebuilt test
+imported `User` from the model barrel. verbatimModuleSyntax rejected
+it: `User` is the document *type*; the model is `UserModel`.
 
-**Decision made — authorise before validating on protected routes.**
-On /users the chain is requireAuth, requireActiveUser, requireRole,
-validate, createUser. Reversed, a stranger posting {} would get a
-400 with a field list — email, password, name, role, rollNo — which
-tells them the endpoint exists, what it creates, and that role is
-settable somewhere. Authorising first gives them a 401 and nothing
-else. Don't describe a door to someone not allowed to open it.
-Confirmed: an empty unauthenticated POST to /users returned 401,
-not 400.
+**Result:** 15/15 PASS. Register (201, no hash, 409, role injection),
+login (identical failures, about 220 ms either way thanks to
+fakeVerify), /me, the token-type check, refresh rotation, logout,
+403 for students, stale-role correction, request ids. This also
+verified Files 034–038 and File 037's x-request-id.
 
-**requireActiveUser only on /users.** Creating an account with an
-arbitrary role is the most privileged operation in the system, and a
-deactivated admin's token works for up to 15 minutes otherwise. It
-sits before requireRole, honouring the ordering dependency flagged
-at File 035.
+**Correction to the File 039 entry:** it says an empty
+unauthenticated POST to /users was confirmed to return 401. Neither
+the rebuilt test nor File 040 checks that case. It follows from the
+middleware order but is unverified; add it to the tests.
 
-**Decision made:** POST for refresh and logout. Both write to the
-Redis deny-list, and GET is meant to be safe to repeat — a
-GET /logout could be triggered by an <img> tag on any page.
+**Known issues carried forward:** the /refresh failure message says
+"Access token is invalid"; /register's 409 reveals that an email
+exists (rate limiting is the real defence); pino-http logs every
+response header.
 
-**Decision made:** no version prefix. /api/v1 exists so old clients
-keep working while the API changes; we have one client version of
-each app and control all of them. The router is prefix-agnostic, so
-adding one later is a one-line change in app.ts.
+**Lessons:** check any output file for PASSWORD, SECRET and
+mongodb:// before sharing it. A diagnostic command should print
+counts or booleans, never values.
 
-**Ordering in app.ts:** the router mounts after /health and before
-notFoundHandler. After it, every auth request would 404, since
-Express runs handlers in registration order and the not-found
-handler matches everything.
+**Commit:** `docs: record .env duplicate fix and verified auth flow`
 
-**Open gap:** no rate limiting on /login, the most obvious
-brute-force target. bcrypt's 250ms per attempt is a partial defence,
-not a real one. Phase 3, using the Redis connection from File 038.
+## 2026-09-21 — Day 11 — File 040: apps/api/tests/auth.test.ts
 
-**Also verified by this file's test:** File 038's refresh rotation
-(a replayed refresh token returned 401 TOKEN_INVALID) and File 037's
-pino-http wiring (x-request-id present on a successful request) —
-both committed untested last week because of a stale MONGO_URI.
+**What we built:** The auth flow as 15 automated tests (`npm test`)
+instead of throwaway scratch files.
 
-**Commit:** `feat(api): add auth routes and mount them on the app`
+**Why we built it:** A scratch file proves the code worked once.
+A test file re-proves it after every later change, with one command
+and a pass/fail answer.
 
-### File 039 — verified (Day 11, 21 Sep)
-- Full HTTP flow against the real app: 15/15 PASS. Covers register, duplicate, role injection, login (equal messages, ~220 ms either way thanks to fakeVerify), /me, token-type check, refresh rotation, logout, 403 for students, stale-role correction, and request ids.
-- Also confirms Files 034–038 and the File 037 x-request-id fix.
-- Known issues for later: (1) the refresh failure message says "Access token"; (2) /register 409 reveals that an email exists — rate limiting is the real defence; (3) pino-http logs every response header — trim with serializers.
+**Why a separate file:** tests/ sits outside src/, so tsc never
+compiles it into dist/ and it never reaches the Docker image. One
+test file per feature, so a failure names the area that broke.
 
-### File 040 — apps/api/tests/auth.test.ts (Day 11, 21 Sep) — closes Phase 2
-- Purpose: the auth flow as repeatable, automated tests (`npm test`) instead of throwaway scratch files.
-- Runs against the Docker Mongo/Redis on a separate `codeguard_test` database. A guard throws if the URI rewrite fails, so the dev data can never be wiped.
-- Key trick: static imports are hoisted, so app/db/models are imported dynamically in beforeAll, after MONGO_URI has been changed.
-- supertest calls the Express app in-process, with no port.
-- 15 tests: register (201, no hash, 409, role injection), login (equal failures, tokens), /me (ok, no token, refresh-as-access), refresh rotation, logout revocation, 403 for students, stale-role correction, request ids, and validateQuery coercion on a real Express app (proves the defineProperty fix).
-- Trade-offs: needs Docker up; tests share tokens, so read the first failure; tsc doesn't check tests/; audit-log write not tested yet.
-- Model export confirmed: `UserModel` is the model, `User` is the document type.
+**Libraries introduced:** supertest (dev only), which calls the
+Express app in-process without opening a port, plus @types/supertest.
 
-### File 040 follow-up — a lying log and a guard on the wrong thing (Day 11, 21 Sep)
-- Symptom: during `npm test` the "mongo connected" log said db "codeguard", which suggested the tests had wiped the dev database.
-- Check: listing the databases showed codeguard = 33 users (untouched) and codeguard_test = 0 (used, then cleared). The tests were fine; the log was wrong.
-- Cause: connect.ts logged `env.MONGO_DB`, a separate variable, while the real database comes from the URI. Two sources of truth that nothing keeps in sync.
-- Fix 1: log `mongoose.connection.name`, the database actually connected.
-- Fix 2: the test guard now checks `mongoose.connection.name === "codeguard_test"` after connecting and before clearing. The URI-string check alone verified the input, not the outcome.
-- Detail: vitest still runs afterAll when beforeAll throws, so afterAll must also check before cleaning up.
-- Lesson: logs and safety checks must report or verify real state, not the configuration expected to produce it.
-- Open: find out whether MONGO_DB is used anywhere else; if not, remove it from env.ts.
+**Functions written:** pick(body, key), which finds a key at the top
+level or one level down, so the tests do not depend on the exact
+response shape.
 
-### Phase 2 closed — Files 030–040
-- Error envelope, logging with redaction and request ids, bcrypt passwords, JWT with type claim and rotation, Redis deny-list, auth/role/active-user middleware, strict Zod validation, auth routes, and 15 automated tests.
-- Carried into Tier 1: /refresh message says "Access token"; no rate limiting (register reveals whether an email exists); pino-http logs every response header.
+**Concepts learned:** integration test · test isolation · hoisting
+of imports · in-process testing
 
-### File 041 — src/validation/common.ts (Day 11, 21 Sep) — Phase 3 begins
-- Purpose: shared Zod helpers for every Phase 3 schema: objectId, pagination (page/limit), queryBoolean, skipFor.
-- objectId requires a string of exactly 24 hex characters. It fails early with a field name and blocks NoSQL injection like {"$ne": null}.
-- pagination is a plain shape to spread into z.object(...). Coerces strings to numbers; limit is capped at 100.
-- Trap: z.coerce.boolean("false") === true, because non-empty strings are truthy. queryBoolean accepts only "true"/"false".
-- skipFor(page, limit) = (page - 1) * limit. Avoids the off-by-one that skips page 1.
-- Chose offset pagination over cursor pagination: simpler, and enough for hundreds of records.
-- Plan change: MinIO storage moved to File 047, just before upload.
+**Decision made — real Docker services on a separate database.**
+Tests use the Docker Mongo and Redis but the `codeguard_test`
+database, not mongodb-memory-server (a ~100 MB binary on first run,
+plus a fake Redis). Cost: `npm test` needs Docker running.
 
-### File 042 — src/validation/courseSchemas.ts (Day 11, 21 Sep)
-- Purpose: what a client may send for courses: create, update, enrol/remove, list, courseId param. Every body is .strict().
-- authSchemas.ts: `rollNo` is now exported so enrolment reuses the same rule (one source of truth).
-- code: trim, uppercase, then regex. Zod 4 runs these in order. Permissive on purpose (CS-501, BCSE-301A).
-- academicYear: regex for the shape, refine for the meaning (second year = (first + 1) % 100, which handles 2099-00).
-- Update omits code and academicYear, so they're immutable by omission. isArchived uses z.boolean() because JSON bodies carry real booleans; only query strings need queryBoolean. Empty update rejected.
-- Enrolment by roll number (faculty don't know Mongo ids). One schema for enrol and remove; duplicates removed after normalisation; max 200 per request.
-- `faculty` is optional in create. Role decides who may send it, which the controller (File 043) enforces: shape in the schema, permission in the controller.
+**Key trick:** static imports run before any line of the file. So
+app, db and models are imported dynamically in beforeAll, after
+MONGO_URI has been rewritten; otherwise env.ts would read the old URI.
+
+**Decision made — shared state between tests.** Login stores the
+tokens and later tests use them. Much less code and fewer bcrypt
+hashes, but one early failure cascades, so read the first failure.
+
+**Trade-offs:** tsc does not type-check tests/; the audit-log write
+in createUser is not tested yet.
+
+**Commit:** `test(api): add auth flow integration tests and verify query coercion`
+
+## 2026-09-21 — Day 11 — File 040 (fix): a lying log and a guard on the wrong thing
+
+**Problem faced:** during `npm test` the "mongo connected" log said
+db "codeguard", which suggested the tests had wiped the dev database.
+
+**How we checked:** listed every database with its user count.
+codeguard had 33 users (untouched) and codeguard_test had 0 (used,
+then cleared). The tests were fine; the log was wrong.
+
+**Cause:** connect.ts logged `env.MONGO_DB`, a separate variable,
+while the database actually comes from the URI. Two sources of truth
+that nothing keeps in sync.
+
+**How we solved it:** connect.ts now logs `mongoose.connection.name`.
+The test guard now checks `mongoose.connection.name ===
+"codeguard_test"` after connecting and before clearing. The old check
+only verified the URI string, the input rather than the outcome.
+vitest still runs afterAll when beforeAll throws, so afterAll checks
+too. Verified: the guard refused to run when forced, and skipped all
+15 tests without hanging.
+
+**Lesson:** logs and safety checks must report or verify real state,
+not the configuration expected to produce it.
+
+**Open:** find out whether MONGO_DB is used anywhere else; if not,
+remove it from env.ts.
+
+**Commit:** `fix(api): log the real database name and guard tests on the connected db`
+
+## 2026-09-21 — Day 11 — Phase 2 closed (Files 030–040)
+
+Error envelope, logging with redaction and request ids, bcrypt
+passwords, JWT with a type claim and rotation, the Redis deny-list,
+auth/role/active-user middleware, strict Zod validation, auth routes,
+and 15 automated tests.
+
+Carried into Phase 3: the /refresh message; no rate limiting; pino-http
+logs every response header; the unverified /users 401 case.
+
+## 2026-09-21 — Day 11 — File 041: apps/api/src/validation/common.ts
+
+**What we built:** Shared Zod helpers for every Phase 3 schema:
+objectId, pagination (page and limit), queryBoolean and skipFor.
+
+**Why we built it:** Course, assignment and submission routes all
+receive ids in the URL, page/limit in lists and yes/no filters, and
+each of those has a trap.
+
+**Why a separate file:** They belong to no single resource. Inside
+courseSchemas.ts, assignmentSchemas.ts would have to import from the
+course file just to validate an id.
+
+**Libraries introduced:** None new.
+
+**Functions written:** skipFor(page, limit) = (page - 1) * limit,
+which avoids the off-by-one `page * limit` that skips page 1.
+
+**Concepts learned:** ObjectId · NoSQL injection · truthy values ·
+coercion · offset pagination
+
+**Problem faced:** z.coerce.boolean("false") is true, because it
+calls Boolean() and every non-empty string is truthy. So
+?archived=false would have shown only archived courses.
+
+**How we solved it:** queryBoolean accepts only "true" or "false" and
+transforms them. env.ts already uses the same trick for MINIO_USE_SSL.
+
+**Decision made:** objectId requires a string of exactly 24 hex
+characters. It fails before the database with a field name, and it
+blocks NoSQL injection like {"$ne": null}, because an object is not a
+string. Offset pagination over cursor pagination: simpler, and enough
+for hundreds of records. Limit capped at 100.
+
+**Plan change:** MinIO storage moved to File 047, just before upload.
+
+**Commit:** `feat(api): add shared validation helpers for ids, pagination and query booleans`
+
+## 2026-09-21 — Day 11 — File 042: apps/api/src/validation/courseSchemas.ts
+
+**What we built:** What a client may send for courses: create,
+update, enrol/remove students, list, and the courseId param. Every
+body is .strict().
+
+**Why we built it:** The course controller (File 043) should receive
+data that is already clean and typed.
+
+**Why a separate file:** One schema file per resource, the same
+pattern as authSchemas.ts.
+
+**Libraries introduced:** None new. First use of Zod 4's
+.toUpperCase() and of .transform on an array.
+
+**Functions written:** None. Five schemas and four inferred types.
+
+**Concepts learned:** refinement · immutable by omission · Set ·
+separating shape from permission
+
+**File 036 revisit:** `rollNo` in authSchemas.ts is now exported, so
+enrolment reuses the same rule. One source of truth.
+
+**Decision made:** code is trimmed, uppercased, then checked; Zod 4
+runs these in order. The pattern is permissive on purpose (CS-501,
+BCSE-301A). academicYear: regex for the shape, refine for the meaning
+(second year = (first + 1) % 100, which handles 2099-00).
+
+**Decision made:** the update schema has no code or academicYear, so
+they are immutable by omission. isArchived uses z.boolean(), because
+JSON bodies carry real booleans; only query strings need
+queryBoolean. An empty update is rejected.
+
+**Decision made:** enrolment by roll number, since faculty do not
+know Mongo ids. One schema for enrol and remove. Duplicates are
+removed after normalisation (BCS2023126 and bcs2023126 became one).
+At most 200 per request.
+
+**Decision made:** `faculty` is optional in create, because who may
+send it depends on role. The schema checks shape; the controller
+checks permission.
+
+**Zod 4 quirk:** unknown keys are non-fatal, so the "Nothing to
+update" refine also fires on {code: ...}, giving two errors for one
+mistake. Harmless; the fix, if needed, is refine's `when` option.
+
+**Commit:** `feat(api): add course validation schemas and export the roll number rule`
+
+## 2026-09-22 — Day 12 — PROJECT_NOTES (fix): duplicates and format drift
+
+Removed two entries that had been pasted twice (File 028 fix, File
+039). Rewrote the Day 11 entries from File 039 (verified) onward in
+the house format; they had been written as bullet lists. Added the
+missing .env battle and a correction to File 039's unverified claim.
+No other entry was changed.
+
+**Commit:** `docs: remove duplicate entries and restore the notes format`
+
+## 2026-09-22 — Day 12 — File 043: apps/api/src/controllers/courseController.ts
+
+**What we built:** Six course handlers (create, list, get, update,
+enrol, remove) and the project's first ownership rule.
+
+**Why we built it:** Until now permission meant "which role are you".
+Courses add "is this yours": a faculty member may manage courses, but
+only their own.
+
+**Why a separate file:** Routes map URLs, schemas clean input, the
+controller decides. Handlers are plain (req, res) functions, so this
+file was tested by calling them directly, before any route existed.
+
+**Libraries introduced:** None new. First use of $addToSet with
+$each, $pull with $in, ObjectId.equals, countDocuments and
+sort/skip/limit.
+
+**Functions written:** courseView (shapes a response; the roster is
+for owner and admin only, studentCount for everyone), loadCourseFor
+(the ownership rule, written once), and the six handlers.
+
+**Concepts learned:** object-level authorisation (BOLA, OWASP API #1)
+· enumeration · lost update · atomic operation · defence in depth ·
+nullish coalescing
+
+**Decision made — 404, never 403, for a course you can't touch.**
+Otherwise the response confirms the id exists. A faculty member
+creating a course for someone else still gets 403, because nothing
+secret is revealed.
+
+**Decision made — partial enrolment.** Valid roll numbers are
+enrolled, and the rest are reported as notFound. Only active students
+count. Repeating the request is harmless, so fixing typos means
+resending only the corrected entries.
+
+**Decision made — atomic operators, not read-modify-save.**
+$addToSet/$pull do the read and write in one step, so two
+simultaneous enrolments can't overwrite each other. save() in
+updateCourse is safe for the same reason: it writes only the modified
+fields.
+
+**Decision made:** archived courses are read-only for enrolment
+(409); lists hide them unless archived=true. Removing a student keeps
+their submissions: evidence is never deleted as a side effect.
+Removal ignores role and isActive, so deactivated students can still
+be removed.
+
+**Trap avoided:** ObjectId === string is always false. .equals()
+compares values; getting this wrong would silently 404 everyone.
+
+**Limitations:** the alreadyEnrolled/removed counts can be slightly
+off under truly simultaneous requests (the data can't be). No audit
+entries for enrolment yet; AUDIT_ACTIONS is a fixed list, to be
+planned with the review flow.
+
+**Open for File 044:** removal will likely be POST
+/courses/:courseId/students/remove, because some clients drop DELETE
+bodies.
+
+**Commit:** `feat(api): add course controller with ownership checks and atomic enrolment`
