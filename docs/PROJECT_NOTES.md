@@ -4864,4 +4864,10 @@ planned with the review flow.
 /courses/:courseId/students/remove, because some clients drop DELETE
 bodies.
 
+**Verified:** called the handlers directly with a fake req/res on
+codeguard_test, with no routes yet. All 25 expected results matched,
+including an identical 404 for "not yours", "not enrolled" and
+"doesn't exist".
+
 **Commit:** `feat(api): add course controller with ownership checks and atomic enrolment`
+
