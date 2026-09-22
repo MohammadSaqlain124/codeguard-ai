@@ -5017,3 +5017,49 @@ submission tests.
 
 **Commit:** `refactor(api): move course and assignment access checks into a shared service`
 
+## 2026-09-22 — Day 12 — File 047: apps/api/src/controllers/assignmentController.ts
+
+**What we built:** Four assignment handlers: create and list within a
+course, get and update a single assignment.
+
+**Why we built it:** Faculty create, publish and extend assignments;
+students see published ones and how many attempts they have used.
+
+**Why a separate file:** One controller per resource. All access
+checks come from services/access.ts (File 046), so this file has no
+ownership logic of its own.
+
+**Libraries introduced:** None. First use of Model.exists() and
+doc.set(object).
+
+**Functions written:** createAssignment, listAssignments,
+getAssignment, updateAssignment.
+
+**Concepts learned:** TOCTOU · exists vs countDocuments · frozen field
+
+**Decision made — lock three things after the first submission.**
+language (old submissions would be parsed with the wrong grammar),
+provenance (homework could become baseline-eligible after the fact)
+and unpublishing (students would lose sight of their work). Only a
+real change is refused: resending the current value is allowed, so a
+form that submits every field doesn't trigger a false 409.
+
+**Decision made — students can't opt out of the published filter.**
+The student branch never reads ?published, so ?published=false still
+returns only published work.
+
+**Decision made:** the course comes from the URL and is spread after
+the body, so it wins even if .strict() were ever removed. Omitted
+fields stay absent, so model defaults apply (takehome, 3 attempts,
+unpublished).
+
+**Decision made:** students get yourAttempts (their own count only),
+so clients can show "1 of 3 used" without a second request.
+
+**Limitation — TOCTOU.** A submission could land between exists()
+and save(). The window is milliseconds and needs a provenance change
+at the moment of a first submission. Closing it needs a transaction,
+which our standalone MongoDB can't run (File 026).
+
+**Commit:** `feat(api): add assignment controller with post-submission field locks`
+
