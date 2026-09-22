@@ -5061,5 +5061,45 @@ and save(). The window is milliseconds and needs a provenance change
 at the moment of a first submission. Closing it needs a transaction,
 which our standalone MongoDB can't run (File 026).
 
+**Known nit:** the update log records the fields sent, not the fields
+changed ("language" was logged on a no-change resend). Fix: log
+assignment.modifiedPaths() after set(), before save().
+
 **Commit:** `feat(api): add assignment controller with post-submission field locks`
 
+## 2026-09-22 — Day 12 — File 048: apps/api/src/routes/assignmentRoutes.ts
+
+**What we built:** Two routers in one file. courseAssignmentRouter
+(list and create at /api/courses/:courseId/assignments, mounted inside
+courseRouter) and assignmentRouter (get and update at
+/api/assignments/:assignmentId, mounted in app.ts). File 044 revisit:
+courseRoutes.ts gains one mount line.
+
+**Why we built it:** File 047's handlers had no URLs. Collections sit
+under their parent course; a single assignment has a globally unique
+id and its own address, so clients never send a redundant course id.
+
+**Why a separate file:** Every assignment URL and its protection is
+visible in one place, even though the routers are mounted in two.
+
+**Libraries introduced:** None. First use of Router({ mergeParams:
+true }) and of a router nested inside another router.
+
+**Functions written:** None. Two routers, four routes, two mounts.
+
+**Concepts learned:** nested router · mergeParams · prefix vs exact
+match · resource-oriented URLs
+
+**Decision made — mergeParams.** A child router can't see its parent's
+:courseId by default. Without mergeParams, validateParams would reject
+every nested request with 400. Verified: faculty create returned 201.
+
+**Decision made — the nested router has no requireAuth of its own.**
+It is reachable only through courseRouter, which already verified the
+token; a second check would verify every JWT twice. assignmentRouter
+is mounted directly in app.ts, so it has its own.
+
+**Known duplication:** the `staff` middleware array is defined in both
+route files. Two lines; unify when middleware/auth.ts is next opened.
+
+**Commit:** `feat(api): add assignment routes, nested under courses and at /api/assignments`

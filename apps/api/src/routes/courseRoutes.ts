@@ -17,6 +17,7 @@ import {
   listCoursesQuery,
   updateCourseSchema,
 } from "../validation/courseSchemas.js";
+import { courseAssignmentRouter } from "./assignmentRoutes.js";
 
 export const courseRouter = Router();
 
@@ -57,3 +58,6 @@ courseRouter.post(
   validateBody(enrolmentSchema),
   removeStudents,
 );
+
+// assignments within a course; requireAuth above already covers them
+courseRouter.use("/:courseId/assignments", courseAssignmentRouter);

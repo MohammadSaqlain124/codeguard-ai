@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { logger } from "./config/logger.js";
 import { authRouter } from "./routes/authRoutes.js";
 import { courseRouter } from "./routes/courseRoutes.js";
+import { assignmentRouter } from "./routes/assignmentRoutes.js";
 
 export function createApp() {
   const app = express();
@@ -41,6 +42,7 @@ export function createApp() {
   });
   app.use("/api/auth", authRouter);
   app.use("/api/courses", courseRouter);
+  app.use("/api/assignments", assignmentRouter);
   app.use(notFoundHandler);
   app.use(errorHandler);
 
