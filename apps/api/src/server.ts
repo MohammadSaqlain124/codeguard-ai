@@ -5,6 +5,7 @@ import { initModels } from "./models/index.js";
 import { logger } from "./config/logger.js";
 import { connectRedis, disconnectRedis } from "./db/redis.js";
 import { ensureBucket } from "./storage/minio.js";
+import { closeQueue } from "./queue/detectionQueue.js";
 
 try {
   await connectDb();
@@ -40,6 +41,7 @@ function shutdown(signal: string) {
       logger.fatal({err},"error closing server:");
       process.exit(1);
     }
+    await closeQueue();
     await disconnectRedis();
     await disconnectDb();
     await disconnectDb();

@@ -5458,3 +5458,55 @@ Carried into Phase 4: the /refresh message (now a one-argument change
 via tokenInvalid(message)); trimming pino-http's logged headers;
 app.set("trust proxy", 1) at deployment; a separate Redis db index for
 tests; the MONGO_DB variable check; orphan cleanup.
+
+## 2026-09-24 — Day 14 — File 056: apps/api/src/queue/detectionQueue.ts — Phase 4 begins
+
+**What we built:** A BullMQ queue on the existing Redis, with
+enqueueDetection(submissionId, reason) and closeQueue(). File 051
+revisit: createSubmission enqueues after storing, and sets the status
+to "queued" only if the job was really added.
+
+**Why we built it:** Storing an upload takes about 30ms; analysing it
+takes seconds. The request must hand the work over and return. The
+queue also brings retries, crash safety and a status students can see.
+
+**Why a separate file:** The controller should say "this needs
+analysing" and know nothing about Redis keys or backoff. The API and
+the worker are different processes and must agree on the queue name
+and options, so both import them from here.
+
+**Libraries introduced:** bullmq. Rejected: Agenda (polls MongoDB;
+we already run Redis), RabbitMQ (a second service for one queue), and
+a hand-rolled Mongo queue (re-implements retries, locks and atomic
+claiming, which BullMQ does in Lua inside Redis).
+
+**Functions written:** enqueueDetection (never throws), closeQueue.
+
+**Concepts learned:** job queue · producer/consumer · backoff ·
+idempotent enqueue · blocking read · dead letter
+
+**Decision made — the worker is a separate process.** Challenged on
+performance grounds, and the answer is the opposite: in one process
+Node's single thread makes the API and the analysis take turns, so
+logins queue behind tree math. In two processes they use different
+cores. The real speed levers are worker concurrency (057), fewer
+candidate pairs (063) and detector-side pruning (062).
+
+**Decision made — a second Redis connection.** BullMQ requires
+maxRetriesPerRequest: null because its workers block waiting for
+jobs; the shared client from File 038 uses 3 and is rejected outright.
+
+**Decision made — jobs carry ids, never content.** Job data lives in
+Redis and is serialised on every read. The worker re-reads the record,
+so nothing can be stale.
+
+**Decision made — enqueue failure is not upload failure.** The file is
+stored and the record exists; a Redis blink leaves the submission as
+"uploaded" rather than losing a student's work. The status only claims
+"queued" when it is true.
+
+**Open gap:** Redis is not persisted in our compose file, so a Redis
+restart loses queued jobs and those submissions stay "queued" with no
+job. Phase 5 needs an admin action to re-queue stuck submissions.
+
+**Commit:** `feat(api): add detection queue and enqueue submissions on upload`

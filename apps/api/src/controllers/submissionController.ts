@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 
 import { componentLogger } from "../config/logger.js";
 import { SubmissionModel } from "../models/index.js";
+import { enqueueDetection } from "../queue/detectionQueue.js";
 import { loadAssignmentFor, loadSubmissionFor } from "../services/access.js";
 import {
   getSubmission as readStoredFile,
@@ -77,8 +78,14 @@ export async function createSubmission(req: Request, res: Response) {
     throw err;
   }
 
+  // the status only claims "queued" once the job is really on the queue
+  if (await enqueueDetection(submission.id, "upload")) {
+    submission.status = "queued";
+    await submission.save();
+  }
+
   log.info(
-    { submissionId: submission.id, assignmentId: assignment.id, attempt: submission.attempt, isLate, by: user.id },
+    { submissionId: submission.id, assignmentId: assignment.id, attempt: submission.attempt, isLate, status: submission.status, by: user.id },
     "submission stored",
   );
   res.status(201).json({ submission });
