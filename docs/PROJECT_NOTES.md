@@ -5575,3 +5575,63 @@ for submissions sitting in "analyzing" too long.
 File 062 gives real APTED timings.
 
 **Commit:** `feat(api): add detection worker process, clear queue between tests`
+
+## 2026-09-24 — Day 14 — File 058: apps/api/src/services/detectorClient.ts
+
+**What we built:** The HTTP client for the detector service.
+analyzeSubmission() posts source plus candidate sources to /analyze,
+validates the reply against a Zod schema, and returns typed data.
+pingDetector() checks /health in 2 seconds and never throws. Two new
+settings: DETECTOR_URL and DETECTOR_TIMEOUT_MS.
+
+**Why we built it:** The worker needs something to call. This is the one
+place that knows the detector's address, the contract, the time limit
+and the failure wording.
+
+**Why a separate file:** Timeouts and status codes are not the worker's
+job, Files 060 to 063 will change the detector constantly and should
+touch one file on the Node side, and it can be tested against a fake
+server with no detector in existence.
+
+**Libraries introduced:** none. fetch and AbortSignal.timeout are built
+into Node 22, so no axios and no node-fetch.
+
+**Functions written:** postJson, analyzeSubmission, pingDetector.
+
+**Concepts learned:** service client · contract · boundary validation ·
+AbortSignal · fail fast · backpressure
+
+**Decision made — validate our own service's response.** We will write
+the detector ourselves, and we will break it ourselves. If similarity
+ever arrives as the string "0.87" or as 87, the error belongs at the
+boundary and not inside an RPS calculation on a student's record.
+
+**Decision made — no retries in the client.** BullMQ already retries
+three times with backoff. Retrying here too would mean nine calls per
+submission. Retry at exactly one layer.
+
+**Decision made — a timeout and an unreachable service get different
+messages.** These strings are stored in failureReason and read by
+whoever is asking why a submission has no analysis, so "did not answer
+within 30000 ms" and "is unreachable at <url>" must not be merged.
+
+**Decision made — safeParse, not parse.** The Zod error is logged for
+us; the thrown message is a plain sentence fit to store.
+
+**Decision made — worker.ts is untouched.** The client exists but there
+is still nowhere to put a result. File 064 wires them together, rather
+than editing the same line twice.
+
+**Fixed:** authController.ts line 115, inside refresh(), now says
+"Refresh token is invalid or has expired". Carried since Phase 2 and
+confirmed to be the only tokenInvalid call in that controller; the ones
+for /me come from requireAuth and were already correct.
+
+**Open gap:** no request size limit. 50 candidates at 256 KB each would
+post 12 MB. File 063 caps the count, and arguably this file should too.
+
+**Open gap:** DETECTOR_URL has no authentication. Acceptable on one
+laptop; in deployment the detector must not be reachable from outside
+the compose network. File 066.
+
+**Commit:** `feat(api): add detector client with timeout and response validation`

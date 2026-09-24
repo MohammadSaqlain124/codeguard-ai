@@ -27,8 +27,8 @@ const envSchema = z
     JWT_ACCESS_EXPIRY: z.string().min(1),
     JWT_REFRESH_EXPIRY: z.string().min(1),
 
-    DETECTOR_URL: z.string().min(1),
-    DETECTOR_TIMEOUT_MS: z.coerce.number().int().positive(),
+    DETECTOR_URL: z.url().default("http://localhost:8000"),
+    DETECTOR_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(30_000),
 
     MAX_UPLOAD_BYTES: z.coerce.number().int().positive(),
     ALLOWED_EXTENSIONS: z

@@ -112,7 +112,7 @@ export async function refresh(req: Request, res: Response) {
   if (await isRefreshTokenRevoked(claims.jti)) {
     // either a logged-out token or a replay of a rotated one
     log.warn({ userId: claims.sub, jti: claims.jti }, "revoked refresh token presented");
-    throw AppError.tokenInvalid();
+    throw AppError.tokenInvalid("Refresh token is invalid or has expired");
   }
 
   const user = await UserModel.findById(claims.sub).select("role isActive").lean();
