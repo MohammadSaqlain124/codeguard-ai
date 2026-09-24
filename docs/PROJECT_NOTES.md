@@ -5510,3 +5510,68 @@ restart loses queued jobs and those submissions stay "queued" with no
 job. Phase 5 needs an admin action to re-queue stuck submissions.
 
 **Commit:** `feat(api): add detection queue and enqueue submissions on upload`
+
+## 2026-09-24 — Day 14 — File 057: apps/api/src/worker.ts
+
+**What we built:** The second process. A BullMQ Worker with concurrency 2
+that loads the submission, guards against a missing or already-analysed
+record, marks it "analyzing", fetches the bytes from MinIO, and hands
+them to a detector that does not exist yet. Plus setStatus(), graceful
+shutdown on SIGINT/SIGTERM, and an npm run worker script.
+
+**Why we built it:** File 056 produced jobs and nothing consumed them.
+This is also where a failure becomes visible on the record instead of
+vanishing into a log.
+
+**Why a separate file:** A different entry point from server.ts. One
+starts an HTTP listener, the other a job consumer; they share env,
+connectDb, the models and the storage client, and neither imports the
+other.
+
+**Functions written:** analyse(job), setStatus, start, shutdown.
+
+**Concepts learned:** consumer/processor · concurrency · attemptsMade ·
+stalled job · graceful shutdown · idempotent handler
+
+**Decision made — the worker admits it cannot analyse.** The handler
+throws "Detector service is not implemented yet", the job retries twice
+and the submission ends at "failed" with that reason. Writing a fake
+rps of 0 with an "analyzed" status would have looked finished tonight
+and would have been a fabricated result in a system whose whole claim
+is evidence over verdicts.
+
+**Decision made — autorun: false.** A Worker starts consuming the moment
+it is constructed, which could pull a job before connectDb() finished.
+The worker now starts consuming only at the end of start(), and
+worker.run() is deliberately not awaited because it settles only when
+the worker stops.
+
+**Decision made — a retry sets the status back to "queued".** A
+submission waiting 25 seconds for its next attempt is queued, not being
+analysed. Same rule as the "queued" status in File 056.
+
+**Decision made — failureReason is truncated to 500 characters**, the
+schema's limit, so that recording a failure cannot itself fail.
+
+**Decision made — a missing submission returns instead of throwing.**
+Retrying a job for a deleted record three times is pointless. Proved by
+the stale jobs the test suite left behind, which the worker dropped on
+its first run.
+
+**Fixed:** tests/helpers.ts now obliterates the detection queue
+alongside the rl:* keys, and closes the queue connection on teardown.
+Before this, every test run left real jobs in Redis pointing at wiped
+records.
+
+**Fixed:** the /refresh handler said "Access token is invalid" about a
+refresh token. Carried since Phase 2, one argument to change.
+
+**Open gap:** a worker killed mid-job leaves the submission at
+"analyzing". BullMQ re-runs the stalled job after about 30 seconds, but
+if the worker never returns the record is stuck. Phase 5 needs a sweep
+for submissions sitting in "analyzing" too long.
+
+**Open gap:** concurrency 2 is a guess, not a measurement. Revisit once
+File 062 gives real APTED timings.
+
+**Commit:** `feat(api): add detection worker process, clear queue between tests`

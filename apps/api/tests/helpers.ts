@@ -15,6 +15,7 @@ type Modules = {
   models: typeof import("../src/models/index.js");
   storage: typeof import("../src/storage/minio.js");
   password: typeof import("../src/utils/password.js");
+  queue: typeof import("../src/queue/detectionQueue.js");
 };
 
 let mods: Modules | undefined;
@@ -37,6 +38,12 @@ async function clearRateLimits() {
   if (keys.length > 0) await mods!.redis.redis.del(...keys);
 }
 
+// Uploads in tests enqueue real jobs. Left behind, they point at records the
+// next run deletes, and the worker would spend its time on dead work.
+async function clearQueue() {
+  await mods!.queue.detectionQueue.obliterate({ force: true });
+}
+
 async function emptyTestBucket() {
   const { storageClient } = mods!.storage;
   if (!(await storageClient.bucketExists(TEST_BUCKET))) return;
@@ -56,6 +63,7 @@ export async function startTestApp() {
     models: await import("../src/models/index.js"),
     storage: await import("../src/storage/minio.js"),
     password: await import("../src/utils/password.js"),
+    queue: await import("../src/queue/detectionQueue.js"),
   };
 
   await loaded.db.connectDb();
@@ -70,6 +78,7 @@ export async function startTestApp() {
   await loaded.models.clearAllCollections();
   await loaded.redis.connectRedis();
   await clearRateLimits();
+  await clearQueue();
   await emptyTestBucket();
   await loaded.storage.ensureBucket();
   passwordHash = await loaded.password.hashPassword(PASSWORD);
@@ -86,6 +95,9 @@ export async function stopTestApp() {
   await mods.models.clearAllCollections();
   await emptyTestBucket();
   await clearRateLimits();
+  await clearQueue();
+  // the queue keeps its own redis connection, so it closes separately
+  await mods.queue.closeQueue();
   await mods.redis.disconnectRedis();
   await mods.db.disconnectDb();
   mods = undefined;

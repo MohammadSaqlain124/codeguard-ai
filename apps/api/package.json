@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "tsx watch --env-file=../../infra/.env src/server.ts",
+    "worker": "tsx watch --env-file=../../infra/.env src/worker.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
