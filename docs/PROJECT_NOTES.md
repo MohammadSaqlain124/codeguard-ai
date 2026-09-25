@@ -5844,3 +5844,62 @@ students using the same unusual constant is a genuine signal. Layer 1
 loses it; the exact-hash check and Layer 2 still see it.
 
 **Commit:** `feat(detector): normalise syntax trees so renaming changes nothing`
+
+## 2026-09-25 — Day 15 — File 062: apps/detector/app/similarity.py
+
+**What we built:** Tree edit distance between two normalised trees,
+turned into a 0 to 1 similarity. prepare() converts a tree once so it
+can be compared many times; compare() returns similarity, raw distance,
+both sizes and a timing, or None when a pair is too large.
+
+**Why we built it:** Every structural score in the project comes through
+this one function.
+
+**Why a separate file:** the algorithm is one question and what to
+compare is another. It is also the only file that touches the APTED
+library, so replacing that implementation later changes one file.
+
+**Libraries introduced:** apted. Rejected zss (older Zhang-Shasha,
+slower on these tree shapes) and writing it by hand: a subtly wrong
+tree edit distance produces plausible wrong numbers, which is the worst
+failure mode this project could have.
+
+**Functions written:** prepare, compare.
+
+**Concepts learned:** tree edit distance · APTED · normalised distance ·
+quadratic cost · calibration · cohort z-score
+
+**Decision made — divide by the sum of the two sizes.** The worst
+possible edit deletes every node of one tree and inserts every node of
+the other, so that sum is the maximum distance and the result lands in
+0 to 1 with no clamping. The cost is a compressed scale: two trees of
+the same shape with different labels score about 0.5, and after
+normalisation most labels are shared because all code uses the same
+vocabulary of statements. This is why cohortZScore is a required field
+on every match: a raw 0.7 means nothing until you know the class sits
+at 0.45.
+
+**Decision made — return distance and both sizes, not only the
+similarity.** If the formula turns out wrong, a different one can be
+computed without re-running the expensive part.
+
+**Decision made — refuse a pair whose size product exceeds four
+million.** Quadratic cost means a large pair is not slightly slower but
+catastrophically slower. Returning None rather than raising lets File
+063 record an honest skipped status with a reason.
+
+**Decision made — prepare() separate from compare().** One submission
+will be compared against up to fifty candidates, and converting its tree
+inside compare() would redo that work fifty times.
+
+**Plan changed:** function-level comparison chosen over whole-file, so
+File 062 now covers pair similarity only and File 063 covers function
+extraction, matching and aggregation. Later files shift by one.
+
+**Open gap:** MAX_PRODUCT of four million is a guess, not a measurement.
+
+**Open gap:** every edit costs one, so deleting a whole function costs
+the same as deleting one identifier. APTED supports custom costs; there
+is no evidence yet that they would help.
+
+**Commit:** `feat(detector): compute tree edit distance similarity with APTED`

@@ -4,3 +4,4 @@ pydantic
 tree-sitter
 tree-sitter-python
 tree-sitter-java
+apted
