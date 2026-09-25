@@ -5702,3 +5702,60 @@ DETECTOR_URL, written as 127.0.0.1 rather than localhost, since
 localhost resolves to ::1 first on Windows while uvicorn binds IPv4.
 
 **Commit:** `feat(detector): add FastAPI service with the analyze contract`
+
+## 2026-09-25 — Day 15 — File 060: apps/detector/app/parsing.py — the first real analysis
+
+**What we built:** Source text into a tree-sitter syntax tree.
+parse_source() returns a ParseResult with the root node, a named-node
+count, and an error naming the first broken line. /analyze now reports
+real parse results, and the contract gained a "compared" field.
+
+**Why we built it:** Comparing trees instead of text is the whole idea
+of Layer 1. Renaming every variable and reordering every function
+changes the text completely and the tree barely at all.
+
+**Why a separate file:** parsing is a pure function of source text, so
+it stays testable without a server. Files 061 and 062 both need a tree
+and import it from here rather than from the web layer.
+
+**Libraries introduced:** tree-sitter, tree-sitter-python,
+tree-sitter-java. Rejected Python's built-in ast module: it parses
+Python only, and CodeGuard supports Java too. One parsing approach for
+both languages is worth a lot.
+
+**Functions written:** parse_source, count_named_nodes,
+first_error_line.
+
+**Concepts learned:** concrete vs abstract syntax tree · named node ·
+ERROR node vs missing node · error recovery · byte offset and point ·
+compiled extension module
+
+**Decision made — a tree with errors is reported, not scored.**
+tree-sitter is deliberately error tolerant and returns a tree for code
+that does not compile, but that tree has arbitrary structure and
+comparing it produces a meaningless number. The cost: a student whose
+file has one missing colon gets no structural analysis. The alternative
+of comparing anyway with a low-confidence flag stays open.
+
+**Decision made — count named nodes only.** Punctuation tokens are in
+the tree but carry no meaning. The named count still means the same
+thing after File 061 normalises, and it predicts APTED's cost.
+
+**Decision made — a stack, not recursion.** Python's recursion limit is
+1000 frames, so a deeply nested file would crash the parser. A crash
+caused by the input is the worst kind of bug in a system like this.
+
+**Decision made — the contract gained "compared".** Without it,
+parsed: true with an empty match list would claim the cohort had been
+checked. The change was safe because File 058 validates the response:
+a client that had not been updated would fail loudly instead of reading
+a missing field as undefined. That is the return on writing the
+validation.
+
+**Decision made — DETECTOR_VERSION is 0.2.0.** Behaviour and contract
+both changed, and every DetectionResult stores this string.
+
+**Open gap:** no cap on tree size, and whole files are always parsed in
+full. Revisit once File 062 shows what APTED costs.
+
+**Commit:** `feat(detector): parse submissions into syntax trees with tree-sitter`
