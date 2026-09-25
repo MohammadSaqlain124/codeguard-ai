@@ -5758,4 +5758,89 @@ both changed, and every DetectionResult stores this string.
 **Open gap:** no cap on tree size, and whole files are always parsed in
 full. Revisit once File 062 shows what APTED costs.
 
+**First real measurements (25 Sep):** 20 named nodes for a 5-line Python
+file, 19 for the Java equivalent, 7,001 nodes and 19.4 ms for 1,500
+lines. That is roughly 4.7 nodes per line and 2.8 microseconds per node.
+Detector work (19.4 ms) has caught up with HTTP transport (26 ms round
+trip); in File 059 the ratio was 0.016 ms against 16 ms.
+
+**Evidence for refusing to score a broken tree:** the Python file with a
+missing colon produced 10 nodes against the valid file's 20, so half the
+structure was never built. The Java file with a missing semicolon
+produced 19 nodes, the same as the valid one. Node count alone cannot
+tell you a parse is untrustworthy; the has_error flag can.
+
+**Machine note:** npx tsc is the Go implementation of TypeScript and
+type-checks in parallel across every core. On this machine that
+exhausted the Windows commit limit and crashed with errno 1455,
+ERROR_COMMITMENT_LIMIT, while failing to allocate 8 KB. systeminfo
+showed 27.8 GB of 29.7 GB in use with 1.9 GB free. Workaround:
+$env:GOMAXPROCS=4 before npx tsc. Real fix: let Windows manage the
+paging file.
+
 **Commit:** `feat(detector): parse submissions into syntax trees with tree-sitter`
+
+## 2026-09-25 — Day 15 — File 061: apps/detector/app/normalise.py
+
+**What we built:** Tree normalisation. Every identifier becomes ID,
+every number NUM, every string STR, comments are dropped, literals are
+treated as leaves, and a two-item pass-through list removes meaningless
+wrappers. Produces a TNode tree that keeps line numbers, plus size() and
+to_bracket() for the format APTED reads.
+
+**Why we built it:** A raw tree still contains every name and number, so
+two files differing only in variable names produce different trees. This
+is where "renaming everything does not help you" stops being a claim in
+the report and becomes measurable. It also shrinks the tree, and tree
+edit distance costs roughly the product of the two tree sizes.
+
+**Why a separate file:** parsing.py answers "is this valid code?", this
+answers "what shape is it?". Every rule here is a judgement about what
+counts as the same code, and those judgements are the intellectual core
+of Layer 1.
+
+**Libraries introduced:** none.
+
+**Functions written:** label_for, normalise, size, to_bracket.
+
+**Concepts learned:** normalisation · canonical form · invariance ·
+bracket notation · pass-through node · leaf
+
+**Decision made — literals are leaves.** Once a node becomes STR we do
+not look inside, so string internals and escape sequences stop
+contributing noise.
+
+**Decision made — the pass-through list is tiny and explicit.** A
+general "collapse any single-child node" rule would be cleverer and
+would silently merge constructs that are not the same. Every rule here
+has to be explainable to an examiner asking why two files scored 0.9.
+
+**Decision made — a depth cap of 200 with a DEEP leaf.** Depth grows
+with nesting rather than file length, so 200 is far past real code, but
+a thousand chained operators would exceed Python's recursion limit and
+crash the detector. A crash caused by a submission is the worst kind of
+bug in this system.
+
+**Decision made — keep line numbers on every node although nothing uses
+them yet.** The spans field in DetectionResult needs them, and showing
+faculty which lines matched is what makes this evidence rather than a
+score.
+
+**Decision deferred — function reordering.** Ordered tree edit distance
+treats "A then B" and "B then A" as different, so shuffling methods
+lowers the score unfairly. Canonical sorting here, or function-level
+matching in File 062, would both fix it and both add real complexity.
+Measure the damage once File 062 runs, then decide. Building the
+mitigation before measuring the problem is how projects acquire code
+nobody can justify.
+
+**Open gap:** the literal and identifier type sets are hand-written and
+certainly incomplete (Java text blocks, some Python string forms). A
+missed type stays as its raw name, which is a quiet loss of invariance
+rather than a crash.
+
+**Open gap:** normalising all literals throws away real evidence. Two
+students using the same unusual constant is a genuine signal. Layer 1
+loses it; the exact-hash check and Layer 2 still see it.
+
+**Commit:** `feat(detector): normalise syntax trees so renaming changes nothing`
