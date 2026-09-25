@@ -5635,3 +5635,70 @@ laptop; in deployment the detector must not be reachable from outside
 the compose network. File 066.
 
 **Commit:** `feat(api): add detector client with timeout and response validation`
+
+## 2026-09-25 — Day 15 — File 059: apps/detector/app/main.py — the first Python
+
+**What we built:** The detector service. FastAPI with /health and
+/analyze, six Pydantic models mirroring the contract the Node client
+validates, source and candidate-count limits, and an honest stub that
+returns parsed: false with "Parser not implemented yet".
+
+**Why we built it:** File 058 built a client for a service that did not
+exist. Agreeing the contract over a real socket first means every later
+file changes one function body with the integration already proven.
+
+**Why a separate service:** tree-sitter and APTED are Python libraries
+with no serious Node equivalent. It holds no credentials and no database
+connection, so it can be restarted and rewritten freely.
+
+**Libraries introduced:** fastapi, pydantic, uvicorn[standard]. Rejected
+Flask (the request validation is the contract, and Pydantic gives that
+from one definition) and Django REST Framework (no database, no admin,
+no users).
+
+**Concepts learned:** ASGI · Pydantic model · Literal · 422
+Unprocessable Entity · monotonic clock · lock file
+
+**Bug caught before it happened:** Pydantic serialises an unset optional
+as null, and Zod's .optional() accepts a missing key but rejects null.
+A response with "nodeCount": null would have failed the client's
+validation with a message giving no hint of the cause.
+response_model_exclude_none=True omits those keys, so absent means
+absent on both sides. This is a cross-language mismatch that only
+appears when both halves run together.
+
+**Decision made — def, not async def.** The work ahead is CPU bound.
+In an async handler it would block the event loop and stall every other
+request; FastAPI runs a plain def in a thread pool instead.
+
+**Decision made — camelCase field names in the wire models.** Unpythonic
+and deliberate. The idiomatic alternative needs an alias_generator plus
+populate_by_name plus by_alias serialisation, three settings whose
+failure mode is a silently dropped field. Internal code from File 060
+onward uses snake_case.
+
+**Decision made — parsed: false with a reason, never an empty match list
+with parsed: true.** The second claims "I looked and found nothing",
+which is a clean bill of health this service has not earned.
+
+**Decision made — the size limits live on the server.** This closes the
+gap noted in File 058, and on the correct side: a server that trusts its
+clients to behave is not a server.
+
+**Decision made — no Dockerfile yet.** Uvicorn on the host, as the API
+runs on the host. Containerising now would add a rebuild to every one of
+Files 060 to 063.
+
+**Open gap:** no authentication on the detector, and no HTTP-layer body
+size limit. Both belong with deployment.
+
+**Machine note:** the detector runs on port 8090, not the conventional
+8000, because another process on this machine holds 8000 with an
+exclusive bind. Windows reports that as WinError 10013 "access
+forbidden" rather than the usual 10048 "address already in use", which
+makes it look like a permissions problem. Get-NetTCPConnection
+-LocalPort 8000 names the real owner. The port lives in infra/.env as
+DETECTOR_URL, written as 127.0.0.1 rather than localhost, since
+localhost resolves to ::1 first on Windows while uvicorn binds IPv4.
+
+**Commit:** `feat(detector): add FastAPI service with the analyze contract`
