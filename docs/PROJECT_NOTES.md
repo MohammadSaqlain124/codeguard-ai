@@ -6112,4 +6112,39 @@ that a commit message cannot claim something the evidence contradicts.
 7 ms; 900 calls and 1,466 ms fell to 150 calls and 98 ms. Both were
 wrong. Re-measure after the fix.
 
+## 2026-09-26 — Day 16 — File 064, third attempt: matching and scoring are different jobs
+
+**Two wrong attempts first.** Version one shortlisted each unit's best
+five in one direction; version two did it from both sides. Both failed
+the same way, and the score said so exactly: 0.3333 on sixty units means
+twenty matched. The sixty test functions come from four body patterns,
+so each pattern is a fifteen-way exact tie; rank() breaks ties by index,
+so all fifteen units nominate the same five partners, and going
+bidirectional changed nothing because both sides sort identically. Five
+matched per group, four groups, twenty of sixty.
+
+**Ties are not a synthetic artefact.** Sixty students writing the same
+assignment produce dozens of near-identical functions. For a plagiarism
+detector, ties are the normal case, so a design that breaks on them is
+useless.
+
+**The real insight: matching and scoring are different jobs.** Deciding
+which function corresponds to which needs only relative ordering, so the
+cheap label score can do it, over every pair, where nobody can be
+starved. Deciding how similar a matched pair really is needs accuracy,
+so APTED runs once per matched pair. Sixty calls instead of 3,600.
+
+**What that moves rather than removes:** the cheap score may pair a unit
+with the wrong partner, so a match scores lower than the best available
+pairing would. Bounded, and measured directly by the exhaustive A/B. If
+it costs too much, the next step is APTED on each unit's top two
+alternatives, keeping the better.
+
+**Also:** the A/B now prints both scores when they differ, instead of
+one. Reconstructing the gap by arithmetic was avoidable.
+
+**Process note:** two commits went out while the test printed MOVED. The
+test and the git commands should never share a paste buffer; the commit
+is a decision made after reading the output.
+
 **Commit:** `feat(detector): shortlist unit pairs with a cheap label-overlap score`

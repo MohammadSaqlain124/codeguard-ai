@@ -2,7 +2,7 @@ import time
 from dataclasses import dataclass
 
 from app.normalise import TNode, size
-from app.prefilter import TOP_K_UNITS, shortlist_pairs
+from app.prefilter import quick_similarity
 from app.similarity import Prepared, compare, prepare
 
 # What counts as a comparable unit, by language.
@@ -33,7 +33,7 @@ class FileComparison:
     units_b: int
     compared_pairs: int
     pruned_pairs: int
-    shortlisted_out: int
+    skipped_pairs: int
     coverage_a: float
     coverage_b: float
     duration_ms: float
@@ -68,54 +68,83 @@ def ceiling_for(a: Prepared, b: Prepared) -> float:
     return 1 - gap / (a.node_count + b.node_count)
 
 
+def greedy(scored: list[tuple[float, int, int]]) -> list[tuple[int, int]]:
+    """Strongest pair first, each unit used at most once."""
+    scored.sort(reverse=True)
+    used_a: set[int] = set()
+    used_b: set[int] = set()
+    chosen: list[tuple[int, int]] = []
+    for _, i, j in scored:
+        if i in used_a or j in used_b:
+            continue
+        used_a.add(i)
+        used_b.add(j)
+        chosen.append((i, j))
+    return chosen
+
+
 def compare_unit_sets(
     units_a: list[Prepared],
     units_b: list[Prepared],
     tree_size_a: int,
     tree_size_b: int,
-    top_k: int | None = TOP_K_UNITS,
+    exhaustive: bool = False,
 ) -> FileComparison:
     started = time.perf_counter()
-
-    if top_k is None:
-        pairs = {(i, j) for i in range(len(units_a)) for j in range(len(units_b))}
-    else:
-        pairs = shortlist_pairs([u.labels for u in units_a], [u.labels for u in units_b], top_k)
-
-    shortlisted_out = len(units_a) * len(units_b) - len(pairs)
-    scored = []
     compared = 0
     pruned = 0
+    exact: dict[tuple[int, int], float] = {}
 
-    # sorted so the work happens in a predictable order, run to run
-    for i, j in sorted(pairs):
-        a, b = units_a[i], units_b[j]
-        if ceiling_for(a, b) < SIZE_PRUNE_FLOOR:
-            pruned += 1
-            continue
-        result = compare(a, b)
-        if result is None:
-            pruned += 1
-            continue
-        compared += 1
-        scored.append((result.similarity, i, j))
+    if exhaustive:
+        # every pair costed properly, and the matching decided from that
+        scored = []
+        for i, a in enumerate(units_a):
+            for j, b in enumerate(units_b):
+                if ceiling_for(a, b) < SIZE_PRUNE_FLOOR:
+                    pruned += 1
+                    continue
+                result = compare(a, b)
+                if result is None:
+                    pruned += 1
+                    continue
+                compared += 1
+                scored.append((result.similarity, i, j))
+                exact[(i, j)] = result.similarity
+        chosen = greedy(scored)
+    else:
+        # Matching only needs to know which pairing is better, so the cheap
+        # score decides it, looking at every pair so nobody is left out.
+        guesses = [
+            (quick_similarity(a.labels, b.labels), i, j)
+            for i, a in enumerate(units_a)
+            for j, b in enumerate(units_b)
+        ]
+        chosen = greedy(guesses)
 
-    # strongest pair first, and each unit can only be used once
-    scored.sort(reverse=True)
+        # only the pairs we actually matched are worth the expensive score
+        for i, j in chosen:
+            a, b = units_a[i], units_b[j]
+            if ceiling_for(a, b) < SIZE_PRUNE_FLOOR:
+                pruned += 1
+                continue
+            result = compare(a, b)
+            if result is None:
+                pruned += 1
+                continue
+            compared += 1
+            exact[(i, j)] = result.similarity
 
-    used_a: set[int] = set()
-    used_b: set[int] = set()
     matches: list[UnitMatch] = []
     weighted = 0.0
-
-    for similarity, i, j in scored:
-        if i in used_a or j in used_b:
+    for i, j in chosen:
+        similarity = exact.get((i, j))
+        if similarity is None:
             continue
-        used_a.add(i)
-        used_b.add(j)
         a, b = units_a[i], units_b[j]
         weighted += similarity * (a.node_count + b.node_count)
         matches.append(UnitMatch(similarity, a.start_line, a.end_line, b.start_line, b.end_line))
+
+    matches.sort(key=lambda m: m.similarity, reverse=True)
 
     # unmatched units contribute nothing to the top but still count below,
     # so a file with extra code scores lower than one without
@@ -131,7 +160,7 @@ def compare_unit_sets(
         units_b=len(units_b),
         compared_pairs=compared,
         pruned_pairs=pruned,
-        shortlisted_out=shortlisted_out,
+        skipped_pairs=len(units_a) * len(units_b) - compared - pruned,
         coverage_a=round(total_a / tree_size_a, 3) if tree_size_a else 0.0,
         coverage_b=round(total_b / tree_size_b, 3) if tree_size_b else 0.0,
         duration_ms=round((time.perf_counter() - started) * 1000, 3),
@@ -142,7 +171,7 @@ def compare_files(
     root_a: TNode,
     root_b: TNode,
     language: str,
-    top_k: int | None = TOP_K_UNITS,
+    exhaustive: bool = False,
 ) -> FileComparison:
     """Convenience for one pair. File 065 prepares once and reuses instead."""
     return compare_unit_sets(
@@ -150,5 +179,5 @@ def compare_files(
         extract_units(root_b, language),
         size(root_a),
         size(root_b),
-        top_k,
+        exhaustive,
     )
