@@ -39,6 +39,7 @@ const analyzeResponseSchema = z.object({
   parseError: z.string().max(300).optional(),
   nodeCount: z.number().int().min(0).optional(),
   compared: z.boolean(),
+  candidatesCompared: z.number().int().min(0),
   matches: z.array(matchSchema).default([]),
   durationMs: z.number().min(0),
 });

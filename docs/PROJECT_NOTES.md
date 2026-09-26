@@ -6148,3 +6148,50 @@ test and the git commands should never share a paste buffer; the commit
 is a decision made after reading the output.
 
 **Commit:** `feat(detector): shortlist unit pairs with a cheap label-overlap score`
+
+## 2026-09-26 — Day 16 — File 065: /analyze becomes a pipeline
+
+**What we built:** /analyze now parses the submission, normalises it,
+extracts its functions, ranks the candidates it was given by cheap label
+overlap, compares the best ten properly, and returns matches sorted
+strongest first with line spans. Contract gained candidatesCompared;
+DETECTOR_VERSION is 0.3.0. UnitMatch carries node counts so spans can be
+filtered.
+
+**Why we built it:** five files each did one thing and nothing connected
+them. This is the first point at which the detector answers the question
+the project exists to ask.
+
+**Why main.py orchestrates only:** every judgement about how to compare
+lives in the files below it, so the HTTP layer reads top to bottom as a
+description of the method: parse, normalise, extract, rank, compare,
+report.
+
+**Decision made — MAX_DEEP_CANDIDATES of 10.** The same rank() used for
+units now chooses which of up to fifty classmates earn the expensive
+treatment. One mechanism at two scales.
+
+**Decision made — MIN_SPAN_NODES of 10, a reporting threshold separate
+from the counting threshold.** "return x + 1" against "return n * n"
+scored 0.944 yesterday; it still counts toward the file score, weighted
+by its tiny size, but it will not be shown to a human as a finding.
+Conflating what counts with what is reported is how a tool loses
+faculty's trust.
+
+**Decision made — compared is len(candidates) > 0, not a hard true.**
+With nothing to compare against, nothing was attempted.
+
+**Decision made — nodeCount keeps meaning the raw named-node count.**
+The normalised size would arguably be more useful, but the field has
+meant one thing since File 060 and silently changing what a field means
+is worse than reporting a less useful number.
+
+**Open gap:** candidate ranking has no exhaustive A/B behind it, unlike
+the unit matcher. It could be dropping the real copier at position
+eleven and nothing would say so. File 067.
+
+**Open gap:** nothing is parallel, and the target file is re-parsed on
+every request, so across an assignment each file is parsed about eleven
+times.
+
+**Commit:** `feat(detector): turn /analyze into the full Layer 1 pipeline`

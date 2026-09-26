@@ -23,6 +23,8 @@ class UnitMatch:
     a_end: int
     b_start: int
     b_end: int
+    nodes_a: int
+    nodes_b: int
 
 
 @dataclass
@@ -142,7 +144,17 @@ def compare_unit_sets(
             continue
         a, b = units_a[i], units_b[j]
         weighted += similarity * (a.node_count + b.node_count)
-        matches.append(UnitMatch(similarity, a.start_line, a.end_line, b.start_line, b.end_line))
+        matches.append(
+            UnitMatch(
+                similarity=similarity,
+                a_start=a.start_line,
+                a_end=a.end_line,
+                b_start=b.start_line,
+                b_end=b.end_line,
+                nodes_a=a.node_count,
+                nodes_b=b.node_count,
+            )
+        )
 
     matches.sort(key=lambda m: m.similarity, reverse=True)
 
@@ -173,7 +185,7 @@ def compare_files(
     language: str,
     exhaustive: bool = False,
 ) -> FileComparison:
-    """Convenience for one pair. File 065 prepares once and reuses instead."""
+    """Convenience for one pair. File 066 prepares once and reuses instead."""
     return compare_unit_sets(
         extract_units(root_a, language),
         extract_units(root_b, language),
