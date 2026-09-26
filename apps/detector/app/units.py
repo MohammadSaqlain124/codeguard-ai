@@ -2,6 +2,7 @@ import time
 from dataclasses import dataclass
 
 from app.normalise import TNode, size
+from app.prefilter import TOP_K_UNITS, rank
 from app.similarity import Prepared, compare, prepare
 
 # What counts as a comparable unit, by language.
@@ -32,6 +33,7 @@ class FileComparison:
     units_b: int
     compared_pairs: int
     pruned_pairs: int
+    shortlisted_out: int
     coverage_a: float
     coverage_b: float
     duration_ms: float
@@ -71,15 +73,25 @@ def compare_unit_sets(
     units_b: list[Prepared],
     tree_size_a: int,
     tree_size_b: int,
+    top_k: int | None = TOP_K_UNITS,
 ) -> FileComparison:
     started = time.perf_counter()
 
+    other_labels = [u.labels for u in units_b]
     scored = []
     compared = 0
     pruned = 0
+    shortlisted_out = 0
 
     for i, a in enumerate(units_a):
-        for j, b in enumerate(units_b):
+        if top_k is None:
+            candidates = range(len(units_b))
+        else:
+            candidates = rank(a.labels, other_labels, top_k)
+            shortlisted_out += len(units_b) - len(candidates)
+
+        for j in candidates:
+            b = units_b[j]
             if ceiling_for(a, b) < SIZE_PRUNE_FLOOR:
                 pruned += 1
                 continue
@@ -90,7 +102,7 @@ def compare_unit_sets(
             compared += 1
             scored.append((result.similarity, i, j))
 
-    # strongest pair first, and每 unit can only be used once
+    # strongest pair first, and each unit can only be used once
     scored.sort(reverse=True)
 
     used_a: set[int] = set()
@@ -121,17 +133,24 @@ def compare_unit_sets(
         units_b=len(units_b),
         compared_pairs=compared,
         pruned_pairs=pruned,
+        shortlisted_out=shortlisted_out,
         coverage_a=round(total_a / tree_size_a, 3) if tree_size_a else 0.0,
         coverage_b=round(total_b / tree_size_b, 3) if tree_size_b else 0.0,
         duration_ms=round((time.perf_counter() - started) * 1000, 3),
     )
 
 
-def compare_files(root_a: TNode, root_b: TNode, language: str) -> FileComparison:
-    """Convenience for one pair. File 064 prepares once and reuses instead."""
+def compare_files(
+    root_a: TNode,
+    root_b: TNode,
+    language: str,
+    top_k: int | None = TOP_K_UNITS,
+) -> FileComparison:
+    """Convenience for one pair. File 065 prepares once and reuses instead."""
     return compare_unit_sets(
         extract_units(root_a, language),
         extract_units(root_b, language),
         size(root_a),
         size(root_b),
+        top_k,
     )

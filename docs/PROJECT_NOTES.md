@@ -5991,4 +5991,91 @@ has functions. A student could hide copied logic there. Phase 5.
 against sixty is 3,600 pairs; this file cut what a pair costs, not how
 many pairs there are. The pair count across submissions is File 064.
 
+**Measured, 26 Sep:** fully reordered file against itself now scores 1.0
+(0.727 whole-file yesterday). Renamed and reordered together also 1.0.
+Every match carries both line ranges, which are Spans.
+
+**The short-circuit is worth about 3,000x.** 3,600 pairs of identical
+bracket strings took 2.3 ms; 2,700 pairs needing APTED took 5,580 ms,
+about 2.07 ms each on trees of 10 to 20 nodes.
+
+**The cost model changed.** At whole-file granularity the cost is the
+algorithm: one call, 8.5 s, genuinely quadratic. At function
+granularity the algorithm is nearly free and the cost is the number of
+calls: 2,700 calls of 2 ms. Two milliseconds for a twenty-node tree is
+pure-Python constant overhead, not work. Function-level came out 1.5x
+faster overall, matching the corrected algebra of about 2x.
+
+**The size prune never fired, in any case.** Functions within one file
+have similar sizes, so the worst ceiling was 0.667 against a floor of
+0.5. The bound is sound but size alone does not separate function
+pairs. Raising the floor would trade speed for silent false negatives,
+since an unmatched unit scores zero in the aggregate. The prune stays
+as a guard against pathological pairs only.
+
+**Small units match each other spuriously.** "return x + 1" against
+"return n * n" scored 0.944, because both are one-line functions and
+both operators normalise to binary_operator. Node-count weighting makes
+it harmless to the aggregate, but it would appear in the spans list
+shown to faculty as though it were evidence. Matches below about 10
+nodes should not be reported, only counted. For File 065.
+
+**Consequence:** a realistic assignment of 10 functions per file costs
+about 0.2 s per file pair, so roughly 6 minutes for a class of 60. A
+60-function file costs 5.6 s per pair, roughly 2 hours 45 minutes.
+File 064 must cut the number of APTED calls at two levels: which
+submissions to compare at all, and which units within a chosen pair.
+Both can use one cheap scorer over the multiset of node labels.
+
 **Commit:** `feat(detector): match files function by function instead of whole file`
+
+## 2026-09-26 — Day 16 — File 064: apps/detector/app/prefilter.py
+
+**What we built:** A cheap approximate scorer over the multiset of node
+labels. label_counts() reduces a tree to "how many of each kind of node";
+quick_similarity() is 2 x shared / total over two such bags; rank()
+returns the most promising candidates. units.py now compares each unit
+against only its top five, and compare_unit_sets gained a top_k
+parameter so the prefilter can be switched off for testing.
+
+**Why we built it:** yesterday measured 2.07 ms per APTED call on
+twenty-node trees. The algorithm is no longer the cost; the number of
+calls is. Sixty functions against sixty is 3,600 calls and 5.6 seconds
+for a single pair of files.
+
+**Why a separate file:** this is a heuristic, explicitly allowed to be
+wrong, whose only job is ranking. similarity.py has to be right; this
+has to be fast. Keeping them apart stops anyone treating the cheap
+number as a result.
+
+**Libraries introduced:** none. collections.Counter is exactly a
+multiset.
+
+**Functions written:** label_counts, quick_similarity, rank.
+
+**Concepts learned:** heuristic · multiset · Sørensen-Dice coefficient ·
+shortlist · recall · two-stage filtering
+
+**Decision made — throw away the shape for ranking.** Structure is what
+costs; you do not need structure to tell plausible from hopeless.
+
+**Decision made — the prefilter must be switchable.** top_k=None reruns
+every pair, so "does this change any score?" has a measured answer
+rather than an opinion. A heuristic you cannot switch off is one you
+cannot validate.
+
+**Decision made — no filtering when a file has five or fewer
+functions.** Small files behave exactly as before, and the prefilter
+engages only where the cost lives.
+
+**Open gap:** unlike the size-gap prune this is not a provable bound. A
+filtered-out pair shows up as a slightly lower score, never as an
+error, which is the most dangerous failure mode in this project.
+TOP_K_UNITS of five is a guess until measured.
+
+**Open gap:** submission-level candidate selection is not wired yet. The
+ranking function exists; File 065 uses it. For large cohorts the real
+answer is storing label counts in Mongo so ranking never touches the
+files. Phase 5.
+
+**Commit:** `feat(detector): shortlist unit pairs with a cheap label-overlap score`

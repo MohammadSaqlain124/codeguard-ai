@@ -1,10 +1,12 @@
 import time
+from collections import Counter
 from dataclasses import dataclass
 
 from apted import APTED
 from apted.helpers import Tree
 
 from app.normalise import TNode, size, to_bracket
+from app.prefilter import label_counts
 
 # 610,000 node-pairs took 8.5 seconds on this machine (Sep 2026), so this
 # cap is roughly a two second budget for a single comparison.
@@ -16,6 +18,7 @@ class Prepared:
     """A tree converted once, ready to be compared many times."""
     tree: Tree
     bracket: str
+    labels: Counter
     node_count: int
     start_line: int
     end_line: int
@@ -35,6 +38,7 @@ def prepare(node: TNode) -> Prepared:
     return Prepared(
         tree=Tree.from_text(bracket),
         bracket=bracket,
+        labels=label_counts(node),
         node_count=size(node),
         start_line=node.start_line,
         end_line=node.end_line,
@@ -46,8 +50,8 @@ def compare(a: Prepared, b: Prepared) -> Comparison | None:
     if a.node_count == 0 or b.node_count == 0:
         return None
 
-    # Once normalised, copied code is often character for character the same
-    # shape. A string comparison costs nothing beside tree edit distance.
+    # Once normalised, copied code is often the same shape character for
+    # character. A string comparison costs nothing beside tree edit distance.
     if a.bracket == b.bracket:
         return Comparison(1.0, 0, a.node_count, b.node_count, 0.0)
 
