@@ -7,7 +7,7 @@ import { connectDb, disconnectDb } from "./db/connect.js";
 import { connectRedis, disconnectRedis } from "./db/redis.js";
 import { initModels, SubmissionModel } from "./models/index.js";
 import { DETECTION_QUEUE, type DetectionJob } from "./queue/detectionQueue.js";
-import { getSubmission } from "./storage/minio.js";
+import { runDetection } from "./services/detection.js";
 
 const log = componentLogger("worker");
 
@@ -59,22 +59,16 @@ async function analyse(job: Job<DetectionJob>) {
   submission.set("failureReason", undefined);
   await submission.save();
 
-  const source = await getSubmission(submission.objectKey);
+  const outcome = await runDetection(submission);
 
-  log.info(
-    {
-      submissionId,
-      attempt: job.attemptsMade + 1,
-      bytes: source.length,
-      lines: submission.lineCount,
-      language: submission.language,
-    },
-    "source loaded",
-  );
+  submission.status = "analyzed";
+  await submission.save();
 
-  // File 058 replaces this line with a call to the detector service.
-  // until then the failure is real and visible, which is the honest state.
-  throw new Error("Detector service is not implemented yet");
+  return {
+    rps: Number(outcome.rps.toFixed(4)),
+    structural: outcome.structuralStatus,
+    matches: outcome.matchCount,
+  };
 }
 
 const worker = new Worker<DetectionJob>(DETECTION_QUEUE, analyse, {

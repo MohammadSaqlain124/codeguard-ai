@@ -6195,3 +6195,60 @@ every request, so across an assignment each file is parsed about eleven
 times.
 
 **Commit:** `feat(detector): turn /analyze into the full Layer 1 pipeline`
+
+## 2026-09-26 — Day 16 — File 066: apps/api/src/services/detection.ts
+
+**What we built:** The Node side of Layer 1. runDetection() finds the
+latest attempt of every other student on the assignment, fetches their
+files from MinIO, calls the detector, checks contentHash for an exact
+duplicate, computes RPS, and writes a DetectionResult with per-layer
+statuses and a revision. The worker's placeholder throw is gone.
+DetectionResult gained cohortSampleSize and cohortComputedAt.
+
+**Why a separate service:** the worker's job is lifecycle — pick up,
+mark, retry, record failure. Detection is domain logic, and if they
+shared a file neither could be tested without the other.
+
+**Functions written:** findCandidates, loadSources, runDetection.
+
+**Concepts learned:** denormalisation · revision · renormalised
+weighting · cohort · idempotent re-run
+
+**Decision made — RPS is renormalised over the layers that ran.** With
+w1 at 0.4 and Layers 2 and 3 absent, treating a missing layer as zero
+would cap a verbatim copy at 0.4, below the 0.5 review threshold: the
+system would find a perfect copy and decline to flag it. RPS therefore
+equals the structural score today, the per-layer statuses record why,
+and configVersion and detectorVersion make it traceable when Layer 2
+changes the meaning.
+
+**Decision made — the duplicate check runs in Node, not the detector.**
+contentHash is byte-exact; a detector similarity of 1.0 only means the
+normalised trees match, and two different files can normalise
+identically. exactDuplicateOf should mean exactly what it says.
+
+**Decision made — cohortZScore is written as zero with its sample size.**
+The schema requires the field, so something must be written; a
+plausible-looking number would be worse than an obviously uninformative
+one. File 067 refreshes both in place.
+
+**Decision made — only the latest attempt per student is a candidate.**
+Earlier attempts would fill the list with near copies of work already
+there, and a student's own resubmission is not evidence about anyone.
+
+**Decision made — revision handling is read-then-write, and the unique
+index on {submission, revision} is the lock.** Two workers racing both
+try to write revision 2; the index rejects one, the job retries, and by
+then the winner has committed. Same pattern as the upload race in File
+051.
+
+**Open gap:** the 50-candidate cap picks effectively at random for a
+larger class, and up to 50 files are fetched from MinIO per submission,
+roughly 3,000 fetches across a 60-student assignment. Both are solved by
+storing the label-count fingerprint in Mongo. Phase 5.
+
+**Open gap:** a course with no DetectionConfig row falls back to
+configVersion 1, indistinguishable from a real version 1. Harmless,
+since a real version 1 holds the same defaults.
+
+**Commit:** `feat(api): run detection and store a DetectionResult`

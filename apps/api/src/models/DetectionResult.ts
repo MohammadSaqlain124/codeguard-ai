@@ -103,6 +103,11 @@ const detectionResultSchema = new Schema(
       // set when contentHash matched another submission exactly
       exactDuplicateOf: { type: Schema.Types.ObjectId, ref: "Submission" },
       candidatesConsidered: { type: Number, min: 0 },
+      // context for the z-scores below. Refreshed in place by the
+      // recalibration job as the cohort grows, so a z-score is never
+      // anonymous: it always says what population it came from.
+      cohortSampleSize: { type: Number, min: 0 },
+      cohortComputedAt: { type: Date },
       matches: { type: [structuralMatchSchema], default: [] },
     },
 
