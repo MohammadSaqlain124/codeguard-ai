@@ -6,15 +6,16 @@ from apted.helpers import Tree
 
 from app.normalise import TNode, size, to_bracket
 
-# One comparison costs roughly the product of the two tree sizes. Past this
-# we refuse, rather than let one submission hold a worker for minutes.
-MAX_PRODUCT = 4_000_000
+# 610,000 node-pairs took 8.5 seconds on this machine (Sep 2026), so this
+# cap is roughly a two second budget for a single comparison.
+MAX_PRODUCT = 150_000
 
 
 @dataclass
 class Prepared:
     """A tree converted once, ready to be compared many times."""
     tree: Tree
+    bracket: str
     node_count: int
     start_line: int
     end_line: int
@@ -30,8 +31,10 @@ class Comparison:
 
 
 def prepare(node: TNode) -> Prepared:
+    bracket = to_bracket(node)
     return Prepared(
-        tree=Tree.from_text(to_bracket(node)),
+        tree=Tree.from_text(bracket),
+        bracket=bracket,
         node_count=size(node),
         start_line=node.start_line,
         end_line=node.end_line,
@@ -42,6 +45,12 @@ def compare(a: Prepared, b: Prepared) -> Comparison | None:
     """Similarity of two prepared trees, or None if the pair was refused."""
     if a.node_count == 0 or b.node_count == 0:
         return None
+
+    # Once normalised, copied code is often character for character the same
+    # shape. A string comparison costs nothing beside tree edit distance.
+    if a.bracket == b.bracket:
+        return Comparison(1.0, 0, a.node_count, b.node_count, 0.0)
+
     if a.node_count * b.node_count > MAX_PRODUCT:
         return None
 
@@ -49,9 +58,8 @@ def compare(a: Prepared, b: Prepared) -> Comparison | None:
     distance = APTED(a.tree, b.tree).compute_edit_distance()
     elapsed = (time.perf_counter() - started) * 1000
 
-    # The worst possible edit is deleting every node of a and inserting
-    # every node of b, so the distance cannot exceed the two sizes added
-    # together. Dividing by that sum keeps the result inside 0 to 1.
+    # The worst possible edit deletes every node of a and inserts every node
+    # of b, so the distance cannot exceed the two sizes added together.
     similarity = 1 - distance / (a.node_count + b.node_count)
 
     return Comparison(

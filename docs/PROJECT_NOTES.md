@@ -5902,4 +5902,93 @@ extraction, matching and aggregation. Later files shift by one.
 the same as deleting one identifier. APTED supports custom costs; there
 is no evidence yet that they would help.
 
+**Measured, 25 Sep:** identical and renamed both 1.0. One line added
+0.875, logic changed 0.794, unrelated code 0.581. Reordering three
+functions in a file compared against itself: two swapped 0.796, fully
+reversed 0.727. Timing: 44 nodes 13 ms, 781 nodes 8,510 ms, which is
+about n^2.3.
+
+**Consequence — unrelated code scores 0.58, not near zero.** All code
+shares the same vocabulary of node types, so raw similarity is close to
+meaningless alone. This is the empirical justification for cohortZScore
+being a required field.
+
+**Consequence — a class of 60 is 1,770 pairs, so whole-file comparison
+would take 4 hours 11 minutes per assignment.** Candidate selection is
+therefore the most important remaining file, not an optimisation.
+
+**Correction — my MAX_PRODUCT of 4,000,000 was wrong by about fifty
+times.** Lowered to 150,000 on the measurement above.
+
+**Correction — the performance argument for function-level comparison
+was wrong.** f comparisons of trees of size n/f cost f^2 (n/f)^2 = n^2,
+exactly the same as one comparison of size n; the f^2 pairs cancel the
+smaller trees. At the measured exponent of 2.3 it buys a factor of about
+two. Function-level remains correct for reordering invariance (0.727 to
+1.0) and for spans, which is why it was chosen, but it does not solve
+the cost problem.
+
 **Commit:** `feat(detector): compute tree edit distance similarity with APTED`
+
+## 2026-09-26 — Day 16 — File 063: apps/detector/app/units.py
+
+**What we built:** Function-level comparison. extract_units() pulls every
+function and method out of a normalised tree; compare_unit_sets() prunes
+impossible pairs, compares the rest, matches greedily strongest first,
+and aggregates into a file score weighted by node count. Each match
+carries both line ranges, which is a Span. Coverage reports how much of
+each file was inside a function at all. similarity.py gained a
+bracket-string early exit and MAX_PRODUCT dropped to 150,000.
+
+**Why we built it:** whole-file comparison scored a file against itself
+at 0.727 when three functions were reordered. Matching by content rather
+than position removes that, and produces the line ranges that make this
+evidence rather than a score.
+
+**Why a separate file:** similarity.py answers how alike two trees are;
+this answers which parts correspond and what that says about the files.
+The arguable decisions — greedy or optimal pairing, how to weight,
+what to do with unmatched code — all live here.
+
+**Libraries introduced:** none, deliberately.
+
+**Functions written:** extract_units, ceiling_for, compare_unit_sets,
+compare_files.
+
+**Concepts learned:** comparable unit · assignment problem · admissible
+bound · weighted mean · coverage
+
+**Decision made — prune by a provable ceiling, not a guess.** Turning a
+10-node tree into a 100-node tree needs at least 90 edits, so distance
+is at least the size gap and similarity is at most 1 - gap/(na+nb). A
+pair whose ceiling falls under 0.5 cannot matter, since unrelated code
+already measures 0.58. Nothing approximate is discarded.
+
+**Decision made — compare bracket strings before running APTED.** Once
+normalised, copied code is usually the same string, and string equality
+costs microseconds against seconds. Exact copying is the commonest real
+case, so this is the optimisation most likely to matter in practice.
+
+**Decision made — greedy matching rather than optimal.** The Hungarian
+algorithm would be exact but needs scipy, the first heavyweight
+dependency in the detector, for a difference that only appears when
+scores are close. Revisit when Layer 2 needs numpy anyway, and test it
+before adopting it.
+
+**Decision made — unmatched units count in the denominator only.** A
+student who copied three functions and wrote seven gets a score
+reflecting the proportion. Identical files still score exactly 1.0.
+
+**Decision made — report coverage instead of hiding it.** Module-level
+code outside any function is not compared, so faculty are told how much
+of the file was examined rather than shown a confident number about
+half a file.
+
+**Open gap:** module-level code is invisible to Layer 1 when a file also
+has functions. A student could hide copied logic there. Phase 5.
+
+**Open gap:** the f-squared problem is untouched. Sixty functions
+against sixty is 3,600 pairs; this file cut what a pair costs, not how
+many pairs there are. The pair count across submissions is File 064.
+
+**Commit:** `feat(detector): match files function by function instead of whole file`
