@@ -2,7 +2,7 @@ import time
 from dataclasses import dataclass
 
 from app.normalise import TNode, size
-from app.prefilter import TOP_K_UNITS, rank
+from app.prefilter import TOP_K_UNITS, shortlist_pairs
 from app.similarity import Prepared, compare, prepare
 
 # What counts as a comparable unit, by language.
@@ -77,30 +77,28 @@ def compare_unit_sets(
 ) -> FileComparison:
     started = time.perf_counter()
 
-    other_labels = [u.labels for u in units_b]
+    if top_k is None:
+        pairs = {(i, j) for i in range(len(units_a)) for j in range(len(units_b))}
+    else:
+        pairs = shortlist_pairs([u.labels for u in units_a], [u.labels for u in units_b], top_k)
+
+    shortlisted_out = len(units_a) * len(units_b) - len(pairs)
     scored = []
     compared = 0
     pruned = 0
-    shortlisted_out = 0
 
-    for i, a in enumerate(units_a):
-        if top_k is None:
-            candidates = range(len(units_b))
-        else:
-            candidates = rank(a.labels, other_labels, top_k)
-            shortlisted_out += len(units_b) - len(candidates)
-
-        for j in candidates:
-            b = units_b[j]
-            if ceiling_for(a, b) < SIZE_PRUNE_FLOOR:
-                pruned += 1
-                continue
-            result = compare(a, b)
-            if result is None:
-                pruned += 1
-                continue
-            compared += 1
-            scored.append((result.similarity, i, j))
+    # sorted so the work happens in a predictable order, run to run
+    for i, j in sorted(pairs):
+        a, b = units_a[i], units_b[j]
+        if ceiling_for(a, b) < SIZE_PRUNE_FLOOR:
+            pruned += 1
+            continue
+        result = compare(a, b)
+        if result is None:
+            pruned += 1
+            continue
+        compared += 1
+        scored.append((result.similarity, i, j))
 
     # strongest pair first, and each unit can only be used once
     scored.sort(reverse=True)

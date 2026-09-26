@@ -33,3 +33,23 @@ def rank(target: Counter, others: list[Counter], top_k: int) -> list[int]:
     scored = [(quick_similarity(target, other), i) for i, other in enumerate(others)]
     scored.sort(reverse=True)
     return [i for _, i in scored[:top_k]]
+
+def shortlist_pairs(
+    labels_a: list[Counter],
+    labels_b: list[Counter],
+    top_k: int,
+) -> set[tuple[int, int]]:
+    """Pairs worth comparing properly, nominated from both sides.
+
+    Shortlisting in one direction only starves units that nobody happens
+    to pick: if every unit of A names the same five in B, the rest of B is
+    never offered to anyone, and their partners in A end up unmatched.
+    """
+    pairs: set[tuple[int, int]] = set()
+    for i, a in enumerate(labels_a):
+        for j in rank(a, labels_b, top_k):
+            pairs.add((i, j))
+    for j, b in enumerate(labels_b):
+        for i in rank(b, labels_a, top_k):
+            pairs.add((i, j))
+    return pairs

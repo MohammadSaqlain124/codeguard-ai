@@ -6078,4 +6078,38 @@ ranking function exists; File 065 uses it. For large cohorts the real
 answer is storing label counts in Mongo so ranking never touches the
 files. Phase 5.
 
+## 2026-09-26 — Day 16 — File 064 revised: starvation in the prefilter
+
+**What went wrong:** the first version shortlisted in one direction only.
+Every unit of A nominated its best five in B, and when many units of A
+have the same best matches, most of B is never nominated by anyone.
+Those units of A then have no candidates left after greedy matching and
+go unmatched, scoring zero in the numerator while keeping their full
+weight in the denominator. On 30 functions against 30 with 10 shared,
+the score fell to 0.3102; on 60 varied functions the same thing happened
+through ties, since fifteen identical units all nominated the same few.
+
+**How it was caught:** the top_k=None switch, which reruns every pair, so
+the test could compare prefiltered against exhaustive. A heuristic that
+cannot be switched off cannot be validated, and this one would have
+shipped silently and lowered every score on real submissions.
+
+**The fix:** shortlist_pairs() nominates from both sides and compares the
+union, so every unit on both sides appears in at least top_k pairs and
+none can be crowded out by another's choices. Roughly twice the cheap
+scores and twice the APTED calls, which is the right trade: a heuristic
+that changes scores is not fast, it is wrong.
+
+**Also changed:** pairs are iterated in sorted order, so timings and
+tie-breaking do not vary between runs, and shortlisted_out is now all
+possible pairs minus the pairs actually examined.
+
+**Process note:** the first version was committed while the test printed
+"*** MOVED ***" twice, against the stop condition. The gate exists so
+that a commit message cannot claim something the evidence contradicts.
+
+**Speed before the fix:** 3,600 calls and 4,267 ms fell to 300 calls and
+7 ms; 900 calls and 1,466 ms fell to 150 calls and 98 ms. Both were
+wrong. Re-measure after the fix.
+
 **Commit:** `feat(detector): shortlist unit pairs with a cheap label-overlap score`
