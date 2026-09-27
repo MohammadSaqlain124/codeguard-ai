@@ -6360,6 +6360,28 @@ the infinite-loop version of the staleness test.
 **Concepts learned:** test double · hermetic test · import-order hazard ·
 arrange act assert · convergence test
 
+**Found while testing:** tsconfig.json has "include": ["src/**/*.ts"],
+so npx tsc has never type-checked the tests. Vitest transpiles with
+esbuild, which strips types without checking them, so a test file can be
+full of type errors and still pass. "tsc printed nothing and 50 passed"
+was true and meaningless at the same time. The editor was the only thing
+reporting the errors.
+
+**Two real errors it had hidden:** recalibrateAssignment returned two
+different shapes from its three return statements, so stats.mean did not
+exist on the union; and mongoose's filter types will not accept an
+unknown, which the test helpers were passing as a submission id.
+Fixed by giving the function one return shape and wrapping ids in
+String().
+
+**Fix:** tsconfig.test.json extends the build config with noEmit and a
+widened rootDir, covering src and tests. npm run typecheck replaces
+npx tsc --noEmit everywhere.
+
+**Open gap:** nothing forces the type check to run. A pretest script or
+a CI job is the durable answer; not added yet because tsc has already
+exhausted this machine's commit limit once.
+
 **Commit:** `test(api): cover the detection pipeline and recalibration`
 
 
