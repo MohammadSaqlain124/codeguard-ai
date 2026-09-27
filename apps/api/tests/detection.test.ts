@@ -126,9 +126,11 @@ async function upload(assignmentId: unknown, who: { token: string }, source: str
   return (await models.SubmissionModel.findById(id))!;
 }
 
-const reload = async (id: unknown) => (await models.SubmissionModel.findById(id))!;
+// String() because mongoose casts a string to an ObjectId at query time,
+// while its filter types will not take an unknown
+const reload = async (id: unknown) => (await models.SubmissionModel.findById(String(id)))!;
 const current = (id: unknown) =>
-  DetectionResultModel.findOne({ submission: id, isCurrent: true }).lean();
+  DetectionResultModel.findOne({ submission: String(id), isCurrent: true }).lean();
 
 describe("detection", () => {
   it("skips the layer when there is nobody to compare against", async () => {
@@ -232,9 +234,12 @@ describe("recalibration", () => {
     expect(result?.revision).toBe(2);
     expect(result?.structural?.status).toBe("ok");
     // the superseded revision is kept, but only one is current
-    expect(await DetectionResultModel.countDocuments({ submission: first._id })).toBe(2);
+    expect(await DetectionResultModel.countDocuments({ submission: String(first._id) })).toBe(2);
     expect(
-      await DetectionResultModel.countDocuments({ submission: first._id, isCurrent: true }),
+      await DetectionResultModel.countDocuments({
+        submission: String(first._id),
+        isCurrent: true,
+      }),
     ).toBe(1);
   });
 

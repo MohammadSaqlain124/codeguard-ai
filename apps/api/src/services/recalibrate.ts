@@ -21,7 +21,9 @@ export async function recalibrateAssignment(assignmentId: string) {
     .sort({ submittedAt: -1 })
     .select("submittedAt");
 
-  if (!newest) return { reanalysed: 0, samples: 0 };
+  // every path returns the same four fields, so a caller never has to ask
+  // which shape it got back
+  if (!newest) return { reanalysed: 0, samples: 0, mean: 0, stdDev: 0 };
 
   // A result computed before the newest submission arrived was compared
   // against an incomplete cohort. No statistic can repair that: the
@@ -41,7 +43,7 @@ export async function recalibrateAssignment(assignmentId: string) {
     log.info({ assignmentId, count: stale.length }, "re-analysing against the fuller cohort");
     // each re-analysis asks for another recalibration when it finishes,
     // so the statistics wait until nothing is stale
-    return { reanalysed: stale.length, samples: 0 };
+    return { reanalysed: stale.length, samples: 0, mean: 0, stdDev: 0 };
   }
 
   const results = await DetectionResultModel.find({ assignment: assignmentId, isCurrent: true });
@@ -76,5 +78,5 @@ export async function recalibrateAssignment(assignmentId: string) {
     "cohort statistics written",
   );
 
-  return { reanalysed: 0, samples: samples.length, ...stats };
+  return { reanalysed: 0, samples: samples.length, mean: stats.mean, stdDev: stats.stdDev };
 }
