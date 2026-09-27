@@ -4,6 +4,7 @@ import { DEFAULT_DETECTION_CONFIG, DetectionConfigModel } from "../models/Detect
 import { DetectionResultModel } from "../models/DetectionResult.js";
 import type { SubmissionDoc } from "../models/Submission.js";
 import { getSubmission } from "../storage/minio.js";
+import { enqueueRecalibration } from "../queue/detectionQueue.js";
 import { analyzeSubmission, type CandidateSource } from "./detectorClient.js";
 
 const log = componentLogger("detection");
@@ -20,9 +21,9 @@ type Candidate = {
 };
 
 /**
- * The latest attempt of every other student on this assignment, newest
- * first, capped. Earlier attempts by the same student are left out: they
- * would crowd the list with near copies of work we already have.
+ * The latest attempt of every other student on this assignment, capped.
+ * Earlier attempts by the same student are left out: they would crowd the
+ * list with near copies of work we already have.
  */
 async function findCandidates(submission: SubmissionDoc): Promise<Candidate[]> {
   const rows = await SubmissionModel.find({
@@ -66,6 +67,13 @@ async function loadSources(candidates: Candidate[]): Promise<CandidateSource[]> 
 }
 
 export async function runDetection(submission: SubmissionDoc) {
+  // The moment the world was read, which is what this result reflects.
+  // Not the moment the row is written: candidates are gathered first, and
+  // a submission arriving during the detector call would otherwise make
+  // this result look newer than the cohort it never saw, so the
+  // recalibration job would never notice it was analysed too early.
+  const computedAt = new Date();
+
   const assignment = await AssignmentModel.findById(submission.assignment);
   if (!assignment) throw new Error("Assignment no longer exists");
 
@@ -95,9 +103,9 @@ export async function runDetection(submission: SubmissionDoc) {
     otherSubmission: match.submissionId,
     otherStudent: byId.get(match.submissionId)?.studentId,
     similarity: match.similarity,
-    // Meaningless until File 067 computes it against the real cohort.
-    // Written as zero with its sample size so nobody mistakes it for a
-    // finding, rather than left absent, which the schema forbids.
+    // Meaningless until the recalibration job computes it against the real
+    // cohort. Written as zero with its sample size so nobody mistakes it
+    // for a finding, rather than left absent, which the schema forbids.
     cohortZScore: 0,
     spans: match.spans,
   }));
@@ -145,7 +153,7 @@ export async function runDetection(submission: SubmissionDoc) {
       exactDuplicateOf: duplicate ? duplicate.submissionId : undefined,
       candidatesConsidered: analysis.candidatesCompared,
       cohortSampleSize: matches.length,
-      cohortComputedAt: new Date(),
+      cohortComputedAt: computedAt,
       matches,
     },
     behavioral: { status: "skipped", reason: "Layer 2 is not implemented yet" },
@@ -157,6 +165,7 @@ export async function runDetection(submission: SubmissionDoc) {
     detectorVersion: analysis.detectorVersion,
     // needs at least two layers to disagree about anything
     signalDisagreement: false,
+    computedAt,
     totalDurationMs: analysis.durationMs,
   });
 
@@ -173,6 +182,9 @@ export async function runDetection(submission: SubmissionDoc) {
     },
     "detection complete",
   );
+
+  // the cohort just grew by one, so everyone's statistics are now behind
+  await enqueueRecalibration(String(assignment._id));
 
   // a plain summary, so the caller never has to read nested paths back
   // off a hydrated document and guess whether they are there

@@ -8,11 +8,21 @@ const log = componentLogger("queue");
 
 export const DETECTION_QUEUE = "detection";
 
+// two kinds of work share one queue, told apart by the job's name
+export const ANALYSE_JOB = "analyse";
+export const RECALIBRATE_JOB = "recalibrate";
+
 export type DetectionJob = {
   submissionId: string;
   // why the job exists, so the worker and the logs can tell them apart
   reason: "upload" | "rerun";
 };
+
+export type RecalibrateJob = {
+  assignmentId: string;
+};
+
+export type QueueJob = DetectionJob | RecalibrateJob;
 
 // BullMQ needs a connection that never gives up on a command, because a
 // blocking read can wait minutes for the next job. Our shared client from
@@ -25,7 +35,7 @@ const connection = new Redis({
 
 connection.on("error", (err: Error) => log.error({ err }, "queue redis error"));
 
-export const detectionQueue = new Queue<DetectionJob>(DETECTION_QUEUE, {
+export const detectionQueue = new Queue<QueueJob>(DETECTION_QUEUE, {
   connection,
   defaultJobOptions: {
     attempts: 3,
@@ -43,16 +53,41 @@ export const detectionQueue = new Queue<DetectionJob>(DETECTION_QUEUE, {
  */
 export async function enqueueDetection(submissionId: string, reason: DetectionJob["reason"] = "upload") {
   try {
-    // the same submission cannot be queued twice while a job is still waiting
     await detectionQueue.add(
-      "analyse",
+      ANALYSE_JOB,
       { submissionId, reason },
-      { jobId: `sub:${submissionId}:${reason}` },
+      {
+        // the same submission cannot be queued twice while one is waiting
+        jobId: `sub-${submissionId}-${reason}`,
+        // A job id stays reserved while the finished job is retained, and
+        // completed jobs are kept for a day. A re-analysis must be able to
+        // happen again an hour later, so reruns are not retained.
+        ...(reason === "rerun" ? { removeOnComplete: true, removeOnFail: true } : {}),
+      },
     );
     log.info({ submissionId, reason }, "queued for detection");
     return true;
   } catch (err) {
     log.error({ err, submissionId }, "could not queue submission; it stays 'uploaded'");
+    return false;
+  }
+}
+
+/**
+ * Asks for an assignment's results to be brought up to date. One waiting
+ * job per assignment, so sixty uploads at a deadline collapse into a
+ * handful of runs rather than sixty.
+ */
+export async function enqueueRecalibration(assignmentId: string) {
+  try {
+    await detectionQueue.add(
+      RECALIBRATE_JOB,
+      { assignmentId },
+      { jobId: `recal-${assignmentId}`, removeOnComplete: true, removeOnFail: true, attempts: 2 },
+    );
+    return true;
+  } catch (err) {
+    log.error({ err, assignmentId }, "could not queue recalibration");
     return false;
   }
 }

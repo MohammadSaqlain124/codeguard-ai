@@ -6,8 +6,15 @@ import { componentLogger } from "./config/logger.js";
 import { connectDb, disconnectDb } from "./db/connect.js";
 import { connectRedis, disconnectRedis } from "./db/redis.js";
 import { initModels, SubmissionModel } from "./models/index.js";
-import { DETECTION_QUEUE, type DetectionJob } from "./queue/detectionQueue.js";
+import {
+  DETECTION_QUEUE,
+  RECALIBRATE_JOB,
+  type DetectionJob,
+  type QueueJob,
+  type RecalibrateJob,
+} from "./queue/detectionQueue.js";
 import { runDetection } from "./services/detection.js";
+import { recalibrateAssignment } from "./services/recalibrate.js";
 
 const log = componentLogger("worker");
 
@@ -71,7 +78,15 @@ async function analyse(job: Job<DetectionJob>) {
   };
 }
 
-const worker = new Worker<DetectionJob>(DETECTION_QUEUE, analyse, {
+async function handleJob(job: Job<QueueJob>) {
+  if (job.name === RECALIBRATE_JOB) {
+    const { assignmentId } = job.data as RecalibrateJob;
+    return recalibrateAssignment(assignmentId);
+  }
+  return analyse(job as Job<DetectionJob>);
+}
+
+const worker = new Worker<QueueJob>(DETECTION_QUEUE, handleJob, {
   connection,
   concurrency: CONCURRENCY,
   // do not start consuming until the database is actually connected
@@ -79,7 +94,7 @@ const worker = new Worker<DetectionJob>(DETECTION_QUEUE, analyse, {
 });
 
 worker.on("completed", (job, result) => {
-  log.info({ jobId: job.id, submissionId: job.data.submissionId, result }, "job done");
+  log.info({ jobId: job.id, name: job.name, result }, "job done");
 });
 
 worker.on("failed", async (job, err) => {
@@ -91,12 +106,16 @@ worker.on("failed", async (job, err) => {
   const isLast = job.attemptsMade >= allowed;
 
   log.warn(
-    { jobId: job.id, submissionId: job.data.submissionId, attempt: job.attemptsMade, of: allowed, reason: err.message },
+    { jobId: job.id, name: job.name, attempt: job.attemptsMade, of: allowed, reason: err.message },
     isLast ? "job failed for good" : "job failed, will retry",
   );
 
+  // only a submission has a status to record; a recalibration has none
+  if (job.name === RECALIBRATE_JOB) return;
+
+  const { submissionId } = job.data as DetectionJob;
   // between retries the submission is waiting again, not being analysed
-  await setStatus(job.data.submissionId, isLast ? "failed" : "queued", isLast ? err.message : undefined);
+  await setStatus(submissionId, isLast ? "failed" : "queued", isLast ? err.message : undefined);
 });
 
 worker.on("error", (err) => log.error({ err }, "worker error"));

@@ -6251,4 +6251,67 @@ storing the label-count fingerprint in Mongo. Phase 5.
 configVersion 1, indistinguishable from a real version 1. Harmless,
 since a real version 1 holds the same defaults.
 
+**Measured, 26 Sep, end to end:** the renamed and reordered copy scored
+rps 1.0 with two spans; unrelated code scored 0.4881; the first
+submission was analysed against zero candidates and recorded structural
+"skipped" with rps 0. Detector time 4 to 21 ms per submission.
+
+**Finding — the default reviewThreshold of 0.5 sits on the noise
+floor.** Unrelated code measured 0.4881. With Layer 1 alone and an
+absolute threshold, most of a class would be flagged. This is the
+empirical case for cohort z-scores over absolute thresholds.
+
+**Finding — z-score recalibration alone cannot repair an early
+submission.** The first submitter is the origin of the copy and its
+record says nothing was found, because it was analysed when no
+candidates existed. A z-score cannot repair a comparison that never
+happened. File 067 must re-analyse submissions whose
+candidatesConsidered is below the current cohort size, not only refresh
+their statistics. At the measured speed, re-analysing a class of 60
+costs roughly 30 seconds.
+
+**Finding — spans are filtered by unit size but not by unit
+similarity**, so a 0.4881 match still produces line ranges that read as
+evidence. One more condition, in File 067.
+
+**Three bugs found while testing, all mine:**
+
+1. The dispatch function was named `process`, shadowing the Node global,
+   so `process.on` and `process.exit` resolved to it. TypeScript printed
+   the function's own signature as the type it could not find `.on` on.
+
+2. BullMQ rejected `recal:<id>` with "Custom Id cannot contain :", while
+   accepting `sub:<id>:upload` in the same process. The difference may be
+   the boolean removeOnComplete; I could not confirm it. Both ids now use
+   dashes, which also protects the rerun path, whose id carried the same
+   booleans and would have failed the same way.
+
+3. Staleness compared the result's computedAt against the newest
+   submittedAt, but computedAt defaulted to the moment the row was
+   written, after the detector call. A submission arriving during that
+   call made the result look newer than a cohort it never saw, so nothing
+   was ever re-analysed. computedAt is now captured at the start of
+   runDetection: a timestamp must mean the moment the data was read, not
+   the moment the record was saved.
+
+**Two broken checks, also mine.** The first settle condition waited for
+cohortSampleSize > 0, which detection.ts writes itself, so the test
+passed while recalibration had never run. The second waited only for a
+non-zero z-score, which is satisfied before re-analysis finishes. The
+final version waits for candidatesConsidered to equal the cohort size on
+every result. A check that can pass while the feature under test never
+executes is worse than no check.
+
+**Also:** check.ts lost its cleanup and disconnect section when I asked
+for a replacement "down to the // tidy up comment", so the script sat
+holding open Mongoose and ioredis sockets for ten minutes.
+
+**Verified 27 Sep:** six samples, mean 0.6587, standard deviation
+0.2643. The copy scores z 1.291, unrelated code z -0.6455. The first
+submission was analysed against zero candidates, re-analysed
+automatically, and reached revision 2 with rps 1.0 and two spans. A
+duplicate rerun enqueue was correctly swallowed by its job id.
+
 **Commit:** `feat(api): run detection and store a DetectionResult`
+
+

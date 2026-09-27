@@ -12,7 +12,7 @@ from app.units import compare_unit_sets, extract_units
 
 # Bumped whenever the analysis changes in a way that moves scores. Every
 # DetectionResult stores it, so an old result stays explainable later.
-DETECTOR_VERSION = "0.3.0"
+DETECTOR_VERSION = "0.3.1"
 
 # The API caps uploads at 256 KB, so anything larger than this is a bug
 # on the calling side rather than a real submission.
@@ -28,6 +28,10 @@ MIN_SPAN_NODES = 10
 
 # Keep a response readable by a person reviewing it.
 MAX_SPANS_PER_MATCH = 20
+
+# A weak match is not evidence either. Without this, an unrelated pair at
+# 0.49 still produces line ranges that read like a finding.
+MIN_SPAN_SIMILARITY = 0.7
 
 log = logging.getLogger("detector")
 
@@ -148,7 +152,13 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
             Match(
                 submissionId=submission_id,
                 similarity=outcome.similarity,
-                spans=spans[:MAX_SPANS_PER_MATCH],
+                spans = [
+                    Span(aStart=m.a_start, aEnd=m.a_end, bStart=m.b_start, bEnd=m.b_end)
+                    for m in outcome.matches
+                    if m.nodes_a >= MIN_SPAN_NODES
+                    and m.nodes_b >= MIN_SPAN_NODES
+                    and m.similarity >= MIN_SPAN_SIMILARITY
+                ]
             )
         )
 
