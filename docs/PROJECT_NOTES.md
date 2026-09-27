@@ -6314,4 +6314,52 @@ duplicate rerun enqueue was correctly swallowed by its job id.
 
 **Commit:** `feat(api): run detection and store a DetectionResult`
 
+## 2026-09-27 — Day 17 — File 068: apps/api/tests/detection.test.ts — Phase 4 closes
+
+**What we built:** Seven tests over the detection pipeline: the skipped
+layer when a cohort is empty, a copy scored at one with its spans, an
+exact duplicate found by hash rather than by score, only the latest
+attempt offered as a candidate, a failed layer for unparsable source,
+re-analysis of a result computed too early, and cohort z-scores with
+their arithmetic asserted to four decimals plus a convergence check.
+helpers.ts now points DETECTOR_URL at a stub on port 8099.
+
+**Why we built it:** two evenings of manual verification proved the
+system worked at one moment on one machine. The first edit to
+normalise.py would have invalidated all of it.
+
+**Decision made — stub the detector rather than run it.** These tests
+are about the Node side: candidate selection, RPS, revisions,
+statistics. The real service would make them slow, make them fail when
+uvicorn is not running, and test two things at once so a failure
+identifies neither.
+
+**Open gap created by that decision:** the Node to Python contract is no
+longer covered automatically. If the detector renames a field, only a
+manual run notices. A pytest suite for the detector plus one contract
+test belongs in Phase 5.
+
+**Decision made — no worker in the tests.** The services are called
+directly. BullMQ's plumbing has been exercised by hand for two days, and
+a worker inside vitest would add timing and shutdown problems for no
+extra confidence.
+
+**Decision made — unique emails per test.** Repeating an address across
+eight tests approaches the ten-logins-per-fifteen-minutes limit from
+File 053. The rate limiter would fail our own suite, correctly.
+
+**Decision made — assert the statistics to four decimals.** toBeCloseTo
+on 0.2582 fails if anyone divides by n instead of n-1, so Bessel's
+correction is protected by a test rather than by a comment.
+
+**Decision made — end with a convergence assertion.** Running
+recalibration twice and expecting the second to be a no-op is the
+property the whole design rests on, and the one that would have caught
+the infinite-loop version of the staleness test.
+
+**Concepts learned:** test double · hermetic test · import-order hazard ·
+arrange act assert · convergence test
+
+**Commit:** `test(api): cover the detection pipeline and recalibration`
+
 

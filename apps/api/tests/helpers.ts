@@ -8,6 +8,8 @@ type Role = "student" | "faculty" | "admin";
 export const PASSWORD = "codeguard-dev-2026";
 export const TEST_DB = "codeguard_test";
 export const TEST_BUCKET = "submissions-test";
+// the stub detector the tests run in-process, never the real one on 8090
+export const TEST_DETECTOR_PORT = 8099;
 
 type Modules = {
   db: typeof import("../src/db/connect.js");
@@ -28,6 +30,8 @@ function useTestSettings() {
   if (existsSync("../../infra/.env")) process.loadEnvFile("../../infra/.env");
   process.env.MONGO_URI = (process.env.MONGO_URI ?? "").replace("/codeguard?", `/${TEST_DB}?`);
   process.env.MINIO_BUCKET = TEST_BUCKET;
+  // set after loading the file, so the real detector can never be reached
+  process.env.DETECTOR_URL = `http://127.0.0.1:${TEST_DETECTOR_PORT}`;
   if (!process.env.MONGO_URI.includes(`/${TEST_DB}?`)) {
     throw new Error(`Refusing to run: tests must use the ${TEST_DB} database`);
   }
