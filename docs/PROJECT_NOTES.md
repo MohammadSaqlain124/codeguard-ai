@@ -6857,4 +6857,90 @@ in Node, which costs more than it saves.
 
 **Commit:** `feat(api): add a features client for the behavioural layer`
 
+## 2026-10-01 — Day 18 — File 074: apps/api/src/services/baseline.ts
+
+**What we built:** buildBaseline(student, language). Finds the anchors,
+measures each one through /features, aggregates a trust-weighted mean,
+standard deviation and sample count per feature, computes confidence and
+the intra-student dispersion, decides a status with a readable reason, and
+stores it with the unique index as the lock.
+
+**Decision made — trust-weighted statistics, verified before being
+written.** With equal weights the formula returns exactly the plain mean and
+sample standard deviation, whatever the weights are: four samples at 1.0 and
+the same four at 0.6 both give mean 0.015750 and sd 0.005737. So the common
+case, a baseline of invigilated anchors, defends nothing unusual. Mixed
+weights behave as wanted: three files at 0.015, 0.016 and 0.090 where the
+outlier is a 0.4 nomination give a weighted mean of 0.0279 against an
+unweighted 0.0403.
+
+**Decision made — Bessel's correction against the effective sample size,
+(sum w)^2 / sum w^2, not the raw count.** With unequal weights four anchors
+carry less information than four equal ones: 3.76 rather than 4.
+
+**Decision made — confidence is average trust capped by coverage.** Average
+trust sets the ceiling and anchor count can only pull it down, so five
+nominated anchors are never more trustworthy than three. More opinions are
+still opinions. Three invigilated gives 1.0, three nominated 0.6, one
+invigilated 0.333, which falls under minBaselineConfidence and is attenuated
+in File 075.
+
+**Decision made — the invigilated gate is invigilated === 0.** At least one
+observed sample, because Layer 2's claim is "this does not look like your own
+work" and that needs something we watched being written, not only
+judgements. The stricter Phase 2 reading is one line: invigilated <
+minAnchors.
+
+**Decision made — baseline readiness uses DEFAULT_DETECTION_CONFIG, not a
+course's.** The knobs live per course and a baseline spans courses by
+design, so no single course config applies. File 075 applies that
+submission's course config when attenuating w2, because at that point there
+genuinely is one course. Readiness is a property of the student;
+attenuation is a property of the assessment.
+
+**Decision made — intraStudentVariance is a mean coefficient of variation.**
+Averaging raw standard deviations would be decided by avg_line_length, which
+sits near 23 while blank_line_ratio sits near 0.14. Dividing each by its own
+mean makes the features comparable. Features with a mean of zero are skipped
+rather than divided by.
+
+**Decision made — a feature measured in fewer than two anchors is left out
+entirely**, not stored with stdDev 0. Closes the File 071 gap at the source:
+every stored standard deviation comes from at least two measurements, so
+File 075 never divides by a zero that only means we looked once. A zero that
+means the student really is identical across files can still happen, and
+that is mitigation 4's job.
+
+**Correction to File 071.** I said the stored raw anchor values avoid
+re-measuring when an anchor is added. They do not: every build re-measures
+everything, because twenty anchors is twenty detector calls at about 3 ms and
+reusing values would buy 60 ms and cost a reconciliation problem. The values
+are stored so faculty can be shown which files produced the mean.
+
+**Evidence from File 073's run, found by a test I had mislabelled:** Java
+`class A {}` measured 7 of 10 features where a 14 line Python file measured
+10 of 10. Two decisions that were arguments are now evidence — a baseline
+must be per language, since the two languages do not even yield the same
+number of measurable features, and MIN_ANCHOR_LINES is doing real work.
+
+**Two bad test expectations of mine in File 073, worth recording.** I said
+kinds seen must be ['number','null'] while inspecting the file where all ten
+features measured, so the expected value was unreachable. And I labelled a
+test "an unreachable endpoint gives a readable error" and then wrote code
+that sent Java to a running detector. A check whose expected answer is wrong
+is as useless as a check that cannot fail.
+
+**Open gap:** stdDev can still be legitimately zero for coarse features like
+max_block_depth and for_loop_ratio. File 075 must floor it before dividing,
+and that floor is an arbitrary number not yet chosen.
+
+**Open gap:** MIN_SAMPLES_PER_FEATURE of 2 always produces a standard
+deviation and it means almost nothing. Three would be better and excludes
+more features.
+
+**Open gap:** nothing calls buildBaseline yet. No job, no endpoint, no
+trigger on nomination.
+
+**Commit:** `feat(api): build a trust-weighted style baseline per student`
+
 
