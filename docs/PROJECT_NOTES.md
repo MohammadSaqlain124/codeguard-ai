@@ -6444,3 +6444,77 @@ baseline must be per language.
 
 **Commit:** `feat(detector): extract style features for the behavioural layer`
 
+## 2026-10-01 — Day 18 — File 070: the /features contract and endpoint
+
+**What we built:** POST /features, taking one file and returning the ten
+style numbers with a feature-set version, node count and line count.
+DETECTOR_VERSION 0.4.0.
+
+**Why a second endpoint rather than extending /analyze:** /analyze is
+about a pair, /features is about one file and needs no candidates.
+Baselines are built from anchors that may be months old and were never
+part of any comparison, and a baseline is built once per student while an
+analysis runs on every upload. Computing features inside /analyze would
+do the work every time and throw it away.
+
+**Decision made — FEATURE_SET_VERSION separate from DETECTOR_VERSION.**
+DETECTOR_VERSION moves for Layer 1 changes that have nothing to do with
+style. A stored baseline only cares whether the ten numbers were defined
+the same way when it was built. When the set changes, every baseline on
+the old version must be rebuilt rather than silently compared against new
+numbers. Same reasoning as configVersion on DetectionResult.
+
+**Decision made — features travel as a map, not ten named fields.** Ten
+optional floats would make every feature change a breaking contract
+change on both sides, for no gain, since the Node side stores a map
+anyway. The map plus a version number buys the same safety more cheaply.
+
+**Decision made — the response is rebuilt in FEATURE_NAMES order**, which
+also raises KeyError if features.py stops producing a declared name. The
+contract enforces the canonical list instead of trusting it.
+
+**Decision made — unparsable source returns parsed: false here too.** In
+a tree built around ERROR nodes, function boundaries move and comments
+can be swallowed, so avg_function_lines and comment_density would both be
+wrong while looking reasonable. One rule about broken trees, applied in
+both endpoints.
+
+**Decision made — lineCount is returned.** File 072 needs a minimum size
+before it trusts a measurement, and this is what that rule is written
+against.
+
+**Two bugs found and fixed, both mine, both from the File 065 edit:**
+
+1. A `spans` list was built and never used; the real list was duplicated
+   inline inside Match(). Correct behaviour, double the work, and a trap,
+   because the obvious tidy-up would have dropped MIN_SPAN_SIMILARITY.
+
+2. MAX_SPANS_PER_MATCH was defined with a comment explaining its purpose
+   and never applied to anything. A file with forty similar functions
+   returned forty spans.
+
+Both now go through spans_for(), which sorts strongest first before
+capping: if a cap discards evidence it must discard the weakest, because
+arbitrary is indefensible when faculty ask why one span was shown.
+
+**Open question, deliberately tested rather than assumed:**
+response_model_exclude_none omits None fields, and I believe it does not
+touch None values inside a dict field, so "for_loop_ratio": null should
+survive. Not certain. The rule that makes it safe either way: the Node
+side treats a missing key and a null value identically, both meaning not
+measured. Reading a null as zero is the one thing that would be wrong.
+
+**Open gap:** one file per request, so four anchors is four round trips at
+about 26 ms. Fine now; a batch endpoint if a measurement ever shows it
+matters.
+
+**Open gap:** still no authentication and no HTTP body limit on the
+detector, and now there are two endpoints behind the same open door.
+
+**Open gap:** parsed.root is typed Node | None, so passing it to
+extract_features relies on ok == True implying a root. True today and
+checked by nothing, because ruff does not type-check. The Python side has
+no equivalent of npm run typecheck.
+
+**Commit:** `feat(detector): add a features endpoint for the behavioural layer`
+
