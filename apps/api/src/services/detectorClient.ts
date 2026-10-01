@@ -18,6 +18,12 @@ export type AnalyzeRequest = {
   candidates: CandidateSource[];
 };
 
+export type FeaturesRequest = {
+  submissionId: string;
+  language: string;
+  source: string;
+};
+
 // a matching region, as line numbers in each file
 const spanSchema = z.object({
   aStart: z.number().int().min(1),
@@ -44,7 +50,25 @@ const analyzeResponseSchema = z.object({
   durationMs: z.number().min(0),
 });
 
+const featuresResponseSchema = z.object({
+  detectorVersion: z.string().min(1).max(40),
+  // which definition of the features these numbers came from. Stored on the
+  // baseline, so numbers from one version are never compared with another's.
+  featureSetVersion: z.number().int().min(1),
+  parsed: z.boolean(),
+  parseError: z.string().max(300).optional(),
+  nodeCount: z.number().int().min(0).optional(),
+  lineCount: z.number().int().min(0).optional(),
+  // A null value means the feature did not apply to this file, which is not
+  // a measurement of zero. nullable() accepts that and still refuses a
+  // string or a boolean, so the distinction survives the boundary instead
+  // of being quietly cast to 0.
+  features: z.record(z.string(), z.number().nullable()).default({}),
+  durationMs: z.number().min(0),
+});
+
 export type AnalyzeResponse = z.infer<typeof analyzeResponseSchema>;
+export type FeaturesResponse = z.infer<typeof featuresResponseSchema>;
 
 async function postJson(path: string, body: unknown): Promise<unknown> {
   let res: Response;
@@ -104,6 +128,47 @@ export async function analyzeSubmission(request: AnalyzeRequest): Promise<Analyz
       roundTripMs: Date.now() - startedAt,
     },
     "analysis complete",
+  );
+
+  return parsed.data;
+}
+
+/**
+ * One file's style numbers, for Layer 2.
+ *
+ * Does not throw when the source will not parse. The caller decides what an
+ * unmeasurable anchor means, exactly as it does for an unanalysable
+ * submission, because that is a judgement about baselines and not about HTTP.
+ */
+export async function extractFeatures(request: FeaturesRequest): Promise<FeaturesResponse> {
+  const startedAt = Date.now();
+  const raw = await postJson("/features", request);
+
+  const parsed = featuresResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    log.error(
+      { submissionId: request.submissionId, issues: parsed.error.issues.slice(0, 3) },
+      "detector returned an unexpected feature shape",
+    );
+    throw new Error("Detector returned a features response this API does not understand");
+  }
+
+  const values = Object.values(parsed.data.features);
+
+  log.info(
+    {
+      submissionId: request.submissionId,
+      parsed: parsed.data.parsed,
+      featureSetVersion: parsed.data.featureSetVersion,
+      // how many of the features actually applied to this file, which is
+      // what decides whether the anchor is worth keeping
+      measured: values.filter((value) => value !== null).length,
+      of: values.length,
+      lineCount: parsed.data.lineCount,
+      detectorMs: parsed.data.durationMs,
+      roundTripMs: Date.now() - startedAt,
+    },
+    "features extracted",
   );
 
   return parsed.data;

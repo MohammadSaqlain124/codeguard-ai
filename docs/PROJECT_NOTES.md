@@ -6792,3 +6792,69 @@ exactly what it reads.
 
 **Commit:** `feat(api): decide what counts as a Layer 2 anchor`
 
+## 2026-10-01 — Day 18 — File 073: /features on the Node side
+
+**What we built:** extractFeatures() in detectorClient.ts, with a Zod
+schema for the features response. Reuses postJson, so the timeout and
+unreachable messages are already right.
+
+**Why the client before the service:** File 058's order. Prove the contract
+over a real socket first, then baseline.ts changes one function body with
+the integration already working.
+
+**What this closes:** the gap opened in File 068 by stubbing the detector.
+Nothing checked that the Node and Python halves agree on a field name, so
+if features.py renamed comment_density to commentDensity, all 50 tests
+would still pass. This is the project's first cross-language contract test.
+
+**The decision this file exists to protect — z.record(z.string(),
+z.number().nullable()).** nullable() accepts null and keeps it, refuses a
+string or boolean, and does not coerce. z.number() alone would reject the
+null and fail every call on a file with no loops. z.coerce.number() would
+turn it into 0, which is exactly the mistake File 069 exists to prevent,
+and it would do it silently, building a baseline out of absences. A feature
+the detector omits is simply absent from the record, so the caller must
+treat missing and null identically, both meaning not measured.
+
+**Decision made — the two-argument form of z.record.** The one-argument
+form works in Zod 3 and is removed in Zod 4.
+
+**Decision made — featureSetVersion is validated but not checked against an
+expected value.** Rejecting anything but 1 would make a detector upgrade
+fail every call rather than degrade. The version travels to baseline.ts,
+which compares it against the stored baseline; a mismatch marks the
+baseline stale. The check belongs where the comparison happens.
+
+**Decision made — no feature names are validated.** FEATURE_NAMES is
+canonical in features.py, and restating the ten names in TypeScript creates
+a second list to keep in step, which is the problem featureSetVersion
+already solves.
+
+**Decision made — extractFeatures does not throw on parsed: false.** Same
+contract as analyzeSubmission. Whether an unparsable anchor is skipped or
+makes the whole baseline insufficient is a judgement about baselines, not
+about HTTP.
+
+**Decision made — the 30 second timeout is shared.** /features measured
+7.7 ms, so the setting is three thousand times longer than needed. Not
+worth a second setting: the timeout exists to catch a hung service, and a
+hung service hangs the same way on either endpoint.
+
+**Logged deliberately: measured n of m.** A 40 line anchor that measured 6
+of 10 features is a weaker anchor than one that measured 10, and this is
+the only place that number is visible until File 074 stores it.
+
+**Open gap:** this contract test is manual, because it needs uvicorn
+running and the suite must not depend on a Python process. The durable
+answer is a pytest suite on the detector plus one contract test in CI.
+
+**Open gap:** one request per anchor, so four anchors is four round trips.
+About 3 ms each locally, so a batch endpoint only if a measurement says so.
+
+**Open gap:** z.record accepts any key, so a detector sending
+{"nonsense": 0.5} would pass. Catching that needs the name list duplicated
+in Node, which costs more than it saves.
+
+**Commit:** `feat(api): add a features client for the behavioural layer`
+
+
