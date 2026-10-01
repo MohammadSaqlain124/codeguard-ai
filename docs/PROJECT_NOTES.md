@@ -6677,5 +6677,118 @@ measured limit.
 **Open gap:** nothing writes to this collection until File 073, so a
 schema that real code has never written to has unknown problems.
 
+**Found:** a plain object widens a string literal, so language: "python" is typed string and Mongoose's create() refuses it against the "java" | "python" union that enum: LANGUAGES produces. Production code never hits this, because language always arrives already narrowed from a validated request or a loaded document. Only test code builds documents from bare literals, which is why every error the type check has caught so far has been in test code. File 076 needs a typed factory in helpers.ts, not as const at forty call sites.
+
 **Commit:** `feat(api): add the BaselineProfile model for Layer 2`
+
+## 2026-10-01 — Day 18 — File 072: apps/api/src/services/anchors.ts
+
+**What we built:** The rules for what counts as a student's own work.
+ANCHOR_TRUST by provenance, MIN_ANCHOR_LINES, isAutomaticAnchor, isAnchor,
+trustFor, eligibilityFor (which returns a sentence, not a boolean),
+findAnchors, and summarise.
+
+**Why a separate file:** these rules are the integrity argument of Layer 2.
+If a copied submission becomes a baseline, the system flags honest work and
+clears dishonest work. Two callers need them from opposite directions: the
+baseline builder asks for the anchors, the nomination endpoint asks whether
+one submission qualifies.
+
+**Also decided in Phase 2, found by reading rather than deciding again:**
+DetectionConfig already holds minAnchorsForBaseline 3, minBaselineConfidence
+0.4 and lowVariancePercentile 5, and Submission already has the index
+{ student, provenance, language } commented "the Layer 2 anchor query".
+
+**Decision made — eligibility deliberately does not require Layer 2 to have
+passed.** A submission cannot be made to pass the layer whose baseline it is
+being used to build: the first anchor has no baseline to be checked against,
+and neither does the second. The precondition is Layer 1 ran, found nothing
+above the review threshold, the bytes are not an exact duplicate, and the
+file is long enough to measure. Layer 3 could join later, since AI-content
+detection needs no baseline. A layer can never be part of its own
+precondition.
+
+**Decision made — `as const satisfies Record<Provenance, number>` on the
+trust table.** as const keeps the literal types; satisfies makes it a
+compile error if PROVENANCE gains a value with no trust. Without it a
+missing trust returns undefined and every weighted mean downstream becomes
+NaN, which is a bug that produces plausible numbers instead of an error.
+
+**Decision made — eligibilityFor returns a reason.** Every refusal is shown
+to a faculty member who clicked a button and expects to know why nothing
+happened. "Layer 1 flagged it, rps 0.7412 against a threshold of 0.5" is a
+reason; false is a shrug.
+
+**Decision made — the checks run cheapest first.** Existence, provenance,
+status and line count all come from the submission already in hand, before
+the result, assignment and config queries. A twelve-line file costs one
+query to refuse rather than four.
+
+**Decision made — findAnchors filters inside Mongo, not in Node.** The $or
+runs against the Phase 2 compound index instead of loading every submission
+the student ever made. The predicate functions exist for the endpoint in
+File 074, which has one document and no query.
+
+**Decision made — MAX_ANCHORS is imported from the model.** The schema
+validator refuses more than twenty, so a service returning twenty-five
+would build a baseline that cannot be saved.
+
+**Open question for File 073 — the invigilated-anchor gate.**
+minAnchorsForBaseline is commented "fewer invigilated anchors than this
+means no usable baseline", which read strictly is a hard gate: four
+nominated anchors and no invigilated ones means no baseline at all. Option c
+and trust weighting imply the softer reading, where nominated anchors count
+and confidence comes out lower. Hard gate protects against poisoning but
+means Layer 2 almost never runs in a takehome-heavy course; soft attenuation
+means a poisoned baseline can produce confident findings about honest work.
+Recommended: both, at different strengths — at least one invigilated anchor
+for a baseline to be ready, because Layer 2's claim needs one sample we
+observed rather than only judgements, then minAnchorsForBaseline on the
+total and confidence for the rest.
+
+**Open gap:** the trust numbers 0.6 and 0.4 are judgements with no evidence.
+1 for invigilated is not a guess, it means observed. What would justify the
+others is knowing how much a real student's features vary between two
+honest files, which is File 073a.
+
+**Open gap:** MIN_ANCHOR_LINES of 30 is unmeasured, and excludes
+submissions that might be perfectly measurable.
+
+**Open gap:** nobody records who nominated a submission. BaselineProfile's
+anchor has a nominatedBy field that findAnchors cannot fill, because
+Submission has no such field. File 074 adds one or reads the AuditLog, and
+reading an audit trail to populate a working record is the worse option.
+
+**Open gap:** withdrawing a nomination does not un-poison anything. Future
+baselines lose the anchor, but every DetectionResult already computed
+against it keeps its own snapshot of that baseline. That is correct, since
+past evidence must not move, but it means a wrong nomination leaves
+findings behind it that nothing recomputes. Those results need flagging for
+re-review.
+
+**Conflict found between Phase 2 and the option c decision.** Assignment.ts
+line 33 says "only invigilated work is baseline-eligible", and
+Submission.baselineEligible says "set true only after all three layers pass
+and faculty confirm". Together those make an anchor invigilated AND
+confirmed, where option c makes it invigilated OR nominated. In code it is
+one operator: $or versus two equality conditions. Kept option c, because an
+explicit recent decision outranks an older comment and because a Layer 2
+that never fires in a takehome course is worse for the project than one
+that fires with attenuated weight. The stricter rule is left in a comment
+beside the query.
+
+**Two type errors in anchors.ts, both mine, both pointing at real
+problems.** TS18049 on result.structural: the schema types that whole
+branch as optional because it is a nested object rather than a subdocument
+schema, and detection.ts never tripped on it because it only writes the
+branch. A non-null assertion would have been wrong: an eligibility check
+must treat "cannot tell" as not eligible, so the fix is a guard whose
+refusal path is the safe one. And isAutomaticAnchor asked for
+baselineEligible, which it never reads, so callers had to invent the field;
+that forced the line trustFor({ provenance, baselineEligible: true }),
+which I then wrote a comment defending. When a call site has to invent a
+value to satisfy a type, the type is wrong. Each predicate now asks for
+exactly what it reads.
+
+**Commit:** `feat(api): decide what counts as a Layer 2 anchor`
 
