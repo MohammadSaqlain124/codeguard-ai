@@ -6314,6 +6314,77 @@ duplicate rerun enqueue was correctly swallowed by its job id.
 
 **Commit:** `feat(api): run detection and store a DetectionResult`
 
+## 2026-09-27 — Day 17 — File 067: apps/api/src/services/recalibrate.ts
+
+**Entry written 01 Oct 2026.** This file was built on 27 September and
+its entry was never written, so the log ran from 066 straight to 068.
+Reconstructed from the forward references in those two entries and from
+the code. It carries no commit line of its own, because the code went
+out with the Phase 4 commits either side of it; git log is the record.
+
+**What we built:** recalibrateAssignment(). It loads every current
+result for an assignment, computes the mean and standard deviation of
+the structural scores, writes each match's cohortZScore together with
+cohortSampleSize and cohortComputedAt in place, and re-analyses any
+result that was computed before the cohort was complete.
+
+**Why we built it:** a structural score means nothing on its own,
+because unrelated code measures about 0.5. What matters is how far above
+the class a match sits, and that cannot be known until the class exists.
+
+**Why a separate file:** it runs on a different trigger. runDetection is
+about one submission; this is about every result on an assignment at
+once, and it has its own job type so that a cohort of sixty is
+recalculated once rather than sixty times.
+
+**Functions written:** meanAndStdDev, recalibrateAssignment.
+
+**Concepts learned:** cohort statistic · Bessel's correction · staleness
+· convergence · debouncing
+
+**Decision made — re-analyse, not merely recalculate.** The first
+submitter is the origin of the copy, and their record says nothing was
+found because it was analysed when no candidates existed. A z-score
+cannot repair a comparison that never happened. At the measured speed,
+re-analysing a class of 60 costs roughly 30 seconds.
+
+**Decision made — divide by n-1, not n.** The cohort is a sample, not
+the population. Protected by a test asserting the figure to four
+decimals rather than by a comment, because a comment cannot fail.
+
+**Decision made — evidence is immutable, interpretation is
+refreshable.** The structural score and its spans are never rewritten,
+only the cohort statistics around them. That is what lets a record be
+re-read months later without the original finding having moved.
+
+**Decision made — one job id per assignment.** A cohort of sixty uploads
+would otherwise enqueue sixty recalibrations. The id is derived from the
+assignment, so duplicates are swallowed before they run.
+
+**Decision made — MAX_REANALYSES_PER_RUN of 100.** A bound on the work
+one run may do, so a large backlog cannot make a single job run for an
+unbounded time.
+
+**Decision made — all three return paths return the same four fields.**
+They originally returned three different shapes, so stats.mean did not
+exist on the union type. Caught by the type check added in File 068, not
+by reading the code.
+
+**Found:** markModified("structural") is required. The z-scores are
+written inside a nested path, and Mongoose does not detect a mutation
+inside a nested object, so without it the save succeeds and writes
+nothing. A silent success is worse than an error.
+
+**Found:** the process must converge. Detection enqueues recalibration
+and recalibration can re-run detection, so running recalibration twice
+has to leave the second run with nothing to do. That property is
+asserted in File 068, and it is the one that would have caught an
+infinite loop.
+
+**Open gap:** recalibration is triggered by a submission arriving, not
+by the assignment deadline passing. A cohort that stops receiving
+submissions before everyone has submitted is never refreshed again.
+
 ## 2026-09-27 — Day 17 — File 068: apps/api/tests/detection.test.ts — Phase 4 closes
 
 **What we built:** Seven tests over the detection pipeline: the skipped
