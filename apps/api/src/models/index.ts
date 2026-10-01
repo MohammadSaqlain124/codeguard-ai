@@ -28,6 +28,13 @@ export {
   REVIEW_STATUS,
 } from "./DetectionResult.js";
 export {
+  BaselineProfileModel,
+  type BaselineProfile,
+  type BaselineProfileDoc,
+  BASELINE_STATUS,
+  MAX_ANCHORS,
+} from "./BaselineProfile.js";
+export {
   AuditLogModel,
   type AuditLog,
   type AuditLogDoc,
@@ -37,6 +44,7 @@ export {
 
 import { AssignmentModel } from "./Assignment.js";
 import { AuditLogModel } from "./AuditLog.js";
+import { BaselineProfileModel } from "./BaselineProfile.js";
 import { CourseModel } from "./Course.js";
 import { DetectionConfigModel } from "./DetectionConfig.js";
 import { DetectionResultModel } from "./DetectionResult.js";
@@ -51,6 +59,7 @@ const allModels: Model<unknown>[] = [
   SubmissionModel,
   DetectionConfigModel,
   DetectionResultModel,
+  BaselineProfileModel,
   AuditLogModel,
 ] as Model<unknown>[];
 

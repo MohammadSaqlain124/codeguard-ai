@@ -6589,3 +6589,93 @@ no equivalent of npm run typecheck.
 
 **Commit:** `feat(detector): add a features endpoint for the behavioural layer`
 
+## 2026-10-01 — Day 18 — File 071: apps/api/src/models/BaselineProfile.ts
+
+**What we built:** The baseline store. One document per student per
+language, holding each feature's mean, standard deviation and its own
+sample count, the anchors it was built from with their raw measurements
+and trust weights, a stored confidence, and the intra-student variance
+that mitigation 4 reports. Plus the models/index.ts revisit, so the model
+is registered, its indexes are built by initModels() and
+clearAllCollections() wipes it between test runs.
+
+**Three things Phase 2 had already decided, found by reading the schemas
+rather than by deciding again:**
+
+1. Submission.baselineEligible already exists, so faculty nomination needs
+   no schema change. The anchor condition is provenance "invigilated" or
+   baselineEligible true, which is option c in two fields.
+
+2. The index on { student, provenance, language }, commented "the Layer 2
+   anchor query", settles the baseline key as student and language across
+   courses. No course in it. Splitting per course would starve each
+   baseline of anchors, since a student gets three to five assignments per
+   course.
+
+3. featureDeviationSchema stores baselineMean and baselineStdDev on every
+   result, which is why a baseline can be rebuilt in place without
+   invalidating a past finding. The result snapshots what it was judged
+   against.
+
+**Problem found in my own Phase 2 comment:** "set true only after all
+three layers pass and faculty confirm" is circular for Layer 2. A
+submission cannot be required to pass Layer 2 before it may anchor the
+baseline Layer 2 needs, because the first anchor has no baseline to be
+checked against. The workable precondition is Layer 1 passed and did not
+flag it, plus faculty judgement. Layer 3 can join later, since it needs no
+baseline. A layer can never be part of its own precondition.
+
+**Decision made — samples is per feature, not per baseline.** Four anchors
+do not give four samples of every feature: a student who used no loops in
+two of them gives four samples of comment density and two of the loop
+ratio. Using one anchor count as the denominator would compute a standard
+deviation over measurements that were never taken. This is the File 069
+None decision arriving in the schema.
+
+**Decision made — an anchor's measurement is not required, so an absent
+feature stores as explicit null.** Mongoose treats null and undefined
+differently and only one persists, which is why the test checks the round
+trip rather than assuming it.
+
+**Decision made — each anchor's raw values are kept.** Ten numbers times
+twenty anchors is nothing, and it means adding an anchor does not
+re-measure the others, a rebuild never touches MinIO, and faculty can be
+shown which files produced the mean.
+
+**Decision made — confidence and trustTotal are stored, not derived on
+read.** A result that attenuated w2 to 0.18 can then always be explained
+from the record. Same reasoning as keeping cohortSampleSize beside every
+z-score.
+
+**Decision made — the anchor cap is a schema validator.** A limit a
+service has to remember is a limit that gets forgotten on the second code
+path. Same reasoning as the structural guard in helpers.ts.
+
+**Decision made — revision is a counter, not a second document.**
+DetectionResult is versioned because it is evidence and must never move. A
+baseline is interpretation, and is updated in place.
+
+**Decision made — an array of {feature, value} pairs rather than a Map.** A
+Map reads better in code, but DetectionResult already stores Layer 2's
+deviations as an array keyed by a feature string, and two shapes for the
+same ten features in two collections produces a conversion function nobody
+trusts.
+
+**Open gap — stdDev can legitimately be zero**, when a student's anchors
+all measured identically. Dividing by it gives infinity, and every z-score
+becomes meaningless or a crash. The schema allows it because it is a true
+measurement. File 073 must handle it, and it is the most likely place for
+Layer 2 to break.
+
+**Open gap:** samples of 1 gives no standard deviation at all, since
+Bessel's correction divides by zero. A minimum sample count per feature is
+needed and is not in this file.
+
+**Open gap:** twenty anchors is a guard against an unbounded array, not a
+measured limit.
+
+**Open gap:** nothing writes to this collection until File 073, so a
+schema that real code has never written to has unknown problems.
+
+**Commit:** `feat(api): add the BaselineProfile model for Layer 2`
+
