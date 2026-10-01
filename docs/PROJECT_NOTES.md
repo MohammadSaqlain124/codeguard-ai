@@ -6941,6 +6941,55 @@ more features.
 **Open gap:** nothing calls buildBaseline yet. No job, no endpoint, no
 trigger on nomination.
 
+**Verified 01 Oct 2026, against an independent calculation.** features.py was
+replicated separately using the real DROP, IDENTIFIERS and FUNCTION_LABELS
+sets, run over the same four fixtures, and weighted with trusts 1, 1, 1, 0.6.
+Every mean and standard deviation matched the stored baseline, largest
+disagreement 0.0005, intraStudentVariance 0.1788 on both sides. status ready,
+anchorCount 4, invigilated 3, confidence 0.9, 10 of 10 features at n=4,
+revision 1 then 2 with one document. What this verifies is the Node path —
+MinIO, HTTP, Zod, weighting, aggregation, storage — not features.py's
+judgement, since a shared misconception would survive in both.
+
+**First measurement of same-author variation: a mean coefficient of variation
+of 0.1788 across ten features, one author, four honest files.** Any Layer 2
+deviation threshold has to sit outside that.
+
+**The features are not equally reliable, by a factor of eight.** Within-author
+CV: for_loop_ratio 0.000, avg_identifier_length 0.068, avg_line_length 0.076,
+functions_per_100_lines 0.087, blank_line_ratio 0.100, avg_function_lines
+0.108, max_block_depth 0.159, comment_density 0.300, avg_params_per_function
+0.340, underscore_identifier_ratio 0.567. A low CV means the feature barely
+moves within honest work, so a move is real evidence; a high CV means only an
+enormous change registers. The low-CV features are the discriminators.
+
+**Correction to File 069, the second one on the same claim.** I said
+avg_line_length and blank_line_ratio were the weak features because a
+formatter destroys them. They are the second and fifth most stable here. The
+formatter worry stands; it is not what makes a feature weak.
+underscore_identifier_ratio, which I expected to be a strong personal habit,
+is the noisiest of the ten.
+
+**The zero standard deviation is the normal case, not an edge case.**
+for_loop_ratio gave sd exactly 0 because a consistent author uses for and
+never while. Flagged as a future problem in Files 071 and 074; it fired on
+the first realistic test. For a coarse feature, zero spread is what correct
+behaviour looks like.
+
+**Two decisions this forces in File 075, neither to be guessed.** The
+variance floor, since the floor's size is the sensitivity and it must come
+from data rather than a round number. And whether features get equal weight,
+since averaging z-scores treats a CV of 0.567 as equal evidence to a CV of
+0.068.
+
+**Found in docker compose ps:** the compose detector container was built ten
+days ago, so it is DETECTOR_VERSION 0.1.0 with no /features endpoint. Nothing
+points at it, since DETECTOR_URL is the host on 8090. Two consequences: it
+almost certainly explains the Day 15 WinError 10013 on port 8000, which was
+Docker's port proxy for this container rather than any Hyper-V reservation;
+and a demo run through compose would fail Zod validation on the first
+/analyze call. docker compose build detector before any demonstration.
+
 **Commit:** `feat(api): build a trust-weighted style baseline per student`
 
 
