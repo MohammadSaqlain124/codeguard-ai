@@ -6384,4 +6384,63 @@ exhausted this machine's commit limit once.
 
 **Commit:** `test(api): cover the detection pipeline and recalibration`
 
+## 2026-10-01 — Day 18 — File 069: apps/detector/app/features.py — Phase 5 begins
+
+**What we built:** Ten style features from the raw tree-sitter tree:
+line length, blank-line ratio, comment density, identifier length,
+underscore ratio, function length, functions per hundred lines, maximum
+block depth, parameters per function, and the for-to-while loop ratio.
+
+**Why we built it:** Layer 1 compares you against other people; Layer 2
+compares you against your past self, which is what catches outsourcing
+when there is no classmate to match against.
+
+**The sentence worth keeping:** Layer 1 normalises style away, Layer 2
+measures exactly what Layer 1 discarded. normalise.py turns every name
+into ID and drops every comment because those are superficial; stylometry
+wants them back, because superficial choices are the personal ones. Same
+tree, opposite purposes.
+
+**Decision made — None, not zero, for a feature that cannot be
+measured.** A file with no loops does not have a for-loop ratio of zero;
+the question does not apply. Writing zero would drag a student's baseline
+mean down and make a later file that does use loops look like a change of
+style. A missing measurement and a measurement of zero are different
+facts.
+
+**Decision made — FEATURE_NAMES is a fixed tuple.** A baseline stores a
+mean and standard deviation per feature, and if the order ever drifted we
+would compare comment density against a line-length baseline and get a
+confident meaningless z-score.
+
+**Decision made — features come from the raw tree, not the normalised
+one.** On a normalised tree every student looks identical, which is
+exactly what Layer 1 wants and Layer 2 cannot survive.
+
+**Decision made — explainable features over a learned embedding.** Every
+feature is a sentence you can say to a student. An embedding would
+separate authors better and be indefensible in a disciplinary meeting.
+
+**Anchor policy decided (option c):** invigilated work is an anchor
+automatically; faculty may nominate takehome or unknown work by hand.
+Anchors therefore differ in trustworthiness, which is what the
+"trust-weighted" comment on baselineConfidence in the Phase 2 schema was
+always for. PROVENANCE is ["invigilated", "takehome", "unknown"].
+
+**Found:** the seventh model is AuditLogModel. Faculty nominating an
+anchor is an auditable action and belongs in it. There is no
+BaselineProfile model yet; File 071 adds one.
+
+**Open gap:** several features are destroyed by an auto-formatter.
+avg_line_length and blank_line_ratio describe editor settings as much as
+habits. A student who installs Black between assignments will look like a
+different person. File 074's cohort control is the partial answer.
+
+**Open gap:** ten features is a guess, and short files make every feature
+unreliable. File 072 needs a minimum size before it trusts a measurement.
+
+**Open gap:** Java and Python produce different typical values, so a
+baseline must be per language.
+
+**Commit:** `feat(detector): extract style features for the behavioural layer`
 
