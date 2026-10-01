@@ -61,6 +61,11 @@ def parse_source(language: str, source: str) -> ParseResult:
     if root.has_error:
         line = first_error_line(root)
         where = f" near line {line}" if line else ""
-        return ParseResult(ok=False, node_count=count, error=f"Source does not parse cleanly{where}", root=root)
+        return ParseResult(
+            ok=False,
+            node_count=count,
+            error=f"Source does not parse cleanly{where}",
+            root=root,
+        )
 
     return ParseResult(ok=True, node_count=count, root=root)
