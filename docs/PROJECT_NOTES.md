@@ -6992,4 +6992,84 @@ and a demo run through compose would fail Zod validation on the first
 
 **Commit:** `feat(api): build a trust-weighted style baseline per student`
 
+## 2026-10-02 — Day 19 — The measurement session: does Layer 2 work?
+
+**Why:** Files 069 to 074 left two constants that must not be guessed — the
+variance floor and whether features get equal weight — and the whole layer
+rested on the untested assumption that these ten features separate authors.
+
+**Method:** eleven Python repositories cloned with full history. Library
+files of 30-700 lines, excluding tests, __init__.py and conftest.py. git
+blame -w attributed surviving lines, with -w so a reformatting commit does
+not reassign a file to whoever ran the formatter. 272 files scanned, 147
+with one author owning 85% or more of the lines, 24 owners, 7 with four or
+more files, 60 files measured at a cap of 12 per author. Measured with the
+replica verified against the detector to 0.0005 on 01 Oct.
+
+**Result 1 — no single feature works.** Every F ratio, between-author
+variance over within-author variance, is below 1. Best is avg_line_length
+at 0.56, mean 0.28. One at a time, all ten features are noise.
+
+**Result 2 — the combination does.** Leave-one-out nearest centroid on
+z-scored features: 32.5% accuracy against 14.3% chance, a lift of 2.27x,
+stable from 26.7% to 43.3% over ten resamples. The vector carries signal
+that no component carries alone.
+
+**Result 3 — file size was destroying most of it.** Restricting to 80-250
+line files raises accuracy to 78.8% against 25% chance, a lift of 3.15x,
+and mean F from 0.25 to 0.97. Several features are intrinsically
+size-dependent, so comparing a 40 line submission against a 600 line
+baseline measures size rather than style. New design requirement: Layer 2
+must compare against size-comparable anchors. Possible because File 071
+stores every anchor's raw values and lineCount, which I had downgraded to
+"for auditing" the day before.
+
+**Result 4 — six of ten features earn nothing, and I had it backwards.**
+With size controlled, median F over ten samples: blank_line_ratio 2.73,
+avg_line_length 2.11, max_block_depth 1.94, comment_density 1.21, then
+functions_per_100_lines 0.56, avg_function_lines 0.46, for_loop_ratio 0.26,
+avg_identifier_length 0.18, underscore_identifier_ratio 0.17,
+avg_params_per_function 0.14. Dropping the six improves accuracy: all ten
+78.8%, top five 86.4%, top four 87.9%, and in the uncontrolled case 32.5%
+to 44.2%.
+
+The four that work are the layout features I called weak in File 069. The
+naming features I expected to be strongest, identifier length and
+underscore ratio, are near worthless. Third time this claim of mine has
+been wrong, first time settled with data. Why I was wrong: I assumed a
+formatter erases layout. These repositories mostly use Black or Ruff and
+layout still discriminates best, because a formatter does not choose how
+many blank lines sit between logical blocks, how deeply you nest, or how
+often you comment.
+
+**The None decision confirmed:** for_loop_ratio did not apply in 57% of
+real files, avg_function_lines and avg_params_per_function in 32%. Writing
+zero would have fabricated a measurement in over half the dataset.
+
+**Constants for File 075, now derived rather than guessed:** score on four
+features not ten, keeping all ten measured and stored so the choice is
+reversible; equal weights across the four, since F estimates at four to
+seven authors are too noisy to justify finer weighting; prefer anchors
+within roughly 0.5x to 2x the submission's line count, recomputing the
+statistics over that subset and falling back to all anchors at reduced
+confidence; per-feature variance floor at 10% of the median within-author
+spread, giving blank_line_ratio 0.0065, avg_line_length 0.4947,
+max_block_depth 0.2236, comment_density 0.0010.
+
+**Limits, stated for the report.** Seven authors and 60 files, four authors
+and 33 files in the size-banded result. Python only, Java untested. Library
+code, not student code: submissions for one assignment are more homogeneous
+in purpose, which should help, and less likely to be auto-formatted, which
+may hurt the four winning features specifically. Classification is not
+anomaly detection — this measured "which of these authors wrote this",
+where Layer 2 asks "is this far from your own profile". And the features
+were selected on the only dataset available, which is the
+fit-to-your-own-test-set failure flagged in File 069; all ten stay measured
+so the choice is reversible, and it must be re-run on real student
+submissions before the report claims anything stronger.
+
+**What this supports claiming:** the behavioural layer carries real but weak
+authorship signal, about three times chance on real-world code. That is
+exactly why it is one weighted input of three and why the system reports
+evidence rather than verdicts.
 
