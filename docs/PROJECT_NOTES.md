@@ -7073,3 +7073,75 @@ authorship signal, about three times chance on real-world code. That is
 exactly why it is one weighted input of three and why the system reports
 evidence rather than verdicts.
 
+## 2026-10-02 — Day 19 — File 075: apps/api/src/services/behavioural.ts
+
+**What we built:** cohortCalibration(), the pooled within-author spread per
+feature across a cohort's baselines, and scoreBehavioural(), which compares
+one submission against its author's baseline and returns the Layer 2 payload:
+per-feature deviations, a score, effectiveW2, and mitigation 4's low-variance
+flag with its cohort percentile.
+
+**Every constant in this file came from the morning's measurement, not from
+me.** That was the point of doing the measurement first.
+
+**Decision made — the denominator is the cohort's spread, not the student's
+own.** The least obvious result of the day. A student's own standard
+deviation from three or four anchors has three degrees of freedom and is so
+unstable that honest work produced RMS z values above 15; measured AUC 0.766.
+The cohort's pooled within-author spread measured 0.909, and every shrinkage
+blend between them landed in between, including a sample-size-weighted one.
+The explanation: the student's mean is personal, but the spread is closer to a
+property of the feature than of the person. The student's own spread therefore
+stops being a denominator and becomes mitigation 4's signal, which is what
+lowVariance.intraStudentVariance was always for.
+
+**Decision made — four features, not ten.** blank_line_ratio F 2.73,
+avg_line_length 2.11, max_block_depth 1.94, comment_density 1.21; the other
+six ran 0.14 to 0.56 and dropping them raised author identification from 78.8%
+to 87.9%. All ten stay stored on the baseline, so reversing it is one line.
+
+**Decision made — Z_SATURATION of 3**, both conventional and measured: honest
+work had a median RMS z of 0.70 and p90 1.83, foreign work a median 2.20, so
+at Z=3 honest scores a median 0.23 and foreign 0.73.
+
+**Decision made — prefer size-comparable anchors, 0.5x to 2x the
+submission's line count, falling back to all anchors with the caveat recorded
+in reason.** Size control was the largest single effect measured, raising
+identification from 32% to 79%. Refusing to score when no anchor is in band
+would be worse than scoring with the caveat visible.
+
+**Decision made — LayerConfig is a structural type.** Both a hydrated
+DetectionConfigDoc and DEFAULT_DETECTION_CONFIG satisfy it, so no union type
+is needed. That is the error the type check caught in File 068, avoided this
+time by design rather than by luck.
+
+**Decision made — six separate skip reasons, each a sentence.** No baseline,
+baseline not ready, too few cohort baselines, unparsable source, feature-set
+mismatch, nothing comparable. "We could not check" and "we checked and found
+nothing" must never look the same on a student's record.
+
+**Found — the attenuation branch is currently dead code.** With the gates in
+baseline.ts, at least one invigilated anchor and at least three in total,
+confidence equals average trust, and the lowest reachable average trust is
+(1 + 0.4(n-1))/n, which approaches 0.4 from above and never crosses it.
+minBaselineConfidence of 0.4 is exactly that asymptote. Either the threshold
+rises or attenuation becomes continuous, w2 x confidence, which always has an
+effect; the one-line alternative is in a comment. Implemented the schema's
+stated design rather than quietly substituting another.
+
+**Honest expected performance, for the report:** at a 12% false-positive rate
+the layer catches about 63% of foreign work. That is why Layer 2 is 30% of a
+ranking and not a verdict: a Layer 2 score of 0.7 alone contributes 0.21 to
+RPS and cannot flag anybody without Layer 1 agreeing.
+
+**Open gap:** every constant rests on seven authors of Python library code.
+Java is entirely unmeasured.
+
+**Open gap:** cohortCalibration runs a query per submission and reads every
+baseline in the cohort. Fine for a class, wrong for an institution, and its
+natural home is the recalibration job.
+
+**Open gap:** no test covers the feature-set mismatch path, which would need
+two detector versions.
+
+**Commit:** `feat(api): score the behavioural layer against a student's baseline`
