@@ -7145,3 +7145,67 @@ natural home is the recalibration job.
 two detector versions.
 
 **Commit:** `feat(api): score the behavioural layer against a student's baseline`
+
+## 2026-10-02 — Day 19 — File 076: detection.ts, RPS over two layers
+
+**What we built:** runDetection now calls scoreBehavioural, writes the
+behavioral branch, records weights.effectiveW2, computes RPS renormalised
+over both layers, and sets signalDisagreement. The summary gained
+behaviouralStatus, behaviouralScore and signalDisagreement without losing a
+field, since the existing tests assert on the old ones.
+
+**The renormalisation rule written in File 066 now does something it was not
+written for.** It existed to stop a missing Layer 2 capping a verbatim copy
+at w1 = 0.4, below the 0.5 threshold. With Layer 2 present, the same formula
+means that when Layer 1 is skipped — no classmate to compare against —
+activeWeight becomes effectiveW2 alone and RPS equals the Layer 2 score
+exactly. That is the outsourcing case the whole project exists for, and it
+works because of a decision made three files before Layer 2 existed.
+
+**Decision made — Layer 2 is wrapped in try/catch and Layer 1 is not.** A
+Layer 1 failure means the detector is down and there is nothing to record,
+so throwing lets BullMQ retry. A Layer 2 failure means one of two findings
+is unavailable, and throwing would discard a good structural result and
+eventually mark the submission failed. The message is truncated to 300
+characters, the schema's limit, so recording a failure cannot itself fail.
+
+**Decision made — signalDisagreement uses reviewThreshold, not a new
+constant.** The question is whether the two layers, judged separately, would
+reach opposite conclusions, and reviewThreshold is already the line between
+"look at this" and "this is fine". Only set when both layers ran: one layer
+cannot disagree with a layer that produced no finding.
+
+**Decision made — narrowed on the discriminant.** behavioural.status ===
+"ok", not "score" in behavioural, which is the error the type check caught
+in yesterday's scratch file. Applied correctly here the first time.
+
+**Verified 02 Oct, with every figure predicted beforehand.** Outsourced work
+with no classmate: structural skipped, behavioural ok 0.8688, rps 0.8688 —
+flagged by Layer 2 alone, which Layer 1 could not see at all. Both layers
+running and disagreeing: structural 1.0, behavioural 0.2331, rps 0.6713,
+signalDisagreement true. No baseline: behavioural skipped, effectiveW2 0,
+rps equal to the structural score.
+
+**The disagreement case is worth keeping for the viva.** RPS 0.6713 puts the
+submission in the review queue, and the student being flagged is the one who
+wrote it. Layer 1 says "identical to another submission", Layer 2 says "this
+is exactly how you write". Together they say "this is the original and
+someone copied it", and nothing but the disagreement flag carries that.
+
+**Deliberately not in this file:** the baseline rebuild trigger, since
+nothing calls buildBaseline yet and a feature-set mismatch should queue a
+rebuild — both need a new job type, so queue and worker changes, which is
+File 077. And reusing the source: runDetection fetches the bytes for
+/analyze and scoreBehavioural fetches the same bytes again for /features,
+one redundant read of at most 256 KB, fixed by an optional parameter in
+File 077 rather than re-sending a 353-line file for one argument.
+
+**Open gap:** two detector calls per submission, run sequentially. Neither
+layer depends on the other, so Promise.all would halve the added latency and
+complicate the error handling. Not worth it until a measurement says so.
+
+**Open gap:** signalDisagreement is binary, so 0.49 against 0.51 reads as
+agreement and 0.49 against 0.9 as disagreement of the same kind. A magnitude
+would be more useful and the schema has no field for it.
+
+**Commit:** `feat(api): compute RPS over two layers and record disagreement`

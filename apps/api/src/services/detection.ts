@@ -6,6 +6,7 @@ import type { SubmissionDoc } from "../models/Submission.js";
 import { getSubmission } from "../storage/minio.js";
 import { enqueueRecalibration } from "../queue/detectionQueue.js";
 import { analyzeSubmission, type CandidateSource } from "./detectorClient.js";
+import { scoreBehavioural } from "./behavioural.js";
 
 const log = componentLogger("detection");
 
@@ -118,14 +119,70 @@ export async function runDetection(submission: SubmissionDoc) {
       ? { status: "skipped" as const, reason: "No other submissions to compare against yet" }
       : { status: "ok" as const, score: best };
 
-  // Layers 2 and 3 do not exist yet, so their weights contribute nothing
-  // and RPS is renormalised over the layers that actually ran. Treating a
-  // missing layer as a score of zero would cap a perfect structural match
-  // at w1, which is 0.4 by default, below the 0.5 review threshold: the
-  // system would find a verbatim copy and then decline to flag it.
-  const effectiveW2 = 0;
-  const activeWeight = structural.status === "ok" ? config.w1 : 0;
-  const rps = activeWeight > 0 ? (config.w1 * best) / activeWeight : 0;
+  // ---- Layer 2 ----
+  let behavioural;
+  try {
+    behavioural = await scoreBehavioural(submission, String(assignment.course), config);
+  } catch (err) {
+    // A Layer 2 outage must not throw away a good Layer 1 finding. If this
+    // threw, the job would retry, re-run everything, fail at the same point
+    // again, and the submission would end at "failed" with a structural
+    // result nobody ever sees.
+    log.warn({ err, submissionId: submission.id }, "behavioural layer failed");
+    behavioural = {
+      status: "failed" as const,
+      // the schema's limit, so recording the failure cannot itself fail
+      reason: (err as Error).message.slice(0, 300),
+      durationMs: 0,
+      effectiveW2: 0,
+    };
+  }
+
+  const structuralOk = structural.status === "ok";
+  const behaviouralOk = behavioural.status === "ok";
+  // narrowed on the discriminant, not on whether a property happens to
+  // exist, which does not narrow a union reliably
+  const behaviouralScore = behavioural.status === "ok" ? behavioural.score : 0;
+  const effectiveW2 = behavioural.effectiveW2;
+
+  // RPS is renormalised over the layers that actually ran. Treating an
+  // absent layer as a score of zero would cap a verbatim copy at w1, which
+  // is 0.4 by default and below the 0.5 review threshold: the system would
+  // find a perfect copy and then decline to flag it. With Layer 2 present
+  // the same rule now lets Layer 2 drive the score on its own, which is the
+  // case Layer 2 exists for — outsourced work with no classmate to match.
+  const activeWeight = (structuralOk ? config.w1 : 0) + (behaviouralOk ? effectiveW2 : 0);
+  const rps =
+    activeWeight > 0
+      ? (config.w1 * (structuralOk ? best : 0) + effectiveW2 * behaviouralScore) / activeWeight
+      : 0;
+
+  // Two layers that both ran and landed on opposite sides of the review
+  // threshold are not a middling case, they are two confident and opposite
+  // findings. The average hides that, so it is recorded beside the average
+  // instead of being allowed to cancel out.
+  const signalDisagreement =
+    structuralOk &&
+    behaviouralOk &&
+    best >= config.reviewThreshold !== (behaviouralScore >= config.reviewThreshold);
+
+  const behaviouralBranch =
+    behavioural.status === "ok"
+      ? {
+          status: behavioural.status,
+          reason: behavioural.reason,
+          durationMs: behavioural.durationMs,
+          score: behavioural.score,
+          baselineConfidence: behavioural.baselineConfidence,
+          anchorCount: behavioural.anchorCount,
+          features: behavioural.features,
+          lowVariance: behavioural.lowVariance,
+        }
+      : {
+          status: behavioural.status,
+          reason: behavioural.reason,
+          durationMs: behavioural.durationMs,
+        };
 
   // one current result per submission, and re-running makes a new revision
   const previous = await DetectionResultModel.findOne({
@@ -156,29 +213,36 @@ export async function runDetection(submission: SubmissionDoc) {
       cohortComputedAt: computedAt,
       matches,
     },
-    behavioral: { status: "skipped", reason: "Layer 2 is not implemented yet" },
+    behavioral: behaviouralBranch,
     aiContent: { status: "skipped", reason: "Layer 3 is not implemented yet" },
 
     rps,
     weights: { w1: config.w1, w2: config.w2, w3: config.w3, effectiveW2 },
     configVersion,
     detectorVersion: analysis.detectorVersion,
-    // needs at least two layers to disagree about anything
-    signalDisagreement: false,
+    signalDisagreement,
     computedAt,
-    totalDurationMs: analysis.durationMs,
+    // the sum of what each layer reported. The structural figure is the
+    // detector's own time; the behavioural figure includes its storage read
+    // and round trip, so these are not quite the same measurement.
+    totalDurationMs: analysis.durationMs + behavioural.durationMs,
   });
 
   log.info(
     {
       submissionId: submission.id,
       rps: Number(rps.toFixed(4)),
-      status: structural.status,
+      structural: structural.status,
+      structuralScore: structuralOk ? Number(best.toFixed(4)) : undefined,
+      behavioural: behavioural.status,
+      behaviouralScore: behaviouralOk ? Number(behaviouralScore.toFixed(4)) : undefined,
+      behaviouralReason: behavioural.reason,
+      effectiveW2,
+      disagreement: signalDisagreement,
       candidates: candidates.length,
       compared: analysis.candidatesCompared,
       matches: matches.length,
       duplicateOf: duplicate?.submissionId,
-      detectorMs: analysis.durationMs,
     },
     "detection complete",
   );
@@ -192,6 +256,9 @@ export async function runDetection(submission: SubmissionDoc) {
     resultId: result.id as string,
     rps,
     structuralStatus: structural.status,
+    behaviouralStatus: behavioural.status,
+    behaviouralScore: behaviouralOk ? behaviouralScore : undefined,
+    signalDisagreement,
     matchCount: matches.length,
     duplicateOf: duplicate?.submissionId,
   };
