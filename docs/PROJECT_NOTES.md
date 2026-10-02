@@ -7209,3 +7209,86 @@ agreement and 0.49 against 0.9 as disagreement of the same kind. A magnitude
 would be more useful and the schema has no field for it.
 
 **Commit:** `feat(api): compute RPS over two layers and record disagreement`
+
+**02 Oct 2026 — disk and the page file.** C: fell to 10.6 GB free. Measured
+rather than guessed: Docker was 5.8 GB total with ~1 GB reclaimable, and the
+largest item was 9.47 GB of virtual machine image downloaded at 11:26-11:29
+by a tool call that needed a Linux shell on this machine. Recovered 18.4 GB
+in three stages: package caches and Temp (4.4 GB), the VM bundle (9.5 GB),
+and compacting docker_data.vhdx with diskpart, which is the step that
+actually returns the space since deleting data inside a .vhdx does not
+shrink the file (4.4 GB). Hibernation was already off, so hiberfil.sys does
+not exist.
+
+**Why free space matters to this project:** pagefile.sys is
+Windows-managed at 13.9 GB, which is the fix for the Day 15
+ERROR_COMMITMENT_LIMIT crash in tsc. An auto-managed page file needs room to
+grow, so keeping C: above about 20 GB free is what stops the type checker
+dying again.
+
+**Lesson:** diagnose before deleting. The first hypothesis, accumulated
+Docker test data over 19 days, was wrong twice over — the volumes held
+330 MB.
+
+## 2026-10-02 — Day 19 — File 077: the baseline rebuild job
+
+**What we built:** REBUILD_BASELINE_JOB, enqueueBaselineRebuild(student,
+language) with a derived job id, the worker branch that calls buildBaseline,
+and the trigger: after a submission is analysed, if it is an anchor, the
+student's baseline is queued for rebuild. buildBaseline had worked and been
+verified for a day with nothing calling it, so Layer 2 could never run
+outside a test.
+
+**Why two files in one entry:** a job name with no consumer is dead code and
+a worker branch naming a job type that does not exist will not compile. Same
+pairing as the model and barrel in File 071.
+
+**Latent bug found while reading worker.ts.** The failed handler returned
+early only for RECALIBRATE_JOB, then cast job.data to DetectionJob. A rebuild
+job has no submissionId, so every failed rebuild would have run
+updateOne({ _id: undefined }) against Mongo. Same shape as the bug File 066
+fixed for recalibration, and it recurred because the check was a list of
+exceptions. Now written as "is this an analyse job", so every future job type
+is safe by default. A denylist of job names breaks the moment you add the
+next one.
+
+**Ordering in analyse() is load-bearing, and now says so.** runDetection runs
+while the submission is still "analyzing", and findAnchors only considers
+submissions already marked "analyzed". So a submission can never anchor the
+baseline that judges it, which would otherwise pull its own z-scores toward
+zero and systematically clear every anchor-eligible submission. It holds by
+the order of two lines, so it has a comment.
+
+**Decision made — the rebuild is enqueued after the status write.** Before it,
+the worker could race its own rebuild and build a baseline missing the anchor
+that triggered it.
+
+**Decision made — debounce by derived job id.** Four invigilated submissions
+in one sitting produce four enqueue calls and one rebuild. Same reasoning as
+recalibration: the work is per student, not per submission.
+
+**Decision made — removeOnComplete: true on the rebuild.** A job id stays
+reserved while a finished job is retained, so retaining it would mean a
+student's baseline could never be rebuilt again.
+
+**Decision made — language stays a plain string in the payload, narrowed in
+the worker.** The queue module is infrastructure and imports only env and the
+logger; pulling the models in to type one field would invert that. Job data
+has been through Redis as JSON, so validating it in the worker is the same
+argument as validating the detector's HTTP response.
+
+**Open gap — BASELINE_STATUS includes "stale" and nothing writes it.** With a
+rebuild firing on each anchor there is no window where a baseline is
+knowingly behind. The cost is observability: if a rebuild fails both
+attempts, the old baseline stays marked ready and nothing says otherwise.
+Marking it stale on enqueue belongs with a periodic sweep.
+
+**Open gap:** nothing rebuilds when an anchor is removed, so a withdrawn
+nomination leaves the old baseline until the student's next anchor. File 078
+should enqueue on withdrawal.
+
+**Open gap:** the feature-set mismatch trigger and reusing the submission
+source between /analyze and /features both move to File 078, which needs
+enqueueBaselineRebuild anyway.
+
+**Commit:** `feat(api): rebuild a student's baseline when an anchor is analysed`

@@ -5,14 +5,20 @@ import { env } from "./config/env.js";
 import { componentLogger } from "./config/logger.js";
 import { connectDb, disconnectDb } from "./db/connect.js";
 import { connectRedis, disconnectRedis } from "./db/redis.js";
-import { initModels, SubmissionModel } from "./models/index.js";
+import { initModels, LANGUAGES, SubmissionModel } from "./models/index.js";
 import {
+  ANALYSE_JOB,
   DETECTION_QUEUE,
   RECALIBRATE_JOB,
+  REBUILD_BASELINE_JOB,
+  enqueueBaselineRebuild,
   type DetectionJob,
   type QueueJob,
+  type RebuildBaselineJob,
   type RecalibrateJob,
 } from "./queue/detectionQueue.js";
+import { isAnchor } from "./services/anchors.js";
+import { buildBaseline } from "./services/baseline.js";
 import { runDetection } from "./services/detection.js";
 import { recalibrateAssignment } from "./services/recalibrate.js";
 
@@ -31,6 +37,17 @@ const connection = new Redis({
 });
 
 connection.on("error", (err: Error) => log.error({ err }, "worker redis error"));
+
+type Language = (typeof LANGUAGES)[number];
+
+/**
+ * Job data is JSON that has been through Redis, so it arrives back untyped
+ * whatever the TypeScript says. Same reasoning as validating the
+ * detector's HTTP response rather than trusting it.
+ */
+function isLanguage(value: string): value is Language {
+  return (LANGUAGES as readonly string[]).includes(value);
+}
 
 async function setStatus(submissionId: string, status: "queued" | "failed", reason?: string) {
   try {
@@ -66,22 +83,50 @@ async function analyse(job: Job<DetectionJob>) {
   submission.set("failureReason", undefined);
   await submission.save();
 
+  // Runs while this submission is still "analyzing", which matters:
+  // findAnchors only considers submissions already marked "analyzed", so a
+  // submission can never anchor the baseline that judges it. Moving the
+  // save below to before this line would quietly break that.
   const outcome = await runDetection(submission);
 
   submission.status = "analyzed";
   await submission.save();
 
+  // Now that it counts as an anchor, the student's baseline is out of date.
+  // The job id is derived from the student and language, so four anchors in
+  // one sitting collapse into one rebuild.
+  if (isAnchor(submission)) {
+    await enqueueBaselineRebuild(String(submission.student), submission.language);
+  }
+
   return {
     rps: Number(outcome.rps.toFixed(4)),
     structural: outcome.structuralStatus,
+    behavioural: outcome.behaviouralStatus,
     matches: outcome.matchCount,
   };
 }
 
+async function rebuild(job: Job<RebuildBaselineJob>) {
+  const { studentId, language } = job.data;
+
+  if (!isLanguage(language)) {
+    log.warn({ jobId: job.id, studentId, language }, "unknown language, dropping the rebuild");
+    return { skipped: `unknown language ${language}` };
+  }
+
+  return buildBaseline(studentId, language);
+}
+
 async function handleJob(job: Job<QueueJob>) {
+  // job.name is the discriminant here, because the payload types carry no
+  // tag of their own
   if (job.name === RECALIBRATE_JOB) {
     const { assignmentId } = job.data as RecalibrateJob;
     return recalibrateAssignment(assignmentId);
+  }
+  if (job.name === REBUILD_BASELINE_JOB) {
+    return rebuild(job as Job<RebuildBaselineJob>);
   }
   return analyse(job as Job<DetectionJob>);
 }
@@ -110,8 +155,11 @@ worker.on("failed", async (job, err) => {
     isLast ? "job failed for good" : "job failed, will retry",
   );
 
-  // only a submission has a status to record; a recalibration has none
-  if (job.name === RECALIBRATE_JOB) return;
+  // Only an analyse job carries a submission whose status can be recorded.
+  // Written as "is this an analyse job" rather than "is this not a
+  // recalibration", because a list of exceptions is what breaks the moment
+  // a third kind of job appears, which is exactly what happened here.
+  if (job.name !== ANALYSE_JOB) return;
 
   const { submissionId } = job.data as DetectionJob;
   // between retries the submission is waiting again, not being analysed

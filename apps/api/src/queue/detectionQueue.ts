@@ -8,9 +8,10 @@ const log = componentLogger("queue");
 
 export const DETECTION_QUEUE = "detection";
 
-// two kinds of work share one queue, told apart by the job's name
+// three kinds of work share one queue, told apart by the job's name
 export const ANALYSE_JOB = "analyse";
 export const RECALIBRATE_JOB = "recalibrate";
+export const REBUILD_BASELINE_JOB = "rebuild-baseline";
 
 export type DetectionJob = {
   submissionId: string;
@@ -22,7 +23,15 @@ export type RecalibrateJob = {
   assignmentId: string;
 };
 
-export type QueueJob = DetectionJob | RecalibrateJob;
+export type RebuildBaselineJob = {
+  studentId: string;
+  // left as a plain string on purpose: this module is infrastructure and
+  // knows nothing about the models. The worker narrows it against
+  // LANGUAGES before using it.
+  language: string;
+};
+
+export type QueueJob = DetectionJob | RecalibrateJob | RebuildBaselineJob;
 
 // BullMQ needs a connection that never gives up on a command, because a
 // blocking read can wait minutes for the next job. Our shared client from
@@ -88,6 +97,35 @@ export async function enqueueRecalibration(assignmentId: string) {
     return true;
   } catch (err) {
     log.error({ err, assignmentId }, "could not queue recalibration");
+    return false;
+  }
+}
+
+/**
+ * Asks for a student's style baseline to be rebuilt for one language.
+ *
+ * One waiting job per student and language, so a student submitting four
+ * invigilated files in one sitting causes one rebuild rather than four.
+ * Same debouncing as recalibration, and the id is not retained after the
+ * job finishes so that next month's anchor can trigger another rebuild.
+ */
+export async function enqueueBaselineRebuild(studentId: string, language: string) {
+  try {
+    await detectionQueue.add(
+      REBUILD_BASELINE_JOB,
+      { studentId, language },
+      {
+        // dashes, never colons: BullMQ rejects a custom id containing one
+        jobId: `baseline-${studentId}-${language}`,
+        removeOnComplete: true,
+        removeOnFail: true,
+        attempts: 2,
+      },
+    );
+    log.info({ studentId, language }, "queued a baseline rebuild");
+    return true;
+  } catch (err) {
+    log.error({ err, studentId, language }, "could not queue the baseline rebuild");
     return false;
   }
 }
