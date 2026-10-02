@@ -1,10 +1,17 @@
 import { createHash } from "node:crypto";
 import type { Request, Response } from "express";
+import { Types } from "mongoose";
 
 import { componentLogger } from "../config/logger.js";
 import { SubmissionModel } from "../models/index.js";
-import { enqueueDetection } from "../queue/detectionQueue.js";
-import { loadAssignmentFor, loadSubmissionFor } from "../services/access.js";
+import { enqueueBaselineRebuild, enqueueDetection } from "../queue/detectionQueue.js";
+import {
+  loadAssignmentFor,
+  loadSubmissionFor,
+  loadSubmissionForManage,
+} from "../services/access.js";
+import { eligibilityFor } from "../services/anchors.js";
+import { recordAudit } from "../services/audit.js";
 import {
   getSubmission as readStoredFile,
   putSubmission,
@@ -13,7 +20,7 @@ import {
 } from "../storage/minio.js";
 import { AppError } from "../utils/AppError.js";
 import { skipFor } from "../validation/common.js";
-import type { ListSubmissionsQuery } from "../validation/submissionSchemas.js";
+import type { ListSubmissionsQuery, NominateBody } from "../validation/submissionSchemas.js";
 
 const log = componentLogger("submission");
 
@@ -130,4 +137,98 @@ export async function downloadSubmission(req: Request, res: Response) {
   // attachment() writes a Content-Disposition that handles non-English names;
   // octet-stream makes browsers download rather than display
   res.attachment(submission.originalFilename).type("application/octet-stream").send(content);
+}
+
+/**
+ * Marks a submission as a Layer 2 anchor. For students with no invigilated
+ * work, this is the only way their baseline ever gets built.
+ */
+export async function nominateSubmission(req: Request, res: Response) {
+  const { submission, course } = await loadSubmissionForManage(req);
+  const user = req.user!;
+  const { reason } = req.body as NominateBody;
+
+  // checked before eligibilityFor, because it needs no extra queries
+  if (submission.baselineEligible) {
+    throw AppError.conflict("This submission has already been nominated");
+  }
+
+  const check = await eligibilityFor(submission.id);
+  if (!check.eligible) throw AppError.conflict(check.reason);
+
+  submission.baselineEligible = true;
+  submission.nominatedBy = new Types.ObjectId(user.id);
+  submission.nominatedAt = new Date();
+  await submission.save();
+
+  // Both of these follow the save, so neither can report something that
+  // did not happen. Both report their own outcome rather than throwing.
+  const audited = await recordAudit({
+    actor: user.id,
+    actorRole: user.role,
+    action: "baseline.sample_added",
+    targetType: "Submission",
+    targetId: submission.id,
+    course: course.id,
+    changes: { before: { baselineEligible: false }, after: { baselineEligible: true } },
+    reason,
+  });
+
+  const rebuildQueued = await enqueueBaselineRebuild(String(submission.student), submission.language);
+
+  log.info(
+    { submissionId: submission.id, student: String(submission.student), by: user.id, audited, rebuildQueued },
+    "submission nominated as a baseline anchor",
+  );
+
+  res.json({ submission, audited, rebuildQueued });
+}
+
+/**
+ * Takes a nomination back. The baseline still holds this submission's
+ * measurements until it is rebuilt, which is why the rebuild is queued here
+ * rather than waiting for the student's next upload.
+ */
+export async function withdrawNomination(req: Request, res: Response) {
+  const { submission, course } = await loadSubmissionForManage(req);
+  const user = req.user!;
+  const { reason } = req.body as NominateBody;
+
+  // invigilated work is an anchor without ever being nominated, so this
+  // also refuses any attempt to un-anchor it here
+  if (!submission.baselineEligible) {
+    throw AppError.conflict("This submission is not a nominated anchor");
+  }
+
+  const previousBy = submission.nominatedBy ? String(submission.nominatedBy) : null;
+
+  submission.baselineEligible = false;
+  // set() rather than assignment, because clearing an optional path is the
+  // one case where mongoose and typescript disagree
+  submission.set("nominatedBy", undefined);
+  submission.set("nominatedAt", undefined);
+  await submission.save();
+
+  const audited = await recordAudit({
+    actor: user.id,
+    actorRole: user.role,
+    action: "baseline.sample_removed",
+    targetType: "Submission",
+    targetId: submission.id,
+    course: course.id,
+    changes: {
+      before: { baselineEligible: true, nominatedBy: previousBy },
+      after: { baselineEligible: false },
+    },
+    reason,
+  });
+
+  const rebuildQueued = await enqueueBaselineRebuild(String(submission.student), submission.language);
+
+  log.info(
+    { submissionId: submission.id, student: String(submission.student), by: user.id, audited, rebuildQueued },
+    "nomination withdrawn",
+  );
+
+  res.json({ submission, audited, rebuildQueued });
 }

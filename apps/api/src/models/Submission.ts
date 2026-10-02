@@ -93,11 +93,25 @@ const submissionSchema = new Schema(
       trim: true,
       maxlength: 500,
     },
-    // set true only after all three layers pass and faculty confirm
+    // True when faculty have nominated this work by hand, for a student with
+    // no invigilated work to anchor on. Layer 1 must have run and found
+    // nothing. Layer 2 is deliberately NOT required: this is the work its
+    // baseline is built from, so it cannot be its own precondition. The full
+    // rule lives in eligibilityFor() in services/anchors.ts.
     baselineEligible: {
       type: Boolean,
       required: true,
       default: false,
+    },
+    // Who nominated it, and when. The AuditLog holds the event; these hold
+    // the current state, so a faculty list can show "nominated by X" without
+    // a query per row. Both are cleared when a nomination is withdrawn.
+    nominatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
+    nominatedAt: {
+      type: Date,
     },
   },
   { timestamps: true },
@@ -113,7 +127,6 @@ submissionSchema.index({ student: 1, provenance: 1, language: 1 });
 submissionSchema.index({ status: 1, submittedAt: 1 });
 
 submissionSchema.plugin(serialize, { hide: ["objectKey"] });
-
 
 export type Submission = InferSchemaType<typeof submissionSchema>;
 export type SubmissionDoc = HydratedDocument<Submission>;

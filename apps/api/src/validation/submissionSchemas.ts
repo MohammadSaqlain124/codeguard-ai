@@ -16,3 +16,14 @@ export const listSubmissionsQuery = z
   .strict();
 
 export type ListSubmissionsQuery = z.infer<typeof listSubmissionsQuery>;
+
+// A nomination overrides the automatic rule, so the reason is required in
+// both directions. Ten characters is low enough not to be an obstacle and
+// high enough to refuse "ok" and ".". The 2000 cap matches AuditLog.reason.
+export const nominateBody = z
+  .object({
+    reason: z.string().trim().min(10).max(2000),
+  })
+  .strict();
+
+export type NominateBody = z.infer<typeof nominateBody>;

@@ -62,3 +62,32 @@ export async function loadSubmissionFor(req: Request) {
   }
   return submission;
 }
+
+/**
+ * Reads :submissionId for an action only staff may take, and returns the
+ * assignment and course along with it.
+ *
+ * Separate from loadSubmissionFor for two reasons. A student must not reach
+ * these actions on their own work, where loadSubmissionFor deliberately
+ * lets them through. And an audit entry needs the course, which the caller
+ * would otherwise have to fetch again.
+ *
+ * A student gets the same 404 as a stranger. Telling them "forbidden" would
+ * confirm the submission exists, which is the leak the 404s here avoid.
+ */
+export async function loadSubmissionForManage(req: Request) {
+  const user = req.user!;
+  if (user.role === "student") throw AppError.notFound("Submission");
+
+  const submission = await SubmissionModel.findById(req.params.submissionId);
+  if (!submission) throw AppError.notFound("Submission");
+
+  const assignment = await AssignmentModel.findById(submission.assignment);
+  if (!assignment) throw AppError.notFound("Submission");
+
+  const course = await CourseModel.findById(assignment.course);
+  if (!course || !canAccessCourse(user, course, "manage")) {
+    throw AppError.notFound("Submission");
+  }
+  return { submission, assignment, course };
+}

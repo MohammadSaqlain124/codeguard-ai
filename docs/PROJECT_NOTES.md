@@ -7292,3 +7292,94 @@ source between /analyze and /features both move to File 078, which needs
 enqueueBaselineRebuild anyway.
 
 **Commit:** `feat(api): rebuild a student's baseline when an anchor is analysed`
+
+### File 078 — Faculty nomination endpoint (Day 19, 02 Oct)
+
+**Files:** `models/Submission.ts`, `services/audit.ts` (new), `services/access.ts`,
+`validation/submissionSchemas.ts`, `controllers/submissionController.ts`,
+`routes/submissionRoutes.ts`
+
+**What it does.** `POST` and `DELETE /api/submissions/:id/nominate`. Faculty and
+admin only, `requireActiveUser` on both. Calls File 072's `eligibilityFor()`,
+flips `baselineEligible`, writes an AuditLog entry, enqueues a baseline rebuild.
+Both directions require a reason of 10 to 2000 characters. 22 of 22 checks passed.
+
+**Decisions.**
+- `nominatedBy` + `nominatedAt` on Submission rather than deriving them from the
+  audit log. The log answers "what happened"; the submission answers "what is
+  true now, and on whose say-so", with no query per row in a faculty list.
+- `recordAudit()` returns a boolean rather than throwing. The entry is written
+  after the state change, so throwing would report failure for work that
+  succeeded with nothing to roll back to. Reported to the client as `audited`.
+- A separate `loadSubmissionForManage()`: the old loader admits a student to
+  their own work (right for viewing, wrong for nominating) and discards the
+  course the audit entry needs.
+- A student gets **403**, not 404, because `requireRole` runs before the handler.
+  This leaks nothing: every student gets 403 whether or not the id exists. The
+  student branch inside the loader is therefore unreachable on these routes and
+  is kept only as defence in depth.
+
+**Corrected.** `Submission.baselineEligible` carried "set true only after all
+three layers pass" since Phase 2. Layer 2 cannot be its own precondition, since
+it is the layer whose baseline this work builds. Comment now matches the code.
+
+**Open gaps.**
+- No transaction across the submission save and the audit write; Mongo needs a
+  replica set and compose runs a standalone mongod.
+- An invigilated anchor cannot be excluded through this endpoint, because
+  `baselineEligible` is false for it. Needed if invigilation was compromised.
+- `buildBaseline` writes a document for a student id that does not exist. A
+  `UserModel.exists` check is one query.
+- No automated test covers either route; File 080.
+
+### Day 19 measurements and two contradictions found by running it
+
+**Layer 1 defeats identifier renaming, measured end to end.** A fixture built
+from one template with different function names scored **rps 1.0000** through the
+real detector on both sides of the pair. Unintentional, and the strongest
+evidence yet for the AST-over-text argument.
+
+**Layer 1 false positive on unrelated code.** A recursive expression parser and a
+log-line ranker, sharing nothing but the idiom "a few functions that loop",
+scored **0.5586** — above the default `reviewThreshold` of 0.5. Both students
+would be surfaced for review. Acceptable for a ranking, not for a verdict, and
+the first false-positive figure measured on hand-written code.
+
+**APTED cost is data-dependent by two orders of magnitude.** Identical trees
+**2.5 ms**; genuinely different trees **273–497 ms**, same files across runs.
+Identical trees short-circuit. Relevant to the "nothing is parallel" item.
+
+**Recalibration triggered its first real rerun.** `reanalysed: 1` for the first
+time in the project: File 064 spotted a result scored against an incomplete
+cohort, requeued it with `reason: "rerun"`, and the cohort statistics then landed
+with `samples: 2`. That path had been untested since Day 12.
+
+**CONTRADICTION 1 — per-course config does not reach baseline building.**
+`baseline.ts:168` reads `DEFAULT_DETECTION_CONFIG.minAnchorsForBaseline` directly
+and ignores any course override. Coherent, because a baseline is keyed on
+`{student, language}` and a student's anchors can span courses with different
+configs — there is no single course to ask. But it means baselines silently
+always use the defaults. **Which config governs a cross-course baseline is
+undecided and needs deciding.**
+
+**CONTRADICTION 2 — a nomination-only baseline can never be used.**
+`baseline.ts:184` gates on `invigilated === 0` before the count check, so two
+nominated anchors produced `status: "insufficient"`, `confidence: 0.4`,
+`features: 10` — built, measured, and unusable by Layer 2. **So nomination
+currently cannot give Layer 2 to a student with no invigilated work, which is the
+student it exists for.**
+
+The gate is defensible: if a nominated anchor was itself outsourced, the baseline
+encodes the ghostwriter's style and Layer 2 flags the student's genuine work as
+foreign. An invigilated sample is the only one observed rather than believed.
+Options: (a) keep the gate and state the limitation, so nomination only
+supplements an invigilated baseline; (b) add a `provisional` status, usable with
+w2 heavily attenuated; (c) make the gate per-course, blocked by Contradiction 1.
+**Decision pending — (a) now, (b) as a Phase 6 item with measurement first.**
+
+This also corrects a claim made earlier the same day: the "stricter Phase 2
+reading" of baseline eligibility was called vacuous on the basis of
+`findAnchors`' `$or`. That argument held for nomination eligibility only. The
+stricter rule was already implemented in `baseline.ts` in a different and
+coherent form — not "one submission must be both", but "at least one of the
+student's anchors must be observed".

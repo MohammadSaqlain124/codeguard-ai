@@ -5,13 +5,19 @@ import {
   downloadSubmission,
   getSubmissionDetails,
   listSubmissions,
+  nominateSubmission,
+  withdrawNomination,
 } from "../controllers/submissionController.js";
 import { requireActiveUser, requireAuth, requireRole } from "../middleware/auth.js";
 import { uploadPerUser } from "../middleware/rateLimit.js";
 import { uploadSourceFile } from "../middleware/upload.js";
-import { validateParams, validateQuery } from "../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { assignmentIdParams } from "../validation/assignmentSchemas.js";
-import { listSubmissionsQuery, submissionIdParams } from "../validation/submissionSchemas.js";
+import {
+  listSubmissionsQuery,
+  nominateBody,
+  submissionIdParams,
+} from "../validation/submissionSchemas.js";
 
 // Mounted inside assignmentRouter at /:assignmentId/submissions, which has
 // already checked the token. mergeParams lets this router read :assignmentId.
@@ -42,3 +48,23 @@ submissionRouter.use(requireAuth);
 
 submissionRouter.get("/:submissionId", validateParams(submissionIdParams), getSubmissionDetails);
 submissionRouter.get("/:submissionId/file", validateParams(submissionIdParams), downloadSubmission);
+
+// Nomination changes what a student's baseline is built from, so it costs
+// the extra query requireActiveUser makes: a revoked faculty account must
+// not keep nominating for the fifteen minutes its token stays valid.
+submissionRouter.post(
+  "/:submissionId/nominate",
+  requireActiveUser,
+  requireRole("faculty", "admin"),
+  validateParams(submissionIdParams),
+  validateBody(nominateBody),
+  nominateSubmission,
+);
+submissionRouter.delete(
+  "/:submissionId/nominate",
+  requireActiveUser,
+  requireRole("faculty", "admin"),
+  validateParams(submissionIdParams),
+  validateBody(nominateBody),
+  withdrawNomination,
+);
