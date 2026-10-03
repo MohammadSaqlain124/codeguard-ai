@@ -67,6 +67,8 @@ export type Calibration = {
   // the cohort's typical value per feature during the baseline period
   mean: Record<string, number>;
   baselines: number;
+  // the population mitigation 4 ranks a student against, with that student
+  // removed. See cohortCalibration for why only this one excludes them.
   variances: number[];
 };
 
@@ -111,14 +113,24 @@ export function baselineUsability(baseline: HasStatus | null): Usability {
  * 15. Pooling across the cohort measured better at every shrinkage setting
  * tried: AUC 0.909 against 0.766 for the student's own spread.
  *
- * The mean is new, and it is the cohort's position at baseline time, which
- * the change point needs as its "before". Each student counts once rather
- * than once per sample: a student with eight anchors must not define the
- * cohort's typical style on their own.
+ * The mean is the cohort's position during the baseline period, which the
+ * change point needs as its "before". Each student counts once rather than
+ * once per sample: a student with eight anchors must not define the cohort's
+ * typical style on their own.
+ *
+ * `excludeStudent` removes that student from `variances` ONLY, and never
+ * from the spread or the mean. Those two pool the whole cohort on purpose,
+ * and the AUC above was measured with everyone in the pool. But `variances`
+ * is the population mitigation 4 ranks a student against, and ranking
+ * someone against a list containing their own value pulls their percentile
+ * toward the middle. A student whose work barely varies contributes that
+ * very low variance to the population judging them, which is the opposite
+ * of what mitigation 4 is for.
  */
 export async function cohortCalibration(
   courseId: string,
   language: Language,
+  excludeStudent?: string,
 ): Promise<Calibration> {
   const rows = await BaselineProfileModel.find({
     language,
@@ -126,7 +138,7 @@ export async function cohortCalibration(
     // a baseline belongs to a student, not a course, so the cohort is
     // whoever has an anchor from this course
     "anchors.course": courseId,
-  }).select("features intraStudentVariance");
+  }).select("student features intraStudentVariance");
 
   const spread: Record<string, number> = {};
   const mean: Record<string, number> = {};
@@ -156,6 +168,7 @@ export async function cohortCalibration(
   }
 
   const variances = rows
+    .filter((row) => !excludeStudent || String(row.student) !== excludeStudent)
     .map((row) => row.intraStudentVariance)
     .filter((value): value is number => typeof value === "number");
 
@@ -216,7 +229,12 @@ async function cohortShiftFor(
   return { available: true, perFeature, peers: rows.length };
 }
 
-/** Where this student's own consistency sits in the cohort, as a percentage. */
+/**
+ * Where this student's own consistency sits in the cohort, as a percentage.
+ *
+ * The population must not contain the student being ranked. The caller sees
+ * to that by passing their id to cohortCalibration.
+ */
 function percentileOf(value: number, population: number[]): number | undefined {
   if (population.length === 0) return undefined;
   const below = population.filter((other) => other < value).length;
@@ -242,6 +260,7 @@ export async function scoreBehavioural(
 ) {
   const startedAt = Date.now();
   const language = submission.language as Language;
+  const studentId = String(submission.student);
 
   const skip = (reason: string) => ({
     status: "skipped" as const,
@@ -260,7 +279,8 @@ export async function scoreBehavioural(
   // the predicate narrowed it, but only structurally; this is for the compiler
   if (!baseline) return skip("No style baseline for this student yet");
 
-  const calibration = await cohortCalibration(courseId, language);
+  // this student is left out of the percentile population, and only that
+  const calibration = await cohortCalibration(courseId, language, studentId);
   if (calibration.baselines < MIN_COHORT_BASELINES) {
     return skip(
       `Only ${calibration.baselines} baselines in this cohort, ${MIN_COHORT_BASELINES} needed to calibrate`,
@@ -346,15 +366,12 @@ export async function scoreBehavioural(
   // Both numbers are magnitudes in cohort-spread units, reported side by
   // side so a human can compare them. They are NOT operands to subtract:
   // the root mean square of a difference is not the difference of two root
-  // mean squares. The per-feature excess is computed and logged, and
+  // mean squares. Their RATIO is valid, and is the number a review screen
+  // should show. The per-feature excess is computed and logged, and
   // deliberately neither stored nor folded into the score, because nothing
   // has yet measured whether an excess-adjusted score separates foreign work
   // better than the raw one. That measurement comes first.
-  const shift = await cohortShiftFor(
-    String(submission.assignment),
-    String(submission.student),
-    calibration,
-  );
+  const shift = await cohortShiftFor(String(submission.assignment), studentId, calibration);
 
   let cohortMeanShift: number | undefined;
   let studentShift: number | undefined;
@@ -385,7 +402,7 @@ export async function scoreBehavioural(
 
   // Mitigation 4. A student whose own work barely varies produces a large
   // deviation for almost any change, so it is reported beside the score and
-  // never folded into it.
+  // never folded into it. The population excludes this student.
   const percentile = percentileOf(
     baseline.intraStudentVariance ?? 0,
     calibration.variances,
@@ -396,8 +413,8 @@ export async function scoreBehavioural(
     cohortPercentile: percentile,
   };
 
-  // Two things can be worth saying at once now, so the reason is built up
-  // rather than assigned, and capped at the schema's 300 characters.
+  // Two things can be worth saying at once, so the reason is built up rather
+  // than assigned, and capped at the schema's 300 characters.
   const notes: string[] = [];
   if (!sizeMatched) {
     notes.push(
@@ -418,6 +435,8 @@ export async function scoreBehavioural(
       confidence: baseline.confidence,
       effectiveW2: Number(effectiveW2.toFixed(4)),
       cohortBaselines: calibration.baselines,
+      // the population excludes this student, so it is one short of the above
+      percentilePopulation: calibration.variances.length,
       lowVariance: lowVariance.flagged,
       shiftPeers: shift.available ? shift.peers : 0,
       studentShift: studentShift === undefined ? undefined : Number(studentShift.toFixed(4)),

@@ -7445,3 +7445,39 @@ discriminating.
   was all-invigilated or all-nominated.
 - File 078's withdrawal rebuild fired inside this test: the nominee's baseline
   went 1 anchor insufficient, then 0 anchors "No anchor could be measured".
+
+### File 080 — Layer 2 test suite, and the percentileOf fix (Day 20, 03 Oct)
+
+**Files:** `services/behavioural.ts`, `tests/layer2.test.ts` (new)
+
+**Result:** 50 to 63 tests. Thirteen new, five test files, 43s.
+
+**The defect fixed.** `percentileOf` ranked a student's `intraStudentVariance`
+against a population that included their own value. With five baselines a
+student was compared against four peers plus a copy of themselves, pulling
+their percentile toward the middle. Worst on the students mitigation 4 exists
+for: a student whose work barely varies contributes that very low variance to
+the population judging them. `cohortCalibration` now takes an optional
+`excludeStudent`, applied to `variances` ONLY. The pooled `spread` and `mean`
+still cover the whole cohort, because the Day 18 AUC of 0.909 against 0.766 was
+measured with everyone in the pool, and removing the student would invalidate
+that measurement. Pooling a spread across everyone is legitimate; ranking
+someone against a list containing themselves is not.
+
+**What the suite covers.** A stub detector serving both /analyze and /features,
+extending the pattern detection.test.ts already uses. Feature values come from
+a "# f:<n>" marker in each source, so they are chosen rather than guessed —
+which is why Layer 2 is testable where Layer 1's APTED score was not. Thirteen
+tests across baseline building (ready from three invigilated anchors, refusal
+with no observed anchor, in-place rebuild with a raised revision), the
+percentile population, the change point (omitted below three peers, both shifts
+recorded above it, studentShift equal to the RMS of its own z-scores, and a
+peer seeing a larger cohort shift than the diverging student), and nomination
+(audit row, baselineWillBeUsable both ways, 403/400/409 refusals, withdrawal
+clearing both fields).
+
+**Two fixture errors of mine, both costing a run.**
+- `makeAssignment(courseId: unknown)` handed `unknown` to Mongoose `create()`.
+  No overload matched, the call's type became `never`, and eight further errors
+  cascaded as "Property '_id' does not exist on type 'never'". The same cascade
+  was
