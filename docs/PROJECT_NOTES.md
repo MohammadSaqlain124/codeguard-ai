@@ -7383,3 +7383,65 @@ reading" of baseline eligibility was called vacuous on the basis of
 stricter rule was already implemented in `baseline.ts` in a different and
 coherent form — not "one submission must be both", but "at least one of the
 student's anchors must be observed".
+
+### File 079 — Cohort-controlled change point, mitigation 5 (Day 20, 03 Oct)
+
+**Files:** `services/anchors.ts`, `services/behavioural.ts`, `services/detection.ts`,
+`controllers/submissionController.ts`
+
+**What it does.** A difference-in-differences on style. `cohortMeanShift` is how
+far the cohort moved between the baseline period and this assignment;
+`studentShift` is how far this student moved. Both in cohort-spread units, both
+root-mean-squared across the four scored features. 17 of 17 checks passed.
+
+**With this, Layer 2's five baseline-integrity mitigations are complete.**
+
+**Decisions.**
+- The student is excluded from their own cohort (`student: { $ne: ... }`).
+  Leaving them in puts their deviation into the reference it is measured
+  against. Verified by assertion: the peer's cohort contains the diverging
+  target and sees 8.17, the target's cohort does not contain itself and sees
+  6.84. Had the exclusion been missing, both numbers would be equal.
+- The shift is omitted, with a reason, below three scored peers, rather than
+  estimated from one or two. File 064's recalibration re-analyses submissions
+  as the cohort fills, so an early submission gets its shift on the rerun.
+- The two stored numbers are magnitudes for comparison, NOT operands to
+  subtract: RMS(a) − RMS(b) is not RMS(a−b). The per-feature excess is computed
+  and logged, never stored and never folded into the score, because nothing has
+  measured whether an excess-adjusted score separates foreign work better than
+  the raw one. Same discipline as the Day 20 gate decision.
+- **The ratio studentShift / cohortMeanShift IS valid** and is recoverable from
+  the two stored fields. That is the number a faculty review screen should show.
+- `baselineUsability()` is one predicate in one place, so the Day 20 decision to
+  keep the invigilated gate lives in exactly one function.
+- The nomination response reports `baselineWillBeUsable` from
+  `hasObservedAnchor()`, answered synchronously because the rebuild runs in the
+  worker and the baseline does not exist yet at response time.
+
+**Measured.**
+- Raw score blind, shift discriminating: target and conforming peer both scored
+  **1.0000**, while the shift ratio separated them **2.39x against 0.67x**. The
+  conforming student moved *less* than their class.
+- Fixture caveat, stated plainly: the data was constructed so one student
+  diverges. This shows the mechanism computes what it was designed to compute,
+  not that it separates real outsourced work. That needs the labelled corpus.
+- 25 submissions and 2 reruns in about 33 seconds.
+
+**NEW CARRY-OVER — no cohort-level variance flag.** Every RMS z in this run fell
+between 5.5 and 16.4 against a `Z_SATURATION` of 3, so every score saturated at
+1.0 and the score discriminated nothing. Partly a fixture artefact, since
+deterministic anchors give an artificially small within-student spread. But the
+sensitivity is real: a homogeneous cohort makes the pooled denominator small and
+pins everyone at 1.0. Mitigation 4's `lowVariance` flags the per-student case.
+Nothing flags the cohort case, and nothing warns that the layer has stopped
+discriminating.
+
+**First observations of three Phase 2 fields.**
+- `signalDisagreement` was true for the first time: structural 0.5732 against
+  behavioural 1.0 at a 0.85 threshold. Makes the existing "binary with no
+  magnitude" carry-over concrete.
+- Trust-weighted confidence on a mixed anchor set: 3 invigilated plus 1
+  nominated gave `confidence 0.9`, exactly `(1+1+1+0.6)/4`. Every earlier run
+  was all-invigilated or all-nominated.
+- File 078's withdrawal rebuild fired inside this test: the nominee's baseline
+  went 1 anchor insufficient, then 0 anchors "No anchor could be measured".

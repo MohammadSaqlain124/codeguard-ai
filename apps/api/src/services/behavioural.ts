@@ -1,5 +1,6 @@
 import { componentLogger } from "../config/logger.js";
 import { BaselineProfileModel } from "../models/BaselineProfile.js";
+import { DetectionResultModel } from "../models/DetectionResult.js";
 import { LANGUAGES } from "../models/index.js";
 import type { SubmissionDoc } from "../models/Submission.js";
 import { getSubmission } from "../storage/minio.js";
@@ -48,6 +49,11 @@ export const MIN_BAND_ANCHORS = 2;
 // Fewer ready baselines than this and there is no cohort spread to divide by.
 export const MIN_COHORT_BASELINES = 3;
 
+// Fewer scored peers in the assignment than this and the cohort's "now" is
+// one or two people rather than a class. The shift is then omitted rather
+// than estimated badly.
+export const MIN_SHIFT_PEERS = 3;
+
 // Only what this file reads, so both a hydrated DetectionConfig and the
 // DEFAULT_DETECTION_CONFIG object satisfy it without a union type.
 export type LayerConfig = {
@@ -58,23 +64,57 @@ export type LayerConfig = {
 
 export type Calibration = {
   spread: Record<string, number>;
+  // the cohort's typical value per feature during the baseline period
+  mean: Record<string, number>;
   baselines: number;
   variances: number[];
 };
 
+// Exactly the two fields the gate reads, so a hydrated document and a lean
+// row both satisfy it. Asking for more is what made File 072 pass a
+// baselineEligible flag to a function that never looked at it.
+type HasStatus = { status: string; reason?: string | null };
+
+export type Usability = { usable: boolean; note?: string };
+
 /**
- * The cohort's typical within-author spread, per feature.
+ * Whether Layer 2 will score against this baseline.
  *
- * This is the denominator for every z-score, and using it rather than the
- * student's own spread is the morning's most useful finding. With four
+ * The Day 20 decision lives here: a baseline with no observed anchor stays
+ * unusable, because a baseline built purely from faculty judgement encodes
+ * the ghostwriter's style if that judgement was wrong, and Layer 2 would
+ * then flag the student's genuine work as foreign.
+ *
+ * If a provisional status is ever added, with w2 attenuated rather than
+ * zeroed, this function is the only thing that changes. The reason it is one
+ * function rather than an inline check is that the nomination endpoint has
+ * to describe the same rule to a faculty member.
+ */
+export function baselineUsability(baseline: HasStatus | null): Usability {
+  if (!baseline) return { usable: false, note: "No style baseline for this student yet" };
+  if (baseline.status !== "ready") {
+    return {
+      usable: false,
+      note: `Baseline is ${baseline.status}: ${baseline.reason || "no reason recorded"}`,
+    };
+  }
+  return { usable: true };
+}
+
+/**
+ * The cohort's typical within-author spread and typical value, per feature.
+ *
+ * The spread is the denominator for every z-score, and using it rather than
+ * the student's own spread is the morning's most useful finding. With four
  * anchors a student's own standard deviation comes from three degrees of
  * freedom and is so unstable that honest work produced RMS z values above
  * 15. Pooling across the cohort measured better at every shrinkage setting
  * tried: AUC 0.909 against 0.766 for the student's own spread.
  *
- * The student's mean is what is personal. The spread turns out to be more a
- * property of the feature than of the person, so it is borrowed from the
- * cohort and the student's own spread becomes mitigation 4's signal instead.
+ * The mean is new, and it is the cohort's position at baseline time, which
+ * the change point needs as its "before". Each student counts once rather
+ * than once per sample: a student with eight anchors must not define the
+ * cohort's typical style on their own.
  */
 export async function cohortCalibration(
   courseId: string,
@@ -89,24 +129,91 @@ export async function cohortCalibration(
   }).select("features intraStudentVariance");
 
   const spread: Record<string, number> = {};
+  const mean: Record<string, number> = {};
+
   for (const feature of SCORED_FEATURES) {
     let weighted = 0;
     let degrees = 0;
+    let total = 0;
+    let students = 0;
+
     for (const row of rows) {
       const stat = row.features.find((f) => f.feature === feature);
-      if (!stat || stat.samples < 2) continue;
+      if (!stat) continue;
+
+      // one vote per student for the mean, however many anchors they have
+      total += stat.mean;
+      students += 1;
+
+      if (stat.samples < 2) continue;
       // pooled variance: each student contributes samples-1 degrees of freedom
       weighted += (stat.samples - 1) * stat.stdDev * stat.stdDev;
       degrees += stat.samples - 1;
     }
+
     spread[feature] = degrees > 0 ? Math.sqrt(weighted / degrees) : 0;
+    mean[feature] = students > 0 ? total / students : 0;
   }
 
   const variances = rows
     .map((row) => row.intraStudentVariance)
     .filter((value): value is number => typeof value === "number");
 
-  return { spread, baselines: rows.length, variances };
+  return { spread, mean, baselines: rows.length, variances };
+}
+
+export type Shift =
+  | { available: false; reason: string }
+  | { available: true; perFeature: Record<string, number>; peers: number };
+
+/**
+ * How far the cohort itself moved between the baseline period and this
+ * assignment, per feature, in cohort-spread units.
+ *
+ * The student is excluded from their own cohort. Leaving them in would put
+ * their deviation into the baseline it is being measured against, diluting
+ * exactly the signal this is meant to isolate. With a class of ten that
+ * dilution is a tenth of the effect; with a class of three it is a third.
+ *
+ * Returns unavailable rather than guessing. Early in an assignment nobody
+ * else has been scored yet, and the recalibration in File 064 already
+ * re-analyses submissions once the cohort fills up, so an early submission
+ * gets its shift on the rerun rather than never.
+ */
+async function cohortShiftFor(
+  assignmentId: string,
+  studentId: string,
+  calibration: Calibration,
+): Promise<Shift> {
+  const rows = await DetectionResultModel.find({
+    assignment: assignmentId,
+    isCurrent: true,
+    "behavioral.status": "ok",
+    student: { $ne: studentId },
+  }).select("behavioral.features");
+
+  if (rows.length < MIN_SHIFT_PEERS) {
+    return {
+      available: false,
+      reason: `${rows.length} scored peers in this assignment, ${MIN_SHIFT_PEERS} needed for a cohort shift`,
+    };
+  }
+
+  const perFeature: Record<string, number> = {};
+
+  for (const feature of SCORED_FEATURES) {
+    const values = rows
+      .map((row) => row.behavioral?.features?.find((f) => f.feature === feature)?.value)
+      .filter((value): value is number => typeof value === "number");
+    if (values.length < MIN_SHIFT_PEERS) continue;
+
+    const now = values.reduce((total, value) => total + value, 0) / values.length;
+    const then = calibration.mean[feature] ?? 0;
+    const stdDev = Math.max(calibration.spread[feature] ?? 0, VARIANCE_FLOOR[feature]);
+    perFeature[feature] = (now - then) / stdDev;
+  }
+
+  return { available: true, perFeature, peers: rows.length };
 }
 
 /** Where this student's own consistency sits in the cohort, as a percentage. */
@@ -114,6 +221,11 @@ function percentileOf(value: number, population: number[]): number | undefined {
   if (population.length === 0) return undefined;
   const below = population.filter((other) => other < value).length;
   return (100 * below) / population.length;
+}
+
+/** Root mean square, which is the distance in z-space the measurement used. */
+function rootMeanSquare(values: number[]): number {
+  return Math.sqrt(values.reduce((total, value) => total + value * value, 0) / values.length);
 }
 
 /**
@@ -142,10 +254,11 @@ export async function scoreBehavioural(
     student: submission.student,
     language,
   });
+
+  const usability = baselineUsability(baseline);
+  if (!usability.usable) return skip(usability.note ?? "Baseline is not usable");
+  // the predicate narrowed it, but only structurally; this is for the compiler
   if (!baseline) return skip("No style baseline for this student yet");
-  if (baseline.status !== "ready") {
-    return skip(`Baseline is ${baseline.status}: ${baseline.reason || "no reason recorded"}`);
-  }
 
   const calibration = await cohortCalibration(courseId, language);
   if (calibration.baselines < MIN_COHORT_BASELINES) {
@@ -219,11 +332,47 @@ export async function scoreBehavioural(
     return skip("No scored feature could be compared against this baseline");
   }
 
-  // Root mean square across the features, which is the distance in z-space
-  // that the author-identification measurement was based on, then saturated
-  // so the score stays inside 0 to 1 without clamping hiding anything.
-  const rms = Math.sqrt(zScores.reduce((total, z) => total + z * z, 0) / zScores.length);
+  // Root mean square across the features, then saturated so the score stays
+  // inside 0 to 1 without clamping hiding anything.
+  const rms = rootMeanSquare(zScores);
   const score = Math.min(1, rms / Z_SATURATION);
+
+  // Mitigation 5, the cohort-controlled change point.
+  //
+  // The student's shift from their own baseline, root-mean-squared, is
+  // already exactly `rms` above: every z-score IS a shift from the baseline
+  // mean. So the only new quantity is the cohort's.
+  //
+  // Both numbers are magnitudes in cohort-spread units, reported side by
+  // side so a human can compare them. They are NOT operands to subtract:
+  // the root mean square of a difference is not the difference of two root
+  // mean squares. The per-feature excess is computed and logged, and
+  // deliberately neither stored nor folded into the score, because nothing
+  // has yet measured whether an excess-adjusted score separates foreign work
+  // better than the raw one. That measurement comes first.
+  const shift = await cohortShiftFor(
+    String(submission.assignment),
+    String(submission.student),
+    calibration,
+  );
+
+  let cohortMeanShift: number | undefined;
+  let studentShift: number | undefined;
+  let excess: number | undefined;
+
+  if (shift.available) {
+    const cohortPerFeature = deviations
+      .map((d) => shift.perFeature[d.feature])
+      .filter((value): value is number => typeof value === "number");
+
+    if (cohortPerFeature.length > 0) {
+      cohortMeanShift = rootMeanSquare(cohortPerFeature);
+      studentShift = rms;
+      excess = rootMeanSquare(
+        deviations.map((d) => d.zScore - (shift.perFeature[d.feature] ?? 0)),
+      );
+    }
+  }
 
   // The schema's comment is "below this baseline confidence, w2 is
   // attenuated toward zero", so that is what this implements. For the
@@ -247,9 +396,16 @@ export async function scoreBehavioural(
     cohortPercentile: percentile,
   };
 
-  const reason = sizeMatched
-    ? undefined
-    : `Fewer than ${MIN_BAND_ANCHORS} anchors within ${SIZE_BAND_LOW}x to ${SIZE_BAND_HIGH}x of ${submission.lineCount} lines, so all ${baseline.anchors.length} were used`;
+  // Two things can be worth saying at once now, so the reason is built up
+  // rather than assigned, and capped at the schema's 300 characters.
+  const notes: string[] = [];
+  if (!sizeMatched) {
+    notes.push(
+      `Fewer than ${MIN_BAND_ANCHORS} anchors within ${SIZE_BAND_LOW}x to ${SIZE_BAND_HIGH}x of ${submission.lineCount} lines, so all ${baseline.anchors.length} were used`,
+    );
+  }
+  if (!shift.available) notes.push(shift.reason);
+  const reason = notes.length > 0 ? notes.join("; ").slice(0, 300) : undefined;
 
   log.info(
     {
@@ -263,6 +419,12 @@ export async function scoreBehavioural(
       effectiveW2: Number(effectiveW2.toFixed(4)),
       cohortBaselines: calibration.baselines,
       lowVariance: lowVariance.flagged,
+      shiftPeers: shift.available ? shift.peers : 0,
+      studentShift: studentShift === undefined ? undefined : Number(studentShift.toFixed(4)),
+      cohortMeanShift:
+        cohortMeanShift === undefined ? undefined : Number(cohortMeanShift.toFixed(4)),
+      // logged, never stored: the number a future measurement would test
+      excess: excess === undefined ? undefined : Number(excess.toFixed(4)),
     },
     "behavioural layer scored",
   );
@@ -276,6 +438,8 @@ export async function scoreBehavioural(
     anchorCount: used.length,
     features: deviations,
     lowVariance,
+    cohortMeanShift,
+    studentShift,
     effectiveW2,
   };
 }

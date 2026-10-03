@@ -214,3 +214,26 @@ export function summarise(anchors: Anchor[]) {
     trustTotal: anchors.reduce((total, anchor) => total + anchor.trust, 0),
   };
 }
+
+/**
+ * Whether this student has at least one observed sample in this language.
+ *
+ * A fact, not a policy. The policy that Layer 2 needs an observed sample
+ * lives in buildBaseline, which sets the status, and in baselineUsability,
+ * which reads it. This exists because the nomination endpoint has to answer
+ * the question BEFORE the rebuild has run, when there is no baseline to ask.
+ *
+ * Nomination cannot create an observed sample. That is the whole point of
+ * the distinction: invigilated work was watched being written, nominated
+ * work is believed.
+ */
+export async function hasObservedAnchor(studentId: string, language: Language): Promise<boolean> {
+  const observed = await SubmissionModel.countDocuments({
+    student: studentId,
+    language,
+    provenance: "invigilated",
+    status: "analyzed",
+    lineCount: { $gte: MIN_ANCHOR_LINES },
+  });
+  return observed > 0;
+}

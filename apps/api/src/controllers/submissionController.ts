@@ -10,7 +10,7 @@ import {
   loadSubmissionFor,
   loadSubmissionForManage,
 } from "../services/access.js";
-import { eligibilityFor } from "../services/anchors.js";
+import { eligibilityFor, hasObservedAnchor } from "../services/anchors.js";
 import { recordAudit } from "../services/audit.js";
 import {
   getSubmission as readStoredFile,
@@ -21,6 +21,7 @@ import {
 import { AppError } from "../utils/AppError.js";
 import { skipFor } from "../validation/common.js";
 import type { ListSubmissionsQuery, NominateBody } from "../validation/submissionSchemas.js";
+
 
 const log = componentLogger("submission");
 
@@ -176,12 +177,37 @@ export async function nominateSubmission(req: Request, res: Response) {
 
   const rebuildQueued = await enqueueBaselineRebuild(String(submission.student), submission.language);
 
+    // The rebuild runs in the worker, so the baseline is not rebuilt yet. What
+  // can be said now is whether it will be usable once it is: Layer 2 needs
+  // at least one observed sample, and nomination cannot supply one. Without
+  // this, a 200 with rebuildQueued: true reads as "Layer 2 is now enabled
+  // for this student", which may be false.
+  const baselineWillBeUsable = await hasObservedAnchor(
+    String(submission.student),
+    submission.language,
+  );
+
   log.info(
-    { submissionId: submission.id, student: String(submission.student), by: user.id, audited, rebuildQueued },
+    {
+      submissionId: submission.id,
+      student: String(submission.student),
+      by: user.id,
+      audited,
+      rebuildQueued,
+      baselineWillBeUsable,
+    },
     "submission nominated as a baseline anchor",
   );
 
-  res.json({ submission, audited, rebuildQueued });
+  res.json({
+    submission,
+    audited,
+    rebuildQueued,
+    baselineWillBeUsable,
+    baselineNote: baselineWillBeUsable
+      ? undefined
+      : "Recorded, but Layer 2 will not use this baseline: it needs at least one invigilated sample for this student, which a nomination cannot provide.",
+  });
 }
 
 /**
@@ -230,5 +256,13 @@ export async function withdrawNomination(req: Request, res: Response) {
     "nomination withdrawn",
   );
 
-  res.json({ submission, audited, rebuildQueued });
+  res.json({
+    submission,
+    audited,
+    rebuildQueued,
+    baselineWillBeUsable: await hasObservedAnchor(
+      String(submission.student),
+      submission.language,
+    ),
+  });
 }
