@@ -7617,19 +7617,33 @@ and three new volumes, orphaning the `codeguard_*` ones; and — because
 failing the whole `up`. I had also claimed "only two lines differ", which was
 false. Restored, and the final committed diff is the two intended lines.
 
-**A second wrong call, same day.** When `layer2.test.ts` then failed with
-`Hook timed out in 10000ms`, I attributed it to cold-start cost on empty volumes
+**A second wrong call, then the real cause.** When `layer2.test.ts` failed with
+`Hook timed out in 10000ms`, I blamed cold-start cost on the empty Mongo volume
 and predicted the first run would fail and the second pass. **The first run
-passed**, against volumes destroyed and recreated moments earlier. The
-hypothesis is falsified and the real trigger is unknown; the most plausible
-remaining candidate is that the failing run started while Docker was still
-settling after 37.9 s of image builds.
+passed**, against volumes destroyed and recreated moments earlier, so that was
+falsified. The actual cause was in vitest's own summary line all along:
 
-**NEW CARRY-OVER — `layer2.test.ts`'s `beforeAll` is too close to the ceiling.**
-It stands up a stub server and the whole app, the suite accounts for roughly 20
-of the 44 seconds, and it blew through the default 10,000 ms `hookTimeout` once.
-A setup that fails intermittently is a flake whether or not the trigger can be
-named. The fix needs a measured number, not a round one.
+| run | total | import | import time |
+|---|---|---|---|
+| failed | 41.71 s | 26% | **10.84 s** |
+| passed | 44.15 s | 5% | 2.21 s |
+| passed | 46.81 s | 5% | 2.34 s |
+
+**8.6 seconds of extra module-transform time against a 10 s hook limit.** It was
+a cold start, but of Vite's transform cache, not the database. `layer2.test.ts`'s
+`beforeAll` is where that cost lands, because after `startTestApp()` it performs
+**eight dynamic `await import()` calls** to pick up services and models that must
+be imported after the test settings are applied. On a cold cache those eight
+module graphs are transformed inside the hook. The `down -v` I prescribed cleared
+the database and left the Vite cache warm from the failed run, which is exactly
+why the prediction came out backwards.
+
+**Falsifiable consequence:** this recurs on any run with a cold Vite cache, so it
+will happen on the examiner's machine before it happens again here.
+
+**Fixed by scoping the hook's own timeout to 30 s** rather than raising
+`hookTimeout` globally. 10,000 ms was never a considered limit; it is vitest's
+default, and the hook legitimately needs longer on a cold cache.
 
 **NEW CARRY-OVER — a critical npm advisory.** The build now reports
 `6 vulnerabilities (4 moderate, 1 high, 1 critical)` for build dependencies and
@@ -7649,3 +7663,78 @@ performance could never be reported. A detection layer whose accuracy cannot be
 stated is exactly what this project has refused to build at every other step.
 RPS therefore stands at two layers with the renormalisation already written for
 it, and the report states Layer 3 as designed-but-not-built, with the reason.
+
+### File 082 — The detector gets a test suite (Day 22, 06 Oct)
+
+**Files:** `apps/detector/tests/` (new: `__init__.py`, `conftest.py`,
+`test_parsing.py`, `test_normalise.py`, `test_similarity.py`,
+`test_prefilter.py`, `test_units.py`, `test_features.py`)
+
+**Why.** The detector had **zero tests**. Seven modules holding every algorithm
+the project is actually about, and the 63 Node tests stub the detector
+completely, so nothing verified that the tree edit distance is correct, that
+normalisation collapses what it claims to, or that the prefilter ranks sanely.
+Everything proven about them was proven by hand in scratch files that were then
+deleted. "How do you know your APTED similarity is right?" had no answer.
+
+**Result: 85 tests, 0.2 s.** The scaffolding already existed and had gone unused
+for a month: `pyproject.toml` has declared `[project.optional-dependencies] dev`
+with pytest and `[tool.pytest.ini_options] testpaths = ["tests"]` since Phase 0.
+
+**Claims now covered rather than asserted.** Renaming invariance end to end (a
+renamed copy scores exactly 1.0, which is the number the report quotes);
+comments dropped; literals collapsed to NUM/STR/BOOL/NULL and kept as leaves;
+pass-through nodes unwrapped; the depth guard truncating to DEEP instead of
+crashing; the identical-bracket short circuit answering in 0.0 ms; the
+MAX_PRODUCT cost guard refusing an expensive pair; similarity symmetry and its
+0..1 bound; unit extraction skipping nested functions; a script with no
+functions compared as one unit; reordering invariance; greedy matching using
+each unit once; the exhaustive and cheap paths agreeing; and the None-rather-
+than-zero rule, including the distinction that a while-only file scores
+`for_loop_ratio` **0.0** (a real measurement) while a loop-free file scores
+**None** (the question does not apply).
+
+**The suite was mutation tested before being trusted.** 85 passing on the first
+run is suspicious rather than reassuring, so six deliberate breakages were
+introduced one at a time:
+
+| mutation | caught |
+|---|---|
+| identifiers stop collapsing to `ID` | yes |
+| comments stop being dropped | yes |
+| `shortlist_pairs` becomes one-directional | yes (2 tests) |
+| `mean` returns `0.0` instead of `None` | yes (3 tests) |
+| the identical-bracket short circuit removed | yes |
+| the size-gap prune stops firing | **no** |
+
+**The miss was the useful part.** Removing the size prune changed nothing,
+which independently confirms the Phase 4 correction that the prune "never fired
+once on real function pairs, because functions inside one file have similar
+sizes". The existing test checked `ceiling_for` in isolation; nothing proved
+`compare_unit_sets` actually prunes. Two tests were added that force a 2-node
+unit against a 200-node one, and the mutation is now caught. The guard has been
+observed working exactly once, in a test written for that purpose.
+
+**Regression test worth naming.** `test_the_shortlist_nominates_from_both_sides`
+pins the File 064 starvation bug: every unit of A prefers `b[0]`, so a
+one-directional shortlist never offers `b[1]` to anybody. That bug was found
+twice during Phase 4 and now cannot return silently.
+
+**The image is unaffected.** The Dockerfile copies only `app ./app`, so tests
+never enter the container, and `.gitignore` covers only `.venv/`,
+`__pycache__/` and `*.pyc`, so nothing is silently untracked.
+
+**NEW CARRY-OVER — the two dependency manifests disagree.**
+`pyproject.toml`'s `dependencies` lists fastapi, uvicorn, pydantic and
+pydantic-settings but omits tree-sitter, tree-sitter-python, tree-sitter-java
+and apted, while `requirements.txt` lists those and drops pydantic-settings.
+The Dockerfile installs from `requirements.txt`, so the image is right and the
+project metadata is wrong.
+
+**NEW CARRY-OVER — `main.py`'s endpoints are still untested.** `/analyze` and
+`/features` are the contract the Node side depends on, and testing them needs
+fastapi's TestClient plus httpx. That is the cross-language contract test the
+notes have wanted since File 073, and it is still manual.
+
+**Still open:** no CI gate runs either suite. `npm run typecheck`, `npm test`,
+`ruff` and `pytest` are all run by hand, by me, when I remember.
