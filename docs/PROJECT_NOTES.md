@@ -7990,6 +7990,13 @@ backwards in the same words it uses for going forwards.
 non-breaking, `proxy-addr` and `source-map-js`, and touches `package-lock.json`
 alone. Both suites stayed green afterwards.
 
+**Verified after the fix:** `npm audit --omit=dev` reports
+`4 moderate severity vulnerabilities` and nothing above moderate, with
+`proxy-addr` and `source-map-js` both gone. `npm run audit:prod` prints that
+same report and exits 0, which is the gate passing rather than the gate being
+absent: the report is informational and only a high or critical fails the
+build.
+
 **Turned from a look into a gate.** A one-off audit answers today and nothing
 else; the point is noticing next month. `package.json` gains
 `"audit:prod": "npm audit --omit=dev --audit-level=high"` and the workflow runs
