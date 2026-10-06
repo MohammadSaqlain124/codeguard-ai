@@ -7480,4 +7480,172 @@ clearing both fields).
 - `makeAssignment(courseId: unknown)` handed `unknown` to Mongoose `create()`.
   No overload matched, the call's type became `never`, and eight further errors
   cascaded as "Property '_id' does not exist on type 'never'". The same cascade
-  was
+  was recorded on Day 17 and reproduced three days later, because what went into
+  the notes was the specific instance rather than the general rule. The rule:
+  never let `unknown` reach a Mongoose write. Fixed with `String(courseId)`.
+- Four nomination tests returned **409**. The precondition was set up through
+  `runDetection`, which does not move a submission's status — the worker does.
+  Fixed with an `analyse()` helper that does what the worker does. Same class as
+  the Day 18 `candidates: 0` miss: a precondition established through a path
+  that does not establish it.
+
+**NEW CARRY-OVER — the submission status lifecycle lives only in the worker.**
+Any future direct caller of `runDetection` must move the status itself.
+
+**Phase 5 closed.** Layer 2 is built, measured, scored into RPS, mitigated five
+ways, and covered by thirteen tests. 63 tests across five files.
+
+### Day 21 — No files: the disk, the registry, and a crash-loop (05 Oct)
+
+Nothing shipped. Recording it anyway, because most of the lessons are not about
+this project.
+
+**Started Layer 3 and stopped at the build.** The detector image build filled C:
+to **2.99 MB free** and had to be killed with Ctrl+C. Docker itself then stopped
+working, because its engine runs inside WSL and a full disk disables it.
+
+**The cause was my estimate.** I said the image would be 2 to 2.5 GB and that
+16.6 GB free was comfortable. A Docker build holds the build-stage layers, the
+runtime copy and the BuildKit cache at the same time, so a ~4 GB image needed
+over twelve. Wrong by a factor of five.
+
+**RULE, for every future project:** before any build that downloads a framework
+or a model, budget **three times** the expected final size in free disk, never
+start below **25 GB free**, and state the number out loud first. The finished
+artefact is not the peak.
+
+**Recovery, about two hours.** Reset Docker's data, then Settings → Resources →
+Advanced → Disk image location to move everything to `E:\DockerData`, so a
+future build cannot reach the system drive at all. C: went from 2.99 MB back to
+**27.3 GB**. File 081's Layer 3 work was fully reverted with `git checkout --`
+and `app/likelihood.py` deleted; `git status` clean confirmed it.
+
+**Then the real discovery: MinIO's images are gone.** After the reset,
+`docker compose up -d` failed with `pull access denied for minio/minio`. First
+diagnosis — lost credentials — was wrong, and disproved in one command:
+`docker pull hello-world` succeeded. The truth is that MinIO removed
+`minio/minio` from Docker Hub around **11 September 2026** and
+`quay.io/minio/minio` stopped allowing anonymous pulls on the **24th**. The
+stack had been running for weeks on a locally cached copy of an image that no
+longer existed upstream, and wiping Docker destroyed the only copy.
+
+**LESSON:** a pinned tag protects against an image changing, not against a
+registry removing it. Anything the project cannot rebuild from scratch is a
+dependency you do not actually have. I also said during the recovery that "all
+of it is reproducible" — untrue for exactly this one thing.
+
+**The commercial successor is licence-gated.**
+`quay.io/minio/aistor/minio` pulls and starts, then refuses everything:
+`"No valid license found, running in offline mode. All S3 operations are
+denied."` Every test suite died in `beforeAll` on an S3 error that *named
+credentials*, which is why it read as an authentication problem for an hour.
+
+**Second bug, found in the same logs: the api container had been crash-looping.**
+`Error: unable to determine transport target for "pino-pretty"` at
+`dist/config/logger.js`. `env.ts` defaults `NODE_ENV` to `development`,
+`logger.ts` asks pino for the `pino-pretty` transport in development, and the
+production image installs without dev dependencies, so pino threw at module
+load before a line of our code ran.
+
+**Why nobody noticed for days.** `restart: unless-stopped` makes a container
+that dies at startup look like one that is `Up`, and **nothing in the project
+uses the api container** — the tests build the app in-process and the worker
+runs on the host under `npx tsx`. A service nothing depends on can be broken
+indefinitely without a single symptom. I had read `Up` off the status column
+and told Sam all five containers were healthy. **LESSON: `Up` is not healthy.
+Read the logs, not the status column.**
+
+**Also done on Day 21:** both notebooks brought up to File 080 — eleven File
+Book entries for Files 070–080, dated revisit lines on the ten earlier entries
+whose files were touched again, and the Reference Notebook's Days 19–21, 29
+glossary terms, 11 file-index rows, 12 cram-sheet rows and the Phase 5 battles,
+decisions and corrections. Found and repaired a real defect in the notebook
+while there: **35 runs** across Days 14–18 of the daily log carried the document
+title's formatting (bold, 20pt, colour 1F3352) instead of body formatting,
+propagated because each new day had been copied from the previous one.
+
+**Layer 3 decision deferred,** not decided by the disk.
+
+### File 081 — The object store, and a crash-loop nobody noticed (Day 22, 06 Oct)
+
+**Files:** `infra/docker-compose.yml`
+
+**What it does.** Two configuration repairs. The object store moves to
+`pgsty/silo`, pinned by digest
+`sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46`. The
+api service gets `NODE_ENV: production`.
+
+**Why a community fork and not the official image.** MinIO archived its upstream
+repository; Silo is the AGPL-3.0 fork maintained by Pigsty (the PostgreSQL
+deployment framework team) — 3.9k stars, releases every one to two months,
+public security advisories, upstream telemetry removed. It **preserves the
+`MINIO_*` variables, the `server /data --console-address` syntax and the S3
+API**, so `storage/minio.ts`, the `minio` npm client and `infra/.env` are all
+untouched. No licence key, anonymously pullable, 54 MB.
+
+AIStor's free single-node tier was the alternative and was rejected for a
+specific reason: **the licence file cannot be committed**, so the repository
+would stop building from a clean clone. That is the Day 21 failure again — a
+dependency we do not actually have — reached by a different route. Garage and
+SeaweedFS are both credible and licence-free but use a different credential and
+bucket model, so `infra/`, `.env` and the storage path would all need reworking;
+they are the fallback, not the first move, when a true drop-in exists.
+
+**Pinned by digest, not tag.** A tag is a mutable pointer and the bytes behind
+it can change; a digest *is* the bytes. It does not protect against withdrawal,
+which nothing does, but it makes "the image I verified" and "the image that runs
+in six months" provably identical. The digest the pull reported matched the one
+Docker Hub advertises — an independent check rather than a trusted assertion.
+
+**`NODE_ENV: production`, verified rather than assumed.** `NODE_ENV` is read in
+exactly three places: `config/env.ts` (the enum), `config/logger.ts` (the
+pino-pretty transport, which is the crash), and `middleware/errorHandler.ts`,
+where `production` additionally stops a non-operational 500 attaching the raw
+error message to the response body. That third effect is an improvement, not a
+regression. `rateLimit.ts`, `app.ts` and `server.ts` do not branch on it. The
+override sits on the service, not in `infra/.env`, so the host keeps
+`development` and readable logs.
+
+**MY ERROR — a deleted line nobody asked for.** The first version of this file
+that I handed over dropped `name: codeguard` from the top, because I
+reconstructed the file starting at `services:`. Compose then named the project
+after its directory, `infra`. Consequences, all of them visible in the output:
+images built as `infra-api` / `infra-detector`; a new `infra_default` network
+and three new volumes, orphaning the `codeguard_*` ones; and — because
+**`container_name:` is globally unique, not project-scoped** — the new
+`codeguard-detector` collided with the one still running from the previous day,
+failing the whole `up`. I had also claimed "only two lines differ", which was
+false. Restored, and the final committed diff is the two intended lines.
+
+**A second wrong call, same day.** When `layer2.test.ts` then failed with
+`Hook timed out in 10000ms`, I attributed it to cold-start cost on empty volumes
+and predicted the first run would fail and the second pass. **The first run
+passed**, against volumes destroyed and recreated moments earlier. The
+hypothesis is falsified and the real trigger is unknown; the most plausible
+remaining candidate is that the failing run started while Docker was still
+settling after 37.9 s of image builds.
+
+**NEW CARRY-OVER — `layer2.test.ts`'s `beforeAll` is too close to the ceiling.**
+It stands up a stub server and the whole app, the suite accounts for roughly 20
+of the 44 seconds, and it blew through the default 10,000 ms `hookTimeout` once.
+A setup that fails intermittently is a flake whether or not the trigger can be
+named. The fix needs a measured number, not a round one.
+
+**NEW CARRY-OVER — a critical npm advisory.** The build now reports
+`6 vulnerabilities (4 moderate, 1 high, 1 critical)` for build dependencies and
+`5 (4 moderate, 1 critical)` for runtime, where two days earlier it reported
+four moderate and nothing worse. The critical one ships in the image. Probably a
+newly published advisory against a package we already had, which is not the same
+as verified.
+
+**Verified.** All five containers healthy on the Silo image with no licence
+warning; `bucket created` in the api log, which is a real authenticated S3
+write; `api listening` with `env: production`, so the crash loop is gone; and
+**63 tests passing on two consecutive runs** (44.15 s and 46.81 s).
+
+**DECISION — Layer 3 is dropped.** Not because of the disk, which was fixed, but
+because there is no labelled corpus of AI-generated student code, so the layer's
+performance could never be reported. A detection layer whose accuracy cannot be
+stated is exactly what this project has refused to build at every other step.
+RPS therefore stands at two layers with the renormalisation already written for
+it, and the report states Layer 3 as designed-but-not-built, with the reason.
