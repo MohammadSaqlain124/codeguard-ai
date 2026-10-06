@@ -8,7 +8,7 @@ type Role = "student" | "faculty" | "admin";
 export const PASSWORD = "codeguard-dev-2026";
 export const TEST_DB = "codeguard_test";
 export const TEST_BUCKET = "submissions-test";
-// the stub detector the tests run in-process, never the real one on 8090
+// the stub detector the tests run in-process, never the real one on 8000
 export const TEST_DETECTOR_PORT = 8099;
 
 type Modules = {

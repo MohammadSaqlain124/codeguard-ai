@@ -44,7 +44,6 @@ function shutdown(signal: string) {
     await closeQueue();
     await disconnectRedis();
     await disconnectDb();
-    await disconnectDb();
     logger.info("shutdown complete");
     process.exit(0);
   });

@@ -48,7 +48,8 @@ export const detectionQueue = new Queue<QueueJob>(DETECTION_QUEUE, {
   connection,
   defaultJobOptions: {
     attempts: 3,
-    // 5s, then 25s: a restarting detector is usually back within that
+    // exponential from a 5s base, so each retry waits twice as long as the
+    // last. A restarting detector is usually back inside two retries.
     backoff: { type: "exponential", delay: 5000 },
     removeOnComplete: { age: 24 * 60 * 60, count: 1000 },
     // keep failures for a week; they are the ones worth looking at

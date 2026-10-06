@@ -96,7 +96,8 @@ let AuditLogModel: (typeof import("../src/models/AuditLog.js"))["AuditLogModel"]
 
 // unique emails per test, so per-email rate limits never accumulate
 let run = 0;
-
+// 30s rather than vitest's 10s default. On a cold Vite cache the eight dynamic
+// imports below cost about 9s on their own, which once blew the default.
 beforeAll(async () => {
   server = createServer((req, res) => {
     if (req.url === "/health") {
@@ -128,7 +129,7 @@ beforeAll(async () => {
   ({ DetectionConfigModel } = await import("../src/models/DetectionConfig.js"));
   ({ BaselineProfileModel } = await import("../src/models/BaselineProfile.js"));
   ({ AuditLogModel } = await import("../src/models/AuditLog.js"));
-});
+}, 30_000);
 
 afterAll(async () => {
   await stopTestApp();
