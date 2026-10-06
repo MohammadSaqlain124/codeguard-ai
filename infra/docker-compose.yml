@@ -1,3 +1,5 @@
+#infra/docker-compose.yml
+
 name: codeguard
 
 services:
@@ -36,7 +38,14 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:latest
+    # Silo is the community AGPL fork of MinIO, maintained by Pigsty.
+    # MinIO removed minio/minio from Docker Hub in September 2026 and closed
+    # anonymous pulls on quay, and its commercial successor denies every S3
+    # operation without a licence file. Silo keeps the MINIO_* variables, the
+    # command syntax and the S3 API, so nothing outside this file changes.
+    # Pinned by digest rather than tag: a tag can be moved to different bytes,
+    # a digest cannot.
+    image: pgsty/silo@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     container_name: codeguard-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -63,6 +72,12 @@ services:
     env_file:
       - .env
     environment:
+      # The production image installs without dev dependencies, so pino-pretty
+      # is not present. env.ts defaults NODE_ENV to development, which made the
+      # logger ask pino for it and throw at module load, so this container had
+      # been restarting in a loop. Only this service is overridden, so the host
+      # still reads NODE_ENV=development from .env and keeps readable logs.
+      NODE_ENV: production
       MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DB}?authSource=admin
       REDIS_HOST: redis
       MINIO_ENDPOINT: minio
