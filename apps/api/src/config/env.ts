@@ -29,6 +29,9 @@ const envSchema = z
 
     DETECTOR_URL: z.url().default("http://localhost:8000"),
     DETECTOR_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(30_000),
+    // shared secret sent with every detector call. 32 characters for the
+    // same reason the JWT secrets are: shorter is guessable offline.
+    DETECTOR_TOKEN: z.string().min(32),
 
     MAX_UPLOAD_BYTES: z.coerce.number().int().positive(),
     ALLOWED_EXTENSIONS: z

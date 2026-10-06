@@ -3,7 +3,14 @@ import type { Express } from "express";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { TEST_DETECTOR_PORT, bearer, signIn, startTestApp, stopTestApp } from "./helpers.js";
+import {
+  TEST_DETECTOR_PORT,
+  TEST_DETECTOR_TOKEN,
+  bearer,
+  signIn,
+  startTestApp,
+  stopTestApp,
+} from "./helpers.js";
 
 type AnalyzeBody = {
   submissionId: string;
@@ -58,6 +65,11 @@ beforeAll(async () => {
     if (req.url === "/health") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.headers["x-detector-token"] !== TEST_DETECTOR_TOKEN) {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ detail: "missing or wrong detector token" }));
       return;
     }
     let raw = "";

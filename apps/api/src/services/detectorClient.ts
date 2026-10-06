@@ -76,7 +76,12 @@ async function postJson(path: string, body: unknown): Promise<unknown> {
   try {
     res = await fetch(`${env.DETECTOR_URL}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        // the detector refuses an unauthenticated call with 401, which
+        // postJson surfaces as "Detector replied 401"
+        "x-detector-token": env.DETECTOR_TOKEN,
+      },
       body: JSON.stringify(body),
       // covers the whole call, including a detector that accepts the
       // connection and then thinks forever

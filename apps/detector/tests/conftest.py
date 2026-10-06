@@ -4,10 +4,19 @@ The sources below are deliberately tiny and hand written. Every one of them
 exists to make a single claim checkable, so none of them should be edited
 without checking which test it was written for.
 """
+import os
+
 import pytest
 
 from app.normalise import TNode, normalise
 from app.parsing import parse_source
+
+# main.py refuses to start without this, which is deliberate. It is set here
+# because conftest runs before any test module imports the app, and the value
+# only has to satisfy the length check: these tests do not verify the secret,
+# they verify that one is required.
+TEST_TOKEN = "test-detector-token-not-a-real-secret-0123456789"
+os.environ["DETECTOR_TOKEN"] = TEST_TOKEN
 
 # Two programs with the same structure and different names. Everything
 # Layer 1 claims rests on these two normalising to the same tree.

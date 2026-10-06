@@ -10,6 +10,10 @@ export const TEST_DB = "codeguard_test";
 export const TEST_BUCKET = "submissions-test";
 // the stub detector the tests run in-process, never the real one on 8000
 export const TEST_DETECTOR_PORT = 8099;
+// The stubs check this header, so a client that forgets to send it fails the
+// suite instead of only failing against the real detector. Not a real secret,
+// and long enough only because env.ts requires 32 characters.
+export const TEST_DETECTOR_TOKEN = "test-detector-token-not-a-real-secret-0123456789";
 
 type Modules = {
   db: typeof import("../src/db/connect.js");
@@ -32,6 +36,7 @@ function useTestSettings() {
   process.env.MINIO_BUCKET = TEST_BUCKET;
   // set after loading the file, so the real detector can never be reached
   process.env.DETECTOR_URL = `http://127.0.0.1:${TEST_DETECTOR_PORT}`;
+  process.env.DETECTOR_TOKEN = TEST_DETECTOR_TOKEN;
   if (!process.env.MONGO_URI.includes(`/${TEST_DB}?`)) {
     throw new Error(`Refusing to run: tests must use the ${TEST_DB} database`);
   }

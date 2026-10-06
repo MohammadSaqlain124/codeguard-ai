@@ -3,7 +3,14 @@ import type { Express } from "express";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { TEST_DETECTOR_PORT, bearer, signIn, startTestApp, stopTestApp } from "./helpers.js";
+import {
+  TEST_DETECTOR_PORT,
+  TEST_DETECTOR_TOKEN,
+  bearer,
+  signIn,
+  startTestApp,
+  stopTestApp,
+} from "./helpers.js";
 
 type AnalyzeBody = {
   submissionId: string;
@@ -96,13 +103,17 @@ let AuditLogModel: (typeof import("../src/models/AuditLog.js"))["AuditLogModel"]
 
 // unique emails per test, so per-email rate limits never accumulate
 let run = 0;
-// 30s rather than vitest's 10s default. On a cold Vite cache the eight dynamic
-// imports below cost about 9s on their own, which once blew the default.
+
 beforeAll(async () => {
   server = createServer((req, res) => {
     if (req.url === "/health") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.headers["x-detector-token"] !== TEST_DETECTOR_TOKEN) {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ detail: "missing or wrong detector token" }));
       return;
     }
     const isFeatures = req.url === "/features";
@@ -129,7 +140,7 @@ beforeAll(async () => {
   ({ DetectionConfigModel } = await import("../src/models/DetectionConfig.js"));
   ({ BaselineProfileModel } = await import("../src/models/BaselineProfile.js"));
   ({ AuditLogModel } = await import("../src/models/AuditLog.js"));
-}, 30_000);
+});
 
 afterAll(async () => {
   await stopTestApp();

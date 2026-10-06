@@ -10,6 +10,7 @@ from app.features import FEATURE_NAMES
 from app.main import (
     DETECTOR_VERSION,
     FEATURE_SET_VERSION,
+    MAX_BODY_BYTES,
     MAX_CANDIDATES,
     MAX_DEEP_CANDIDATES,
     MAX_SOURCE_CHARS,
@@ -23,14 +24,19 @@ from tests.conftest import (
     PY_ORIGINAL,
     PY_RENAMED,
     PY_TWO_FUNCTIONS,
+    TEST_TOKEN,
 )
 
 client = TestClient(app)
+
+# every real endpoint needs the shared secret; /health deliberately does not
+AUTH = {"x-detector-token": TEST_TOKEN}
 
 
 def analyze(source, candidates=(), language="python", submission="s1"):
     return client.post(
         "/analyze",
+        headers=AUTH,
         json={
             "submissionId": submission,
             "language": language,
@@ -46,6 +52,7 @@ def analyze(source, candidates=(), language="python", submission="s1"):
 def features(source, language="python"):
     return client.post(
         "/features",
+        headers=AUTH,
         json={"submissionId": "s1", "language": language, "source": source},
     )
 
@@ -246,3 +253,88 @@ def test_the_final_order_is_the_exact_score_not_the_cheap_one():
     assert scores == sorted(scores, reverse=True)
     assert scores[0] == 1.0
     assert scores[-1] < 1.0
+
+
+# ------------------------------------------------------------------ auth ---
+
+def test_health_needs_no_token():
+    # docker compose health-checks this, and it reveals only ok and version
+    assert client.get("/health").status_code == 200
+
+
+def test_analyze_without_a_token_is_refused():
+    r = client.post(
+        "/analyze",
+        json={"submissionId": "s", "language": "python", "source": PY_ORIGINAL},
+    )
+    assert r.status_code == 401
+    assert "token" in r.json()["detail"].lower()
+
+
+def test_features_without_a_token_is_refused():
+    r = client.post(
+        "/features",
+        json={"submissionId": "s", "language": "python", "source": PY_ORIGINAL},
+    )
+    assert r.status_code == 401
+
+
+def test_a_wrong_token_is_refused():
+    r = client.post(
+        "/analyze",
+        headers={"x-detector-token": "x" * len(TEST_TOKEN)},
+        json={"submissionId": "s", "language": "python", "source": PY_ORIGINAL},
+    )
+    assert r.status_code == 401
+
+
+def test_a_token_of_the_wrong_length_is_refused():
+    # compare_digest is constant time for equal lengths and still returns
+    # false for unequal ones, so a short guess must not be accepted
+    r = client.post(
+        "/analyze",
+        headers={"x-detector-token": TEST_TOKEN[:-1]},
+        json={"submissionId": "s", "language": "python", "source": PY_ORIGINAL},
+    )
+    assert r.status_code == 401
+
+
+def test_a_non_ascii_token_is_a_401_not_a_500():
+    # Header values travel as bytes and starlette decodes them as latin-1,
+    # so the handler really can be handed a non-ascii string. compare_digest
+    # on str raises on exactly that, which would turn a bad token into a 500,
+    # so the comparison is done on bytes. Sent as raw bytes here because an
+    # http client will not encode a non-ascii str into a header at all.
+    r = client.post(
+        "/analyze",
+        headers={"x-detector-token": "tokén".encode("latin-1") + b"x" * 40},
+        json={"submissionId": "s", "language": "python", "source": PY_ORIGINAL},
+    )
+    assert r.status_code == 401
+
+
+def test_auth_runs_before_validation():
+    # an unauthenticated caller must not be told whether its payload was
+    # valid, so a bad language with no token is still a 401 and not a 422
+    r = client.post(
+        "/analyze",
+        json={"submissionId": "s", "language": "rust", "source": PY_ORIGINAL},
+    )
+    assert r.status_code == 401
+
+
+# ------------------------------------------------------------ body limit ---
+
+def test_an_oversized_body_is_refused_before_it_is_read():
+    big = b"x" * (MAX_BODY_BYTES + 1024)
+    r = client.post(
+        "/analyze",
+        content=big,
+        headers={**AUTH, "content-type": "application/json"},
+    )
+    assert r.status_code == 413
+    assert str(MAX_BODY_BYTES) in r.json()["detail"]
+
+
+def test_a_normal_body_passes_the_limit():
+    assert analyze(PY_ORIGINAL).status_code == 200

@@ -1,8 +1,11 @@
 import logging
+import os
+import secrets
 import time
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.features import FEATURE_NAMES, extract_features
@@ -24,6 +27,25 @@ FEATURE_SET_VERSION = 1
 # on the calling side rather than a real submission.
 MAX_SOURCE_CHARS = 256 * 1024
 MAX_CANDIDATES = 50
+
+# Shared secret the API sends with every call. Nothing public is meant to
+# reach this service, so one token is the right weight: it stops anything
+# else on the host from submitting work or reading back scores.
+#
+# Read once at import, and the service refuses to start without it. A
+# security control that quietly turns itself off when misconfigured is
+# worse than no control, because nobody finds out.
+DETECTOR_TOKEN = os.environ.get("DETECTOR_TOKEN", "")
+if len(DETECTOR_TOKEN) < 32:
+    raise RuntimeError(
+        "DETECTOR_TOKEN must be set to at least 32 characters. "
+        "It lives in infra/.env and docker compose passes it in."
+    )
+
+# The largest honest request is one source plus fifty candidates at 256 KB
+# each, which is about 13 MB before JSON escaping. 16 MB leaves room for the
+# escaping and for nothing else.
+MAX_BODY_BYTES = 16 * 1024 * 1024
 
 # Of the candidates we are handed, how many earn the expensive treatment.
 MAX_DEEP_CANDIDATES = 10
@@ -128,12 +150,54 @@ def spans_for(unit_matches) -> list[Span]:
     ]
 
 
+def require_token(
+    x_detector_token: Annotated[str | None, Header()] = None,
+) -> None:
+    """Rejects a call that does not carry the shared secret.
+
+    compare_digest rather than ==, so how long the check takes does not
+    leak how much of the token was correct. Compared as bytes, because the
+    string form of compare_digest refuses anything outside ascii and a
+    stray header should be a 401 rather than a 500.
+    """
+    supplied = (x_detector_token or "").encode("utf-8")
+    expected = DETECTOR_TOKEN.encode("utf-8")
+    if not secrets.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="Invalid or missing detector token")
+
+
+@app.middleware("http")
+async def limit_body_size(request: Request, call_next):
+    """Refuses an oversized request before its body is read into memory.
+
+    Pydantic caps every field, but only once the whole body has been
+    buffered, so a huge POST costs the memory before anything rejects it.
+    Checking the declared length first is what makes that cheap. A chunked
+    request declares no length, and for those the field caps are still the
+    backstop.
+    """
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+        return JSONResponse(
+            status_code=413,
+            content={"detail": f"Request body may not exceed {MAX_BODY_BYTES} bytes"},
+        )
+    return await call_next(request)
+
+
+# deliberately open: docker compose health-checks this with no token, and it
+# reveals only that the process is up and which version it is
 @app.get("/health")
 def health():
     return {"ok": True, "version": DETECTOR_VERSION}
 
 
-@app.post("/analyze", response_model=AnalyzeResponse, response_model_exclude_none=True)
+@app.post(
+    "/analyze",
+    response_model=AnalyzeResponse,
+    response_model_exclude_none=True,
+    dependencies=[Depends(require_token)],
+)
 def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     started = time.perf_counter()
     log.info(
@@ -217,7 +281,12 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     )
 
 
-@app.post("/features", response_model=FeaturesResponse, response_model_exclude_none=True)
+@app.post(
+    "/features",
+    response_model=FeaturesResponse,
+    response_model_exclude_none=True,
+    dependencies=[Depends(require_token)],
+)
 def features(request: FeaturesRequest) -> FeaturesResponse:
     started = time.perf_counter()
     log.info("features %s, language %s", request.submissionId, request.language)

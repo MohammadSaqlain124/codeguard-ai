@@ -105,6 +105,10 @@ services:
       context: ../apps/detector
     container_name: codeguard-detector
     restart: unless-stopped
+    # the api gets this from env_file; the detector has no env_file, so it is
+    # passed explicitly. compose interpolates it from infra/.env
+    environment:
+      DETECTOR_TOKEN: ${DETECTOR_TOKEN}
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:
