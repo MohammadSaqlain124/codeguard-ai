@@ -7738,3 +7738,94 @@ notes have wanted since File 073, and it is still manual.
 
 **Still open:** no CI gate runs either suite. `npm run typecheck`, `npm test`,
 `ruff` and `pytest` are all run by hand, by me, when I remember.
+
+### File 083 — The HTTP contract, and a gate that found three faults (Day 22, 06 Oct)
+
+**Files:** `apps/detector/tests/test_main.py` (new),
+`apps/detector/requirements-dev.txt` (new), `apps/detector/app/features.py`,
+`apps/api/package.json`
+
+**27 more tests, 112 in the detector suite, 0.9 s.** `test_main.py` drives
+`/health`, `/analyze` and `/features` through fastapi's TestClient, which makes
+it the first automated test of the contract the Node API actually consumes.
+Everything else in the suite tests a module in isolation.
+
+**An open question from File 070 is now settled.** That entry recorded a belief
+rather than a fact: "response_model_exclude_none omits None fields, and I
+believe it does not touch None values inside a dict field, so
+`"for_loop_ratio": null` should survive. Not certain." Measured: **it does not
+touch them.** All ten keys come back, with explicit `null` for the three that do
+not apply, so a caller sees `{"for_loop_ratio": null}` and never a missing key.
+The belief was right and is now pinned by
+`test_features_returns_every_declared_name`. The test that matters most is
+written against the weaker contract anyway, asserting only that an unmeasurable
+feature is never `0`, because the Node side treats absent and null identically
+and should not be coupled to the serialiser's choice.
+
+**Covered by the endpoint tests.** `compared: false` distinguishing "did not
+look" from "found nothing"; an identical and a renamed candidate both scoring
+1.0; an unparsable submission answered with 200 and a reason rather than a 500;
+an unparsable candidate silently not being a candidate while the good one still
+scores; `parseError` absent rather than null on clean source; the
+`MAX_DEEP_CANDIDATES` cap holding at ten when twelve are sent; spans present on
+a real match and withheld below `MIN_SPAN_NODES`; Java accepted; and 422 for an
+unknown language, an oversized source and too many candidates.
+
+**Mutation tested again: seven breakages, six caught immediately.** The miss was
+removing `matches.sort(...)`, and the reason is interesting rather than
+embarrassing: the prefilter already ranks by label bag, so the cheap order
+usually coincides with the exact order and the sort looks redundant. Finding a
+case where they disagree took one experiment:
+
+| candidate | cheap score | exact score |
+|---|---|---|
+| same labels, different nesting | **1.0000** | **0.8462** |
+| exact copy | 1.0000 | 1.0000 |
+| one extra call | 0.9032 | 0.8966 |
+
+A candidate with the target's exact label multiset in a different nesting is a
+perfect match to the prefilter and an 0.85 to APTED, so without the final sort
+it is presented *above* the exact copy.
+`test_the_final_order_is_the_exact_score_not_the_cheap_one` pins that, and the
+mutation is now caught. All thirteen mutations across the detector suite are
+caught.
+
+**Building the CI gate found three faults before the gate existed.**
+
+1. **`ruff check app/` has been failing since Day 18.** `features.py` had a
+   comment sitting inside its import block, which breaks isort's I001. Five days
+   red, unnoticed, because ruff is only ever run by hand. Fixed with one blank
+   line, preserving the comment. `ruff check .` is now clean across app and
+   tests.
+2. **`package.json` declared `"typecheck"` twice.** `"tsc --noEmit"` and
+   `"tsc -p tsconfig.test.json"`. JSON lets the last key win silently, so the
+   first was dead code and most parsers never complain. The duplicate is gone
+   and behaviour is unchanged, because the surviving script is the one that was
+   already winning.
+3. **`npm test` never typechecked.** The gate has been manual for six
+   consecutive files. `"pretest": "npm run typecheck"` now makes npm run it
+   automatically, so a type error can no longer reach a test run.
+
+**`requirements-dev.txt` added** rather than extending `requirements.txt`,
+because the Dockerfile installs from the latter and the image must not carry
+test tooling. It pulls in the runtime list with `-r requirements.txt` and adds
+pytest, httpx and ruff.
+
+**CI scope, decided rather than assumed.** The workflow runs two jobs that need
+no services and no secrets: the API's typecheck, and the detector's ruff plus
+pytest. The integration job that would run `npm test` is deliberately left out,
+because that suite needs Mongo, Redis and an object store, and it reads
+`infra/.env`, which is gitignored. A workflow that is red on every push because
+it cannot find a secret is worse than no workflow.
+
+**NEW CARRY-OVER — the integration job needs a decision.** Running `npm test` in
+CI means putting the JWT secrets, Mongo credentials and object-store credentials
+into GitHub secrets and synthesising `infra/.env` at run time. That is ordinary
+practice and it is also a choice about where this project's secrets live, so it
+is Sam's to make rather than mine.
+
+**NEW CARRY-OVER — GitHub Actions cannot easily run the object store.** Service
+containers in Actions cannot set a container command, and the Silo image needs
+`server /data`. The integration job would therefore run `docker compose up -d`
+against the existing compose file rather than using Actions services, which is
+also more faithful to how the stack really starts.
