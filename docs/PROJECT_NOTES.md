@@ -7829,3 +7829,96 @@ containers in Actions cannot set a container command, and the Silo image needs
 `server /data`. The integration job would therefore run `docker compose up -d`
 against the existing compose file rather than using Actions services, which is
 also more faithful to how the stack really starts.
+
+### File 084 — The detector stops trusting everyone (Day 22, 06 Oct)
+
+**Files:** `apps/detector/app/main.py`, `apps/detector/tests/conftest.py`,
+`apps/detector/tests/test_main.py`, `apps/api/src/config/env.ts`,
+`apps/api/src/services/detectorClient.ts`, `apps/api/tests/helpers.ts`,
+`apps/api/tests/detection.test.ts`, `apps/api/tests/layer2.test.ts`,
+`infra/docker-compose.yml`
+
+**What it closes.** The gap opened in File 070 and carried ever since: "still no
+authentication and no HTTP body limit on the detector, and now there are two
+endpoints behind the same open door." Anything able to reach port 8000 could
+submit work or read back scores, and an unbounded POST was buffered into memory
+before any field cap rejected it.
+
+**The shared secret.** `/analyze` and `/features` require an `X-Detector-Token`
+header, checked with `secrets.compare_digest` so how long the check takes does
+not reveal how much of the token was correct. One token rather than per-caller
+credentials, because there is exactly one caller and nothing public is meant to
+reach this service, so anything heavier would be ceremony.
+
+**Compared as bytes, not strings, and that is not pedantry.** Header values
+travel as bytes and starlette decodes them as latin-1, so the handler really can
+be handed a non-ascii `str`. `secrets.compare_digest` on `str` raises on exactly
+that, which would turn a bad token into a 500 instead of a 401. The test for it
+has to send raw bytes, because an HTTP client refuses to encode a non-ascii
+`str` into a header at all, so this is only reachable over a real socket. Caught
+by a mutation that switched the comparison back to strings.
+
+**`/health` is deliberately open.** Compose health-checks it with no token and
+it reveals only `{ok, version}`. Guarding it would break the healthcheck to
+protect nothing.
+
+**The body limit, and its honest hole.** A middleware refuses a declared
+`content-length` above **16 MB** with 413. The largest legitimate request is one
+source plus fifty candidates at 256 KB each, about 13 MB before JSON escaping.
+Pydantic already caps every field, but only after the whole body has been
+buffered, so the memory is spent before anything rejects it; checking the
+declared length first is what makes the refusal cheap. **A chunked request
+declares no length and slips past this**, and for those the per-field caps
+remain the only backstop. Stated rather than hidden.
+
+**Fail closed.** The service refuses to start when `DETECTOR_TOKEN` is missing
+or under 32 characters, naming `infra/.env` in the error. A security control
+that quietly switches itself off when misconfigured is worse than none, because
+nobody finds out. Same reasoning as the `satisfies Record<Provenance, number>`
+guard in File 072: an absent value must break loudly rather than default to
+something plausible.
+
+**The API side can no longer forget.** Both in-process stubs now answer **401**
+without the header. Nothing previously verified that `detectorClient.ts`
+actually sends it, so forgetting would have passed all 63 Node tests and failed
+only against the real detector. That is the cross-language blind spot flagged in
+File 073, closed for the price of five lines in each stub.
+
+**Where the token lives.** `infra/.env` holds the value, which is never in the
+repository and never leaves that file. The api service already loads it through
+`env_file`, so only the detector service needed an explicit `environment:`
+block. `env.ts` validates `min(32)` for the same reason the JWT secrets do. Both
+test suites set their own throwaway token, in `conftest.py` and `helpers.ts`, so
+neither depends on the real secret being present.
+
+**Mutation tested: six breakages, six caught.** Comparing as `str` instead of
+bytes; the check never rejecting; `/analyze` losing its dependency; the body
+limit not firing; the limit raised to 16 GB; and a missing token treated as
+valid. **Nineteen mutations now across the detector suite, none missed.**
+
+**The gate caught me, which is the point.** `ruff` rejected this very change
+because I inserted `MAX_BODY_BYTES` out of alphabetical order in an import
+block. Added yesterday, earning its place within a day.
+
+**Verified.** `ruff check .` clean, **121 passed** in the detector, **63
+passed** in the API, all five containers healthy with the detector rebuilt.
+
+**NEW CARRY-OVER — a chunked request bypasses the body limit.** Enforcing it on
+the stream rather than the header means reading incrementally and aborting
+mid-body. Worth doing if the detector is ever exposed beyond localhost; not
+worth it while it is bound to 127.0.0.1.
+
+**NEW CARRY-OVER — two pytest warnings on the dev machine.** The local run
+reports `121 passed, 2 warnings` while a clean environment on current package
+versions reports none, so they are specific to the versions in
+`apps/detector/.venv`. Warnings become failures at the next major version, so
+they want naming: `pytest -rw` prints the summary.
+
+**The whole remaining list.** A decision rather than work: the integration job's
+secrets. Measurement: the critical npm advisory, and Java entirely unmeasured.
+Documentation: both notebooks are four files behind, at File 080. Code:
+`"stale"` never written; the stuck-in-`analyzing` sweep; `buildBaseline` writing
+a document for a student that does not exist; `cohortCalibration` running a
+query per submission; `signalDisagreement` having no magnitude; re-review
+flagging after a withdrawn nomination; orphaned MinIO objects; a separate Redis
+db for tests; and the two dependency manifests still disagreeing.
