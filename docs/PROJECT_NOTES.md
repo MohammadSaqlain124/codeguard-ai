@@ -7922,3 +7922,94 @@ a document for a student that does not exist; `cohortCalibration` running a
 query per submission; `signalDisagreement` having no magnitude; re-review
 flagging after a withdrawn nomination; orphaned MinIO objects; a separate Redis
 db for tests; and the two dependency manifests still disagreeing.
+
+### File 085 — The audit, and four advisories we are not fixing (Day 22, 06 Oct)
+
+**Files:** `apps/api/package.json`, `apps/api/package-lock.json`,
+`.github/workflows/ci.yml`
+
+**What prompted it.** The File 081 build log reported `6 vulnerabilities
+(4 moderate, 1 high, 1 critical)` where two days earlier it had reported four
+moderate and nothing worse. A critical in a dependency list is a question an
+examiner can ask, so it needed an answer rather than a bump.
+
+**Running both forms is what made the analysis possible.** `npm audit --omit=dev`
+reported 5 and the full audit reported 6. The outputs differ by exactly one
+entry, which proves `source-map-js` (high) is dev-only and never ships in the
+image. Everything else is in production dependencies. One command would have
+hidden that.
+
+**`proxy-addr`, critical, IP spoofing via an IPv4-mapped IPv6 trust subnet.** In
+production, via Express. **Not exploitable today, and that was checked rather
+than assumed:** `app.ts` never calls `app.set("trust proxy", ...)`, so Express
+defaults to `false`, no trust-subnet comparison happens and `X-Forwarded-For` is
+never believed.
+
+**But it is one deployment decision away from mattering, and the consequence is
+specific.** `rateLimit.ts` keys three rules on `req.ip`. The moment this sits
+behind nginx with `trust proxy` set, a patched `proxy-addr` is the only thing
+stopping an attacker from evading the upload, login and register limits by
+setting a header.
+
+**A second problem in the same place, independent of the advisory.** Behind a
+proxy *without* `trust proxy` set, every request appears to come from the
+proxy's address, so every user shares one rate-limit bucket. That is a denial of
+service against our own students. The deployment story therefore needs
+`trust proxy` configured **and** this package patched; neither alone is enough.
+Worth a line in the report's deployment section.
+
+**The four moderates are all `minio`'s, and none of them are reachable.** The
+chain is `decode-uri-component` under `query-string` under `minio`, plus three
+`stream-json` advisories. Not reachable, because of a decision made in File 049
+for an unrelated reason:
+
+> Keys are built from ids only. The student's filename is kept in Mongo, never
+> in the key, so odd characters or "../" in a filename can't matter.
+
+`decode-uri-component`'s denial of service needs attacker-controlled
+percent-encoded input to reach minio's query parsing. Every key component is
+generated: `${assignmentId}/${studentId}/${randomUUID()}`, with the bucket name
+from the environment. Nothing an uploader controls ever reaches that parser.
+`stream-json` parses the object store's own responses, so exploiting it means
+controlling what Silo returns, which means already owning a container on
+localhost. The prototype-pollution one included.
+
+That decision was made three weeks ago to stop path traversal in filenames. It
+also closes a dependency vulnerability nobody had heard of at the time, which is
+the best argument available for narrow, generated identifiers over
+pass-through user input.
+
+**`npm audit fix --force` was refused, and the reason matters.** npm offers it
+while saying "Will install minio@7.1.3, which is a breaking change". The project
+is on `minio@^8.0.7`, so that is a **major-version downgrade**, not a fix. It
+would almost certainly break `storage/minio.ts`, and it would do so to patch
+four advisories that nothing in this system can reach. npm presents going
+backwards in the same words it uses for going forwards.
+
+**Applied: plain `npm audit fix`**, which takes only the two marked
+non-breaking, `proxy-addr` and `source-map-js`, and touches `package-lock.json`
+alone. Both suites stayed green afterwards.
+
+**Turned from a look into a gate.** A one-off audit answers today and nothing
+else; the point is noticing next month. `package.json` gains
+`"audit:prod": "npm audit --omit=dev --audit-level=high"` and the workflow runs
+it in the api job.
+
+**The threshold is a deliberate trade.** `--omit=dev`, because a dev-only
+advisory must not fail a build of something that does not ship it.
+`--audit-level=high`, because the four remaining moderates are decided and
+documented, and a stricter threshold would make the build red today and teach us
+to ignore it. So a new high or critical in production dependencies fails the
+build and a new moderate does not. The stricter alternative is an allowlist
+keyed on advisory ids parsed from `npm audit --json`, which is perhaps thirty
+lines of script and worth doing if the moderate list ever grows.
+
+**NEW CARRY-OVER — the four minio advisories are unfixable without a downgrade.**
+They close when minio publishes a release that moves off the vulnerable
+`query-string` and `stream-json` versions. Until then they are documented as
+unreachable rather than silenced, and `audit:prod` will keep reporting them
+without failing.
+
+**NEW CARRY-OVER — `trust proxy` and the rate limiter need deciding together**
+before any deployment behind a reverse proxy. Setting one without patching the
+other is a bypass; patching without setting it is a shared bucket.

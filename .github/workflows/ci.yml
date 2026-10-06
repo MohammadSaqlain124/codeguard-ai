@@ -21,6 +21,7 @@ jobs:
           cache-dependency-path: apps/api/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run audit:prod
 
   detector:
     name: Detector lint and tests
