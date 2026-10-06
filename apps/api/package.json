@@ -12,10 +12,10 @@
     "worker": "tsx watch --env-file=../../infra/.env src/worker.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "pretest": "npm run typecheck",
     "test": "vitest run --no-file-parallelism",
-    "seed": "tsx --env-file=../../infra/.env src/scripts/seed.ts",
-    "typecheck": "tsc -p tsconfig.test.json"
+    "seed": "tsx --env-file=../../infra/.env src/scripts/seed.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

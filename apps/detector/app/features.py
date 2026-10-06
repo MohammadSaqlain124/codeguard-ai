@@ -1,12 +1,13 @@
 from tree_sitter import Node
 
 from app.normalise import DROP, IDENTIFIERS
+
+# FUNCTION_LABELS lives in units.py today. If that dependency ever becomes
+# awkward it belongs in normalise.py, which both files already import.
 from app.units import FUNCTION_LABELS
 
-# Every language's function types in one set, since this file does not need
-# to know which language it was handed. FUNCTION_LABELS lives in units.py
-# today; if that dependency ever becomes awkward it belongs in normalise.py,
-# which both files already import.
+# every language's function types in one set, since this file does not
+# need to know which language it was handed
 FUNCTION_TYPES = {label for labels in FUNCTION_LABELS.values() for label in labels}
 
 LOOP_FOR = {"for_statement", "for_in_clause", "enhanced_for_statement"}

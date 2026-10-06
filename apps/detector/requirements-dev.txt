@@ -1,0 +1,10 @@
+# Everything the detector needs to run, plus the tools that check it.
+#   pip install -r requirements-dev.txt
+#
+# requirements.txt stays the runtime list, because the Dockerfile installs
+# from it and the image must not carry test tooling.
+-r requirements.txt
+
+pytest
+httpx
+ruff
