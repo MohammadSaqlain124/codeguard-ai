@@ -177,6 +177,7 @@ export async function runDetection(submission: SubmissionDoc) {
           anchorCount: behavioural.anchorCount,
           features: behavioural.features,
           lowVariance: behavioural.lowVariance,
+          cohortHealth: behavioural.cohortHealth,
           cohortMeanShift: behavioural.cohortMeanShift,
           studentShift: behavioural.studentShift
         }

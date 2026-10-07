@@ -126,6 +126,17 @@ const detectionResultSchema = new Schema(
         intraStudentVariance: { type: Number, min: 0 },
         cohortPercentile: { type: Number, min: 0, max: 100 },
       },
+      // the same idea one level up: whether this layer still separates anyone
+      // in this cohort, or has pinned everybody at the top of the scale.
+      // Reported, never folded into score.
+      cohortHealth: {
+        flagged: { type: Boolean, default: false },
+        // features whose denominator came from VARIANCE_FLOOR rather than
+        // from any measured cohort spread
+        flooredFeatures: { type: [String], default: [] },
+        saturatedShare: { ...score },
+        peersScored: { type: Number, min: 0 },
+      },
       // cohort-controlled change point
       cohortMeanShift: { type: Number },
       studentShift: { type: Number },

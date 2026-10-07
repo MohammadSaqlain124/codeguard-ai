@@ -1,21 +1,32 @@
 [project]
 name = "codeguard-detector"
 version = "0.1.0"
-description = "Detection service for CodeGuard AI - AST, stylometry and AI-content analysis"
+description = "Detection service for CodeGuard AI - AST and stylometry analysis"
 requires-python = ">=3.11"
 
+# This list must match requirements.txt, and did not until 07 October: it was
+# written on day 4 before the parsing code existed, so it omitted the four
+# packages that do the actual work and carried pydantic-settings, which
+# nothing imports. Both files exist on purpose. The Dockerfile installs from
+# requirements.txt so the image carries no test tooling, and this list is what
+# "pip install -e ." reads for local work. Neither file pins a version, which
+# is a separate open question recorded in the notes.
 dependencies = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.29",
-    "pydantic>=2.7",
-    "pydantic-settings>=2.2",
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "tree-sitter",
+    "tree-sitter-python",
+    "tree-sitter-java",
+    "apted",
 ]
 
 [project.optional-dependencies]
+# Must match requirements-dev.txt.
 dev = [
-    "pytest>=8.0",
-    "httpx>=0.27",
-    "ruff>=0.4",
+    "pytest",
+    "httpx",
+    "ruff",
 ]
 
 [build-system]

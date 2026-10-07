@@ -54,6 +54,16 @@ export const MIN_COHORT_BASELINES = 3;
 // than estimated badly.
 export const MIN_SHIFT_PEERS = 3;
 
+// Mitigation 4 catches the student whose own work barely varies. These catch
+// the cohort-level version of the same failure, which the Phase 5 run hit:
+// when nobody in the cohort has a measurable within-author spread, every
+// denominator falls back to VARIANCE_FLOOR, every z-score is divided by a
+// constant invented in this file rather than measured, and every score pins
+// at 1. The layer then ranks nobody. It should say so rather than return a
+// confident-looking 1.0.
+export const COHORT_SATURATION_SHARE = 0.8;
+export const MIN_SATURATION_PEERS = 3;
+
 // Only what this file reads, so both a hydrated DetectionConfig and the
 // DEFAULT_DETECTION_CONFIG object satisfy it without a union type.
 export type LayerConfig = {
@@ -179,9 +189,20 @@ export type Shift =
   | { available: false; reason: string }
   | { available: true; perFeature: Record<string, number>; peers: number };
 
+// How much of the cohort is already pinned at the top of the scale. Left
+// without a share when too few peers have been scored to tell.
+export type Saturation = { peers: number; share?: number };
+
 /**
- * How far the cohort itself moved between the baseline period and this
- * assignment, per feature, in cohort-spread units.
+ * Everything this layer needs from the other students' current results, in
+ * one query.
+ *
+ * Two mitigations want the same rows, so they share a single read rather than
+ * each paying for one: the change point needs the cohort's mean feature
+ * values, and the cohort health flag needs their scores.
+ *
+ * The shift is how far the cohort itself moved between the baseline period
+ * and this assignment, per feature, in cohort-spread units.
  *
  * The student is excluded from their own cohort. Leaving them in would put
  * their deviation into the baseline it is being measured against, diluting
@@ -193,22 +214,40 @@ export type Shift =
  * re-analyses submissions once the cohort fills up, so an early submission
  * gets its shift on the rerun rather than never.
  */
-async function cohortShiftFor(
+async function cohortPeers(
   assignmentId: string,
   studentId: string,
   calibration: Calibration,
-): Promise<Shift> {
+): Promise<{ shift: Shift; saturation: Saturation }> {
   const rows = await DetectionResultModel.find({
     assignment: assignmentId,
     isCurrent: true,
     "behavioral.status": "ok",
     student: { $ne: studentId },
-  }).select("behavioral.features");
+  }).select("behavioral.features behavioral.score");
+
+  const scores = rows
+    .map((row) => row.behavioral?.score)
+    .filter((value): value is number => typeof value === "number");
+
+  // the score is Math.min(1, ...), so saturation is exactly 1 and needs no
+  // tolerance. Below MIN_SATURATION_PEERS the share is left undefined rather
+  // than computed from one or two people.
+  const saturation: Saturation =
+    scores.length >= MIN_SATURATION_PEERS
+      ? {
+          peers: scores.length,
+          share: scores.filter((value) => value >= 1).length / scores.length,
+        }
+      : { peers: scores.length };
 
   if (rows.length < MIN_SHIFT_PEERS) {
     return {
-      available: false,
-      reason: `${rows.length} scored peers in this assignment, ${MIN_SHIFT_PEERS} needed for a cohort shift`,
+      saturation,
+      shift: {
+        available: false,
+        reason: `${rows.length} scored peers in this assignment, ${MIN_SHIFT_PEERS} needed for a cohort shift`,
+      },
     };
   }
 
@@ -226,7 +265,7 @@ async function cohortShiftFor(
     perFeature[feature] = (now - then) / stdDev;
   }
 
-  return { available: true, perFeature, peers: rows.length };
+  return { saturation, shift: { available: true, perFeature, peers: rows.length } };
 }
 
 /**
@@ -323,6 +362,9 @@ export async function scoreBehavioural(
 
   const deviations = [];
   const zScores: number[] = [];
+  // features whose denominator came from VARIANCE_FLOOR rather than from the
+  // cohort, meaning nothing in the cohort varied in that feature
+  const flooredFeatures: string[] = [];
 
   for (const feature of SCORED_FEATURES) {
     const value = measured.features[feature];
@@ -341,7 +383,9 @@ export async function scoreBehavioural(
     const mean = samples.reduce((total, s) => total + s.weight * s.value, 0) / weightSum;
 
     // the spread comes from the cohort, floored so it can never be zero
-    const stdDev = Math.max(calibration.spread[feature] ?? 0, VARIANCE_FLOOR[feature]);
+    const cohortSpread = calibration.spread[feature] ?? 0;
+    const stdDev = Math.max(cohortSpread, VARIANCE_FLOOR[feature]);
+    if (cohortSpread < VARIANCE_FLOOR[feature]) flooredFeatures.push(feature);
     const zScore = (value - mean) / stdDev;
 
     zScores.push(zScore);
@@ -371,7 +415,11 @@ export async function scoreBehavioural(
   // deliberately neither stored nor folded into the score, because nothing
   // has yet measured whether an excess-adjusted score separates foreign work
   // better than the raw one. That measurement comes first.
-  const shift = await cohortShiftFor(String(submission.assignment), studentId, calibration);
+  const { shift, saturation } = await cohortPeers(
+    String(submission.assignment),
+    studentId,
+    calibration,
+  );
 
   let cohortMeanShift: number | undefined;
   let studentShift: number | undefined;
@@ -413,9 +461,34 @@ export async function scoreBehavioural(
     cohortPercentile: percentile,
   };
 
+  // The cohort-level companion to mitigation 4, reported beside the score and
+  // never folded into it, for mitigation 4's reason: a flag that quietly
+  // changed the number would make the number harder to explain, not easier.
+  //
+  // Two independent signs that the layer has stopped discriminating. Every
+  // denominator floored is the certain one, because the spread is then a
+  // constant from this file rather than a measurement. Most of the cohort
+  // already pinned at 1 is the observed one.
+  const allFloored = flooredFeatures.length === deviations.length;
+  const cohortSaturated =
+    saturation.share !== undefined && saturation.share >= COHORT_SATURATION_SHARE;
+  const cohortHealth = {
+    flagged: allFloored || cohortSaturated,
+    flooredFeatures,
+    saturatedShare: saturation.share,
+    peersScored: saturation.peers,
+  };
+
   // Two things can be worth saying at once, so the reason is built up rather
   // than assigned, and capped at the schema's 300 characters.
   const notes: string[] = [];
+  if (cohortHealth.flagged) {
+    notes.push(
+      allFloored
+        ? `This cohort shows no measurable spread in ${flooredFeatures.join(", ")}, so the score separates nobody`
+        : `${Math.round((saturation.share ?? 0) * 100)}% of scored peers are already at the maximum, so the score separates nobody`,
+    );
+  }
   if (!sizeMatched) {
     notes.push(
       `Fewer than ${MIN_BAND_ANCHORS} anchors within ${SIZE_BAND_LOW}x to ${SIZE_BAND_HIGH}x of ${submission.lineCount} lines, so all ${baseline.anchors.length} were used`,
@@ -438,6 +511,12 @@ export async function scoreBehavioural(
       // the population excludes this student, so it is one short of the above
       percentilePopulation: calibration.variances.length,
       lowVariance: lowVariance.flagged,
+      cohortHealthFlagged: cohortHealth.flagged,
+      flooredFeatures: flooredFeatures.length,
+      saturatedShare:
+        cohortHealth.saturatedShare === undefined
+          ? undefined
+          : Number(cohortHealth.saturatedShare.toFixed(4)),
       shiftPeers: shift.available ? shift.peers : 0,
       studentShift: studentShift === undefined ? undefined : Number(studentShift.toFixed(4)),
       cohortMeanShift:
@@ -457,6 +536,7 @@ export async function scoreBehavioural(
     anchorCount: used.length,
     features: deviations,
     lowVariance,
+    cohortHealth,
     cohortMeanShift,
     studentShift,
     effectiveW2,

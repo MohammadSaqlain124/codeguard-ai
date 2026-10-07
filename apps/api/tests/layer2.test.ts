@@ -431,6 +431,131 @@ describe("the cohort-controlled change point", () => {
   });
 });
 
+describe("cohort health", () => {
+  /**
+   * seedCohort's shape, except every one of a student's anchors is identical.
+   * The cohort then has no within-author spread at all, so every denominator
+   * falls back to VARIANCE_FLOOR and the layer stops separating anybody. This
+   * is what the Phase 5 run built by accident, and what nothing flagged.
+   */
+  async function seedFlatCohort(students = 4) {
+    const faculty = await signIn("faculty", `l2hf${run}@example.com`);
+    const people: Who[] = [];
+    for (let i = 0; i < students; i += 1) {
+      people.push(await signIn("student", `l2hs${run}-${i}@example.com`, `BCS2025${run}0${i}`));
+    }
+
+    const course = await models.CourseModel.create({
+      code: `CS-7${run % 100}`,
+      title: "Flat cohort",
+      academicYear: "2026-27",
+      faculty: faculty.id,
+      enrolledStudents: people.map((p) => p.id),
+    });
+    await DetectionConfigModel.create({
+      course: course._id,
+      reviewThreshold: 0.9,
+      updatedBy: faculty.id,
+    });
+
+    const ids: string[] = [];
+    for (let a = 0; a < 3; a += 1) {
+      const assignment = await makeAssignment(course._id, `Flat ${a}`, "invigilated");
+      for (let i = 0; i < people.length; i += 1) {
+        // the same marker and the same length in every lab, so this student's
+        // own standard deviation is exactly zero
+        const submission = await upload(assignment._id, people[i]!, sourceWith(10 * i, 40));
+        ids.push(submission.id);
+      }
+    }
+    await models.SubmissionModel.updateMany({ _id: { $in: ids } }, { status: "analyzed" });
+    for (const person of people) await buildBaseline(person.id, "python");
+
+    return { faculty, people, course };
+  }
+
+  it("leaves a cohort that has a spread of its own unflagged", async () => {
+    const { people, course } = await seedCohort();
+    const assignment = await makeAssignment(course._id, "Healthy", "takehome");
+    const one = await upload(assignment._id, people[0]!, sourceWith(1));
+
+    await analyse(one.id);
+
+    const result = await current(one.id);
+    expect(result?.behavioral?.status).toBe("ok");
+    expect(result?.behavioral?.cohortHealth?.flagged).toBe(false);
+    // One floored feature is normal and is not a problem: seedCohort moves a
+    // student by 0.1 of a block level per lab, under max_block_depth's floor
+    // of 0.2236. The flag is about every denominator being invented, not any.
+    expect(result?.behavioral?.cohortHealth?.flooredFeatures).toEqual(["max_block_depth"]);
+  });
+
+  it("flags a cohort with no measurable spread, and names the features", async () => {
+    const { people, course } = await seedFlatCohort();
+    const assignment = await makeAssignment(course._id, "Flat", "takehome");
+    const one = await upload(assignment._id, people[0]!, sourceWith(5));
+
+    await analyse(one.id);
+
+    const result = await current(one.id);
+    expect(result?.behavioral?.status).toBe("ok");
+    expect(result?.behavioral?.cohortHealth?.flagged).toBe(true);
+    expect(result?.behavioral?.cohortHealth?.flooredFeatures).toEqual([
+      "blank_line_ratio",
+      "avg_line_length",
+      "max_block_depth",
+      "comment_density",
+    ]);
+    expect(result?.behavioral?.reason).toMatch(/separates nobody/);
+  });
+
+  it("saturates on the flat cohort, which is the failure being reported", async () => {
+    const { people, course } = await seedFlatCohort();
+    const assignment = await makeAssignment(course._id, "Pinned", "takehome");
+    const one = await upload(assignment._id, people[0]!, sourceWith(5));
+
+    await analyse(one.id);
+
+    const result = await current(one.id);
+    // every z-score is a real difference divided by an invented constant, so
+    // the score pins at the top exactly as it did in the Phase 5 run
+    expect(result?.behavioral?.score).toBe(1);
+  });
+
+  it("reports the flag without suppressing the layer or its weight", async () => {
+    const { people, course } = await seedFlatCohort();
+    const assignment = await makeAssignment(course._id, "Still scored", "takehome");
+    const one = await upload(assignment._id, people[0]!, sourceWith(5));
+
+    await analyse(one.id);
+
+    const result = await current(one.id);
+    // mitigation 4's design, one level up: the flag is evidence for a human,
+    // not a silent change to the number. Attenuating w2 on it would need the
+    // calibration re-deriving first.
+    expect(result?.behavioral?.cohortHealth?.flagged).toBe(true);
+    expect(typeof result?.behavioral?.score).toBe("number");
+    expect(result?.weights?.effectiveW2).toBeGreaterThan(0);
+  });
+
+  it("counts how many peers it judged saturation on", async () => {
+    const { people, course } = await seedFlatCohort();
+    const assignment = await makeAssignment(course._id, "Peers", "takehome");
+    const submissions = [];
+    for (let i = 0; i < people.length; i += 1) {
+      submissions.push(await upload(assignment._id, people[i]!, sourceWith(10 * i + 5)));
+    }
+    // two passes, so the last one sees a full cohort, as recalibration
+    // arranges in production
+    for (const s of submissions) await analyse(s.id);
+    for (const s of submissions) await analyse(s.id);
+
+    const result = await current(submissions[0]!.id);
+    expect(result?.behavioral?.cohortHealth?.peersScored).toBe(people.length - 1);
+    expect(result?.behavioral?.cohortHealth?.saturatedShare).toBe(1);
+  });
+});
+
 describe("nomination", () => {
   async function nominatable(courseId: unknown, who: Who, marker = 7) {
     const assignment = await makeAssignment(courseId, `Nominate ${marker}`, "takehome");

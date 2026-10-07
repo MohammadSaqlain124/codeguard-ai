@@ -8511,3 +8511,162 @@ is outside the paths Sam granted for editing (`apps/api`, `apps/detector`, and
 this file by earlier exception). Nothing existing was touched and a new file is
 trivially reversible, but it should be said rather than assumed: move it or
 delete it if it does not belong there.
+
+### File 090 — The cohort saturation flag, and the manifest that never matched (Day 23, 07 Oct)
+
+**The gap this closes.** The Phase 5 run produced every RMS z between 5.5 and
+16.4 against a `Z_SATURATION` of 3, so every behavioural score pinned at 1.0
+and the layer ranked nobody. Mitigation 4's `lowVariance` catches the
+per-student version of that failure. Nothing caught the cohort version, and
+nothing warned that the layer had stopped discriminating. That matters for the
+report, because "our features separate authors" and "our score separates
+students" are different claims, and only the first had evidence.
+
+**The mechanism, stated properly.** `cohortCalibration` pools the
+*within-author* standard deviation across the cohort, and that pooled spread is
+the denominator of every z-score. When no student in the cohort varies between
+their own anchors, the pooled spread is zero, `Math.max(spread, VARIANCE_FLOOR)`
+substitutes a constant written in `behavioural.ts`, and every z-score becomes a
+real difference divided by an invented number. The scores that come out are not
+wrong so much as unscaled: arbitrarily large, and pinned at the top.
+
+**Two independent signals, because they fail at different times.**
+
+*Floored denominators* is the certain one and needs no peers. Each scored
+feature now records whether its denominator came from the cohort or from
+`VARIANCE_FLOOR`, and the flag fires when **every** compared feature was
+floored. At that point the spread is not a measurement at all.
+
+*Observed saturation* is the empirical one and needs peers. The share of
+already-scored peers in the assignment sitting at exactly 1.0, flagged above
+`COHORT_SATURATION_SHARE = 0.8`. Because the score is `Math.min(1, ...)`,
+saturation is exactly 1 and needs no tolerance. Below
+`MIN_SATURATION_PEERS = 3` the share is left undefined rather than computed
+from one or two people, the same discipline `MIN_SHIFT_PEERS` already applies.
+
+**It costs no extra query.** `cohortShiftFor` already read every peer's current
+result for the change point, so it was renamed `cohortPeers` and now selects
+`behavioral.score` alongside `behavioral.features` and returns both the shift
+and the saturation from one read. Two mitigations share the read rather than
+each paying for it, which also leaves the existing "a query per submission"
+carry-over no worse than it was.
+
+**Reported, never folded into the score.** The flag sits in
+`behavioral.cohortHealth` next to `lowVariance`, carrying `flagged`,
+`flooredFeatures`, `saturatedShare` and `peersScored`, and it says so in the
+result's `reason` so a human reading one record sees it without querying
+anything. It does not touch `score` and it does not attenuate `effectiveW2`.
+That is mitigation 4's rule applied one level up, and the reasoning is the
+same: a flag that quietly changed the number would make the number harder to
+explain rather than easier. It is also the conservative choice, since
+attenuating `w2` on this flag would change the RPS distribution and need every
+threshold re-derived.
+
+**An incidental finding, and it is worth knowing.** Checking which features the
+existing test fixture floors showed that **`max_block_depth` was already
+floored in the healthy cohort**. `seedCohort` moves a student by 0.1 of a block
+level between labs, and that feature's floor is 0.2236, so its z-scores in the
+whole existing suite have always been divided by the constant rather than by a
+measured spread. One floored feature out of four is not a failure and the new
+flag deliberately does not fire on it, but it does mean `max_block_depth` has
+never been exercised against a real denominator in any test. That sits
+alongside File 088's finding that the same feature clears F = 1.0 in only 21 of
+25 draws on Java: of the four features the layer scores, it is the weakest on
+both counts.
+
+**Five tests.** A healthy cohort stays unflagged with exactly
+`["max_block_depth"]` floored; a flat cohort — every anchor of a student
+identical — flags with all four floored and says "separates nobody" in its
+reason; the flat cohort's score is asserted to be exactly 1, which reproduces
+the Phase 5 failure in a test rather than in a log; the flag is shown not to
+suppress the score or the weight; and the peer count and saturated share are
+checked on a fully scored cohort.
+
+**The manifest fix, and it was not what the earlier carry-over assumed.** That
+note said `pyproject.toml` omitted tree-sitter and apted while
+`requirements.txt` dropped `pydantic-settings`, implying both files were
+half-right. Grepping the imports settled it: **nothing in the detector imports
+`pydantic-settings` at all.** It was written into `pyproject.toml` on Day 4,
+before the parsing code existed, and never used. So the fix removes it rather
+than adding it, and the two dependency lists are now identical, verified by
+parsing the TOML rather than by reading it. The dev extras match
+`requirements-dev.txt` too. The description also stopped claiming AI-content
+analysis, which Layer 3's removal retired.
+
+**Both files stay, on purpose.** The Dockerfile installs from
+`requirements.txt` so the image carries no test tooling, and `pyproject.toml`
+is what `pip install -e .` reads for local work. A comment in each now says the
+other must match.
+
+**NEW CARRY-OVER — neither manifest pins a version.** `requirements.txt` never
+did, and `pyproject.toml`'s `>=` floors were guesses written before the code
+existed, so they have been dropped rather than left to imply a verified
+minimum. The consequence is that the Docker image is not reproducible: a
+rebuild takes whatever the index serves that day. Pinning is the fix and it is
+a real decision, because a lockfile has to be generated against a working
+environment and then tested, which cannot be done from a reading of the
+repository alone.
+
+**NEW CARRY-OVER — should `cohortHealth.flagged` attenuate `w2`?** The
+conservative choice was taken for now. Attenuating has an argument: a layer
+that has demonstrably stopped discriminating should not contribute at full
+weight to a ranking. It also has a cost: the RPS distribution moves and every
+calibrated threshold needs re-deriving, and nothing has yet measured whether an
+attenuated score ranks foreign work better. That measurement comes first, which
+is the same answer File 075 gave about folding the cohort excess into the score.
+
+### File 091 — The Day 22 hook-timeout fix was not in the file (Day 23, 07 Oct)
+
+**Symptom.** `npm test` after File 090's changes reported `FAIL
+tests/layer2.test.ts [ tests/layer2.test.ts ]`, `Error: Hook timed out in
+10000ms`, and `50 passed | 18 skipped (68)`. The bracketed filename means the
+suite failed to load rather than an assertion failing, which is why every one
+of layer2's tests was skipped instead of run. The four other suites passed.
+
+**It is the Day 22 failure, unchanged.** `Duration 41.20s (tests 73%, import
+27%)` against Day 22's 26% of 41.71s: the same cold Vite transform cache
+against the same 10 second default hook limit, with the same eight dynamic
+imports inside `beforeAll`.
+
+**But Day 22 recorded this as fixed, and the fix is not in the file.** That
+entry says the `beforeAll` closing `});` was changed to `}, 30_000);`. The
+string `30_000` does not appear anywhere in `layer2.test.ts`; line 143 closes
+the hook with a plain `});`.
+
+**It was not lost by tonight's edit.** File 090's change to this file was a
+pure insertion of a new `describe` block ahead of `describe("nomination")`, so
+it cannot have touched line 143. Either the fix never reached the disk, or the
+Day 22 entry overstates what happened. Two `device_commit_files` calls returned
+`written` without landing earlier the same evening, so the first is entirely
+plausible. One command settles it and is worth running:
+`git log -S "30_000" --oneline -- apps/api/tests/layer2.test.ts`.
+
+**CORRECTION TO DAY 22.** That entry records that the fix was applied, that the
+predicted first-run failure did not occur, and that the pass was explained by
+a warm cache. The warm cache explanation was right about the mechanism and
+wrong about the conclusion: the passes since then were cache luck, not a
+working fix, and the evidence for that was sitting in the same entry. A
+prediction that inverts is a reason to check whether the change landed, not
+only to re-explain the outcome.
+
+**Fixed at the config level this time.** `apps/api` had no vitest config at
+all — `vitest run --no-file-parallelism` with every default — so there was
+nowhere for a global timeout to live and the only option on Day 22 was a
+per-hook argument. `apps/api/vitest.config.ts` now sets
+`hookTimeout: 30_000`, which covers every suite rather than one, and which an
+edit to a test file cannot delete. 30 seconds is three times the worst cold
+import measured, so a hook that still exceeds it has a different cause.
+
+`detection.test.ts` needed this too and nobody had noticed: it has the same
+`beforeAll` shape and took 10.2 seconds for seven tests in this run, which is
+on the same cliff.
+
+**Lesson, and it is the same one as the notes write.** A fix believed to be
+applied and never verified by reading the file back is indistinguishable from
+a fix that was never made, and it fails later, in a way that looks like a new
+bug. The read-back commitment made earlier today covered notes and documents;
+it should have covered code, and from now on it does.
+
+**File 090's five new tests remain unrun.** The suite never loaded, so nothing
+in it was exercised. Whether the cohort saturation flag works is still
+unverified.
