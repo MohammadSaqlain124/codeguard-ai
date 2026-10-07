@@ -19,6 +19,7 @@ Pass --skip-clone to reuse a work directory you already have.
 import argparse
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -47,6 +48,10 @@ MAX_FILES_PER_AUTHOR = 12
 # The four features behavioural.ts actually scores, chosen on the Python data.
 SCORED = ("blank_line_ratio", "avg_line_length", "max_block_depth",
           "comment_density")
+
+# 80-250 is the band the python run derived; the others ask whether a band
+# suited to java's shorter files does better.
+BANDS = ((80, 250), (50, 150), (40, 120), (30, 100))
 
 # One person commits under several names. Each merge below was confirmed by
 # reading the commit emails: the 59b500cc suffixes are an SVN to git migration
@@ -77,10 +82,12 @@ def clone_all(work):
 
 
 def is_excluded(rel):
-    low = "/" + rel.replace(os.sep, "/").lower()
-    if any(d in low for d in EXCLUDED_DIRS):
+    clean = posix(rel)
+    if any(d in "/" + clean.lower() for d in EXCLUDED_DIRS):
         return True
-    base = os.path.basename(rel)
+    # not os.path.basename: that splits on the running platform's separator,
+    # so it would return the whole string for a path from the other one
+    base = clean.rsplit("/", 1)[-1]
     return base == "package-info.java" or base.endswith(EXCLUDED_SUFFIXES)
 
 
@@ -132,30 +139,68 @@ def attribute(work):
     return rows
 
 
-def select(rows):
-    """Single-author files, from authors with enough of them, capped per author."""
+def posix(path):
+    """Separator independent path, so the sort below does not depend on the os.
+
+    Windows gives os.walk backslashes and posix gives forward slashes, and the
+    two sort differently against the other path characters: "src/main/java/"
+    comes before "src/main/java11/" but "src\\main\\java\\" comes after.
+    With a cap per author that chooses a different twelve files on each os,
+    which is how this was found.
+
+    Replaces the backslash rather than os.sep, because os.sep is itself the
+    running platform's separator: using it here would leave a windows path
+    untouched on linux, which is the same bug one level up.
+    """
+    return path.replace("\\", "/")
+
+
+def select(rows, seed=0):
+    """Single-author files, from authors with enough of them, capped per author.
+
+    The cap is the awkward part. Some authors have 230 eligible files and we
+    keep twelve, so the choice of twelve is a sample and the result depends on
+    it. Taking the alphabetically first twelve is the worst option available:
+    nearby paths sit in the same package, and files in one package resemble
+    each other more than the author's work in general does. So sort for
+    determinism, then shuffle with a stated seed, and let --draws report how
+    much the answer moves across seeds.
+    """
     single = [r for r in rows if r["share"] >= MIN_SHARE]
     counts = Counter(r["author"] for r in single)
     enough = {a for a, c in counts.items() if c >= MIN_FILES_PER_AUTHOR}
-    kept, seen = [], Counter()
-    for r in sorted(single, key=lambda r: (r["author"], r["path"])):
-        if r["author"] not in enough or seen[r["author"]] >= MAX_FILES_PER_AUTHOR:
-            continue
-        seen[r["author"]] += 1
-        kept.append(r)
+    by_author = defaultdict(list)
+    for r in single:
+        if r["author"] in enough:
+            by_author[r["author"]].append(r)
+    rnd = random.Random(seed)
+    kept = []
+    for author in sorted(by_author):
+        files = sorted(by_author[author], key=lambda r: posix(r["path"]))
+        rnd.shuffle(files)
+        kept += files[:MAX_FILES_PER_AUTHOR]
     return single, counts, kept
 
 
-def measure(rows):
-    """Run every selected file through the detector's own feature extractor."""
+def measure(rows, cache=None):
+    """Run every selected file through the detector's own feature extractor.
+
+    The cache is keyed on path so that --draws, whose selections overlap
+    heavily, parses each file once rather than once per draw.
+    """
+    if cache is None:
+        cache = {}
     out, failed = [], 0
     for r in rows:
-        source = open(r["path"], "rb").read().decode("utf-8", "replace")
-        parsed = parse_source("java", source)
-        if not parsed.ok:
+        if r["path"] not in cache:
+            source = open(r["path"], "rb").read().decode("utf-8", "replace")
+            parsed = parse_source("java", source)
+            cache[r["path"]] = (extract_features(parsed.root, source.encode("utf-8"))
+                                if parsed.ok else None)
+        values = cache[r["path"]]
+        if values is None:
             failed += 1
             continue
-        values = extract_features(parsed.root, source.encode("utf-8"))
         out.append({**r, "features": values})
     return out, failed
 
@@ -226,17 +271,76 @@ def leave_one_out(x, labels, min_files=2):
     return correct / len(usable), len(usable), len(authors)
 
 
-def show(rows, features, label):
-    x, labels = z_matrix(rows, features)
+def lift(rows, features, labels=None, min_files=2):
+    """Accuracy over chance. Returns nan when the sample is too small."""
+    x, author_labels = z_matrix(rows, features)
     if x is None:
-        print(f"  {label:30s} no usable rows")
-        return
-    acc, n, k = leave_one_out(x, labels)
-    if np.isnan(acc):
+        return float("nan"), 0, 0
+    acc, n, k = leave_one_out(x, labels if labels is not None else author_labels,
+                              min_files)
+    return (acc * k if not np.isnan(acc) else float("nan")), n, k
+
+
+def show(rows, features, label, labels=None, min_files=2, unit="authors"):
+    value, n, k = lift(rows, features, labels, min_files)
+    if np.isnan(value):
         print(f"  {label:30s} too few files")
-        return
-    print(f"  {label:30s} {acc:6.1%} vs {1 / k:5.1%} chance = {acc * k:4.2f}x"
-          f"   ({n} files, {k} authors)")
+        return float("nan")
+    print(f"  {label:30s} {value / k:6.1%} vs {1 / k:5.1%} chance = {value:4.2f}x"
+          f"   ({n} files, {k} {unit})")
+    return value
+
+
+def draws_report(rows, work, draws):
+    """How much does the answer move when the cap keeps a different sample?
+
+    Every figure above comes from one draw of twelve files per author. Where an
+    author has 230 eligible files that is one sample out of an enormous number,
+    so a figure that moves a lot across draws is not a result. Anything whose
+    range crosses 1.0 is indistinguishable from chance.
+    """
+    collected = defaultdict(list)
+    cache = {}
+    for seed in range(draws):
+        _, _, kept = select(rows, seed=seed)
+        measured, _ = measure(kept, cache)
+        applicable = [f for f in FEATURE_NAMES
+                      if sum(1 for r in measured if r["features"][f] is not None)
+                      >= 0.95 * len(measured)]
+        collected["all applicable features"].append(lift(measured, applicable)[0])
+        collected["the four scored features"].append(lift(measured, SCORED)[0])
+        keep = [r for r in measured
+                if all(r["features"][f] is not None for f in applicable)]
+        collected["predicting the repository"].append(
+            lift(measured, applicable, [r["repo"] for r in keep])[0])
+        for repo in sorted({r["repo"] for r in measured}):
+            sub = [r for r in measured if r["repo"] == repo]
+            eligible = {a for a, c in Counter(r["author"] for r in sub).items()
+                        if c >= 3}
+            if len(eligible) < 2:
+                continue
+            value = lift([r for r in sub if r["author"] in eligible], SCORED,
+                         min_files=3)[0]
+            collected[f"within {repo}, scored four"].append(value)
+        for low, high in BANDS:
+            band = [r for r in measured if low <= r["lines"] <= high]
+            collected[f"band {low}-{high}"].append(lift(band, applicable)[0])
+
+    unbanded = [v for v in collected["all applicable features"] if not np.isnan(v)]
+    floor = np.median(unbanded) if unbanded else 1.0
+    print(f"  {'quantity':32s} {'median':>8s} {'min':>8s} {'max':>8s}  verdict")
+    for name, values in collected.items():
+        values = [v for v in values if not np.isnan(v)]
+        if not values:
+            continue
+        low, high = min(values), max(values)
+        if name.startswith("band "):
+            # a band only earns its place by beating the same features unbanded
+            verdict = "beats unbanded" if low > floor else "no better"
+        else:
+            verdict = "chance" if low <= 1.0 else "holds"
+        print(f"  {name:32s} {np.median(values):7.2f}x {low:7.2f}x {high:7.2f}x"
+              f"  {verdict}")
 
 
 def main():
@@ -244,6 +348,11 @@ def main():
     ap.add_argument("--work", required=True, help="where the clones live")
     ap.add_argument("--skip-clone", action="store_true")
     ap.add_argument("--save", help="write the measured features to this json file")
+    ap.add_argument("--seed", type=int, default=0,
+                    help="which sample of files the per-author cap keeps")
+    ap.add_argument("--draws", type=int, default=25,
+                    help="how many samples to repeat the whole thing on, to "
+                         "show how much each figure depends on the sample")
     args = ap.parse_args()
 
     if not args.skip_clone:
@@ -252,7 +361,7 @@ def main():
 
     print("\nATTRIBUTING (git blame -w per candidate file)")
     rows = attribute(args.work)
-    single, counts, kept = select(rows)
+    single, counts, kept = select(rows, seed=args.seed)
     print(f"  candidates ({MIN_LINES}-{MAX_LINES} lines, no tests) {len(rows):6d}")
     print(f"  one author owns >= {MIN_SHARE:.0%} of lines            {len(single):6d}")
     print(f"  distinct authors after alias merge        {len(counts):6d}")
@@ -287,12 +396,10 @@ def main():
     show(measured, SCORED, "the four scored features")
 
     print("\nIS IT THE AUTHOR OR THE REPOSITORY?")
-    x, _ = z_matrix(measured, applicable)
     keep = [r for r in measured
             if all(r["features"][f] is not None for f in applicable)]
-    acc, n, k = leave_one_out(x, [r["repo"] for r in keep])
-    print(f"  {'predicting the repository':30s} {acc:6.1%} vs {1 / k:5.1%} "
-          f"chance = {acc * k:4.2f}x   ({n} files, {k} repos)")
+    show(measured, applicable, "predicting the repository",
+         labels=[r["repo"] for r in keep], unit="repos")
 
     print("\nAUTHORS WITHIN ONE REPOSITORY (the confound removed)")
     print("  This is the number that matters: Layer 2 always compares a student")
@@ -303,12 +410,17 @@ def main():
         eligible = {a for a, c in Counter(r["author"] for r in sub).items() if c >= 3}
         if len(eligible) < 2:
             continue
-        show([r for r in sub if r["author"] in eligible], SCORED, f"{repo}, scored four")
+        show([r for r in sub if r["author"] in eligible], SCORED,
+             f"{repo}, scored four", min_files=3)
 
     print("\nSIZE BANDS (the python run derived 80-250 on python files)")
-    for low, high in ((80, 250), (50, 150), (40, 120), (30, 100)):
+    for low, high in BANDS:
         band = [r for r in measured if low <= r["lines"] <= high]
         show(band, applicable, f"band {low}-{high}")
+
+    if args.draws > 1:
+        print(f"\nHOW MUCH OF THAT IS THE SAMPLE? ({args.draws} draws)")
+        draws_report(rows, args.work, args.draws)
 
 
 if __name__ == "__main__":

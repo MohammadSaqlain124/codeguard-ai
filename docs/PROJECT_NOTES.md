@@ -8038,6 +8038,14 @@ other is a bypass; patching without setting it is a shared bucket.
 
 ### File 086 — Does Layer 2 work in Java? (Day 23, 07 Oct)
 
+> **AMENDED 07 Oct, later the same day.** Three of the claims below are
+> retracted in File 087. They were produced from a single arbitrary sample of
+> twelve files per author, and did not survive re-running the measurement on 25
+> samples: the statement that all ten F ratios exceed 1.0, the within-repository
+> range of 1.30x to 2.16x, and the claim that a 50 to 150 line band beats the
+> unbanded figure. The funnel, the author lift and the repository lift stand.
+> Read File 087 before quoting anything here.
+
 **Files:** `apps/detector/measurements/java_authorship.py` (new),
 `apps/detector/measurements/README.md` (new)
 
@@ -8148,3 +8156,136 @@ figures carry a caveat instead of a number.
 measurement, so there was nothing to typecheck and nothing to test. That is
 exactly why the script is committed: the previous measurement's numbers are now
 unreproducible, and these ones will not be.
+
+### File 087 — The measurement measures the sample (Day 23, 07 Oct)
+
+**An optional verification step found a real bug, which is the entire argument
+for optional verification steps.** File 086's script was committed as `c5feba4`
+and the numbers were in these notes. Sam then re-ran it on Windows, which I had
+described as optional, and his output reproduced every classification figure
+exactly while disagreeing on several secondary ones: `for_loop_ratio`
+applicability 32 files against 33, `functions_per_100_lines` F 2.07 against
+1.91, the 50-150 band holding 50 files against 52, the 80-250 band scoring
+2.93x against 3.18x. Same count of files measured, 123 both times. Different
+files.
+
+**The immediate cause was a sort key that depended on the operating system.**
+`select()` ordered candidates by `(author, path)`, and `os.walk` yields
+backslashes on Windows and forward slashes on Linux. Those two characters sort
+differently against the rest of a path: `src/main/java/` precedes
+`src/main/java11/` because `/` is ASCII 47 and `1` is 49, while
+`src\main\java\` follows it because `\` is 92. jsoup has both directories, so
+the two platforms ordered them oppositely, and with a cap of twelve files per
+author the order decides which twelve survive. Four files differed.
+
+**The real problem was underneath it, and worse.** Seven of the fifteen authors
+were capped, and the ones being capped had far more than twelve eligible files:
+gary gregory 230, sean owen 155, tatu saloranta 67, jonathan hedley 66, jochen
+schalanda 35, brett wooldridge 22, coda hale 13. Which twelve of 230 the script
+kept was arbitrary, and File 086 reported F ratios and lifts from one arbitrary
+choice to three significant figures. The separator bug was a symptom. The
+disease was quoting a single sample as if it were a measurement.
+
+**Taking the alphabetically first twelve was also the worst available choice.**
+Alphabetically adjacent paths sit in the same package, and files in one package
+resemble each other more than an author's work does in general. The selection
+was therefore biased towards understating within-author variance, which inflates
+every F ratio.
+
+**The fix is two changes, not one.** The sort now normalises the separator, so
+the selection is identical on both platforms; this was verified by running
+`select()` over the same rows with both separators across five seeds and
+asserting the chosen sets match. And the cap now takes a seeded shuffle rather
+than the alphabetical head, with a new `--draws N` flag that repeats the whole
+analysis on N samples and reports each figure's median and range. It defaults to
+25. Every file is parsed once and cached across draws, so the 25 draws cost
+about a minute rather than 25 times the original run.
+
+**My first attempt at the separator fix was itself platform-dependent, and the
+test caught it.** I wrote `path.replace(os.sep, "/")`, which on Linux replaces
+`/` with `/` and leaves a Windows path untouched. It is the same bug one level
+up: using the running platform's separator to normalise away the running
+platform's separator. The correct form replaces the backslash unconditionally.
+I only found this because I tested the fix against synthetic Windows paths
+instead of assuming it worked, and the first run of that test printed
+`identical: False` three times.
+
+**The same idiom was in one more place, and it was left consistent rather than
+half fixed.** `is_excluded` normalised with `os.sep` and then called
+`os.path.basename`, both of which split on the running platform's separator.
+Neither was a live bug, because that function only ever sees paths from the
+platform it is running on, but an idiom the file now has a docstring warning
+against should not appear sixty lines above the warning. Both were replaced with
+the separator-agnostic form and checked against nine path cases in both styles.
+
+**Three claims from File 086 are retracted.** All three came from the single
+alphabetical sample.
+
+*One.* "All ten F ratios are above 1.0, where Python had six below it." Six of
+ten clear 1.0 in all 25 draws. `avg_params_per_function` manages 24 of 25,
+`max_block_depth` 21, `avg_function_lines` 18, and `for_loop_ratio` only 10. The
+contrast with Python is still real and still large; the absolute statement was
+not true.
+
+*Two.* "Within one repository, 1.30x to 2.16x, median about 1.6x." Only two of
+the four within-repository figures survive. metrics gives 2.03x and never drops
+below 1.62x across 25 draws. gson gives a flat 1.64x, flat because it has 11
+files and the cap never bites. zxing medians 1.17x over a range of 0.78x to
+1.96x, and jackson-core 1.12x over 0.88x to 1.38x: both straddle chance, so
+neither is a number the report can use. The committed jackson-core figure of
+1.50x was above the maximum of all 25 draws, meaning the platform sort had
+handed me a sample luckier than any of my seeds.
+
+*Three.* "A Java-appropriate 50 to 150 line band gives 4.81x against 3.76x
+unbanded." No band reliably beats the unbanded figure. Band 40-120 medians 3.67x
+against 3.65x unbanded, a difference of 0.02x. Band 80-250 swings from 0.88x to
+4.05x, which is what an 11-author, 38-file subset looks like when you resample
+it. The honest finding is that size banding did not transfer to Java in either
+direction, rather than that a different band works better. `behavioural.ts` is
+still unaffected either way, because its band is a ratio of the submission's own
+line count.
+
+**What survives, and it is the part that mattered.** The funnel is
+sample-independent and reproduced exactly on both platforms: 1397 candidates,
+687 single-author, 57 authors after the alias merge, 15 with four or more files,
+123 files measured, zero parse failures. The author lift is 3.65x with a range
+of 2.94x to 4.94x. The repository lift is **3.23x and never below 2.58x**, so
+the confound that File 086 was written to expose is the most robust finding in
+the whole measurement. `underscore_identifier_ratio` tops the F table in 24 of
+25 draws and both naming features make the top four in 20 of 25, so the
+reversal against Python is real, and the confound still explains it.
+
+**One new caution for Layer 2 as built.** `max_block_depth`, one of the four
+features `behavioural.ts` scores, clears F = 1.0 in only 21 of 25 draws on Java.
+It was chosen on Python data where it ranked third. Not disqualified, but the
+weakest of the four here, and worth re-checking if Java ever becomes a primary
+language for the system.
+
+**The defensible sentence, which is what the report will quote.** With the
+project held constant, the scored features separate authors at roughly 1.6x to
+2.0x in the samples large enough to measure, and are indistinguishable from
+chance in the samples that are not. Not 1.6x as a point estimate across four
+repositories, and certainly not 3.76x.
+
+**Lesson, and it is about writing scripts rather than about Java.** Any
+selection step that discards most of its input is a sampling decision, and a
+sampling decision that is never varied is indistinguishable from a result. The
+script now reports its own sensitivity, so the next person to read these numbers
+can see which of them are load-bearing. Three claims published yesterday would
+not have survived a viva question as mild as "how stable is that figure?", and
+the only reason they were caught is that Sam ran a step I had called optional.
+
+**CARRY-OVER CLOSED — the two pytest warnings are both third-party.** Sam's run
+named them: `StarletteDeprecationWarning: Using httpx with starlette.testclient
+is deprecated; install httpx2 instead`, raised inside
+`fastapi/testclient.py`, and `DeprecationWarning: The anyio.abc.BlockingPortal
+alias is deprecated, use anyio.from_thread.BlockingPortal instead`, raised
+inside `starlette/testclient.py`. Neither is in our code and neither can be
+fixed from our side; they clear when fastapi and starlette update. Nothing to
+do, so this stops being a carry-over.
+
+**CARRY-OVER AMENDED — the Python re-measurement now has a second requirement.**
+It was already blocked on holding the project constant. It also needs a `--draws`
+equivalent, because its 2.27x and 3.15x were produced by the same
+single-arbitrary-sample method and carry an unreported sampling range on top of
+the unreported confound.
