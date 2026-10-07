@@ -3,19 +3,25 @@
 Scripts that produce the numbers the report quotes. A measurement nobody can
 re-derive is an anecdote, not evidence, so anything cited belongs in here.
 
-## java_authorship.py
+```
+common.py              everything both measurements share
+java_authorship.py     the Java repository list and file filters
+python_authorship.py   the Python repository list and file filters
+```
 
-Asks whether Layer 2's style features separate authors in Java, replicating the
-Python measurement of 02 October so the two are comparable: same 85% ownership
-threshold, same 30 to 700 line bounds, same cap of twelve files per author, same
-leave-one-out nearest-centroid classifier on z-scored features.
-
-Features come from `app.features.extract_features` directly rather than a
-replica, so there is nothing that can drift from the running service.
+The two language scripts are configuration only. All the selection,
+attribution, statistics and reporting live in `common.py`, so "the same method
+applied to both languages" is literally the same code rather than two
+descriptions that can drift apart. Features come from
+`app.features.extract_features` directly rather than a replica, so nothing can
+disagree with the running service. `app/features.py` is already
+language-agnostic: it unions every language's node labels instead of branching,
+which is why one extractor serves both.
 
 ```
 cd apps/detector
-python measurements/java_authorship.py --work /tmp/javarepos
+python measurements/java_authorship.py   --work /tmp/javarepos
+python measurements/python_authorship.py --work /tmp/pyrepos
 ```
 
 `--skip-clone` reuses a work directory you already have. `--save FILE` writes
@@ -23,136 +29,208 @@ the measured features as JSON. `--seed N` chooses which sample of files the
 per-author cap keeps. `--draws N` re-runs everything on N samples and reports
 how much each figure moves; it defaults to 25 and is the part worth reading.
 
-**Cost.** Eleven repositories with full history, because `git blame` on a
-shallow clone attributes every line to the boundary commit. 655 MB in October
-2026, so budget about 2 GB and do not start below 5 GB free. Blame runs at
-roughly 70 ms per file, so attribution takes about two minutes. The 25 draws add
-about a minute, because every file is parsed once and cached across draws.
+**Cost.** Full history is required, because `git blame` on a shallow clone
+attributes every line to the boundary commit. Java: 11 repositories, 655 MB.
+Python: 15 repositories, 923 MB. Budget 3x that and do not start below 25 GB
+free. Blame runs at roughly 70 ms per file, so attribution takes two to three
+minutes; the 25 draws add well under a minute because every file is parsed once
+and cached across draws.
 
-### Why `--draws` exists
+---
 
-Some authors have 230 eligible files and the cap keeps twelve. Which twelve is
-therefore a *sample*, and a figure that moves a lot from one sample to the next
-is not a result. The first version of this script took the alphabetically first
-twelve, which was wrong twice over: it depended on the path separator, so Linux
-and Windows disagreed, and alphabetically adjacent files sit in the same package
-and resemble each other more than an author's work does in general.
+## Read this before quoting any figure
 
-Three claims in the first write-up of these findings did not survive the fix.
-They are listed under "Retracted" below, because a measurement that quietly
-changes its answer is worse than one that says what it got wrong.
+**Lift is accuracy divided by chance, and chance is 1/k where k is the number of
+authors. So lift grows with the number of authors in the sample even when
+nothing about the features has changed.** On the Python data, the identical
+features and the identical code score:
 
-### What it found, 07 October 2026
+| authors | accuracy | lift |
+|---|---|---|
+| 5 | 48.6% | 2.43x |
+| 8 | 37.9% | 3.03x |
+| 10 | 32.9% | 3.29x |
+| 14 | 26.9% | 3.76x |
+| 20 | 23.2% | 4.65x |
 
-The funnel is sample-independent and reproduced exactly on Linux and Windows:
+Accuracy falls and lift rises, on one dataset. A bare lift therefore says more
+about how many authors were in the sample than about how well the features
+work, and **no two runs with different author counts are comparable.** That
+retrospectively invalidates every cross-run comparison made before 07 October,
+including the Day 19 figures of 2.27x and 3.15x and the Java figure of 3.88x.
+Both scripts now print the table above, and it is the only cross-language
+comparison that means anything.
 
-```
-candidates (30-700 lines, no tests)   1397
-one author owns >= 85% of lines        687
-distinct authors after alias merge      57
-authors with >= 4 files                 15
-files measured (cap 12 per author)     123
-```
+---
 
-All 123 parsed with no errors, which is the single most reassuring number here:
-the tree-sitter Java grammar handled real library code without exception.
+## The headline: the two languages are the same
 
-**The headline, over 25 draws.** Median, with the range across samples:
+At matched author counts, medians over 25 draws:
 
-| quantity | median | range | verdict |
+| authors | Java accuracy | Java lift | Python accuracy | Python lift |
+|---|---|---|---|---|
+| 5 | 47.8% | 2.39x | 48.6% | 2.43x |
+| 8 | 39.1% | 3.13x | 37.9% | 3.03x |
+| 10 | 34.1% | 3.41x | 32.9% | 3.29x |
+| 14 | 27.7% | 3.88x | 26.9% | 3.76x |
+| 20 | too few authors | | 23.2% | 4.65x |
+
+Every gap is 0.12x or less, inside the draw-to-draw noise. **Layer 2's features
+separate authors equally well in Java and in Python.** This is the one sentence
+the report should carry about language portability, and it replaces the Day 18
+and Day 19 speculation that Java would be weaker because the grammar exposes
+fewer features.
+
+## The samples
+
+| | Java | Python |
+|---|---|---|
+| repositories | 11 | 15 |
+| candidate files (30-700 lines, no tests) | 1397 | 1989 |
+| one author owns >= 85% of lines | 769 | 466 |
+| distinct authors | 57 | 154 |
+| authors with >= 4 files | 15 | 27 |
+| files measured (cap 12 per author) | 123 | 204 |
+| parse failures | 0 | 0 |
+
+Zero parse failures in 327 files of real library code across both grammars is
+the most reassuring number in the whole exercise.
+
+Note the ownership rows. Only 23% of candidate Python files have a single 85%
+owner against 55% of Java files: mature Python libraries have been edited by too
+many hands for one author to own a file. The first Python attempt used eleven
+famous repositories and produced only nine eligible authors, none of them with
+more than two co-eligible authors in the same project. The four added
+afterwards (sympy, scikit-learn, faker, aiohttp) are modular enough that
+individuals own whole subpackages, which is what finally produced a
+within-project test worth running.
+
+## Authors inside one project, which is what Layer 2 actually does
+
+Layer 2 always compares a student against their own earlier work inside one
+course, so project conventions are held constant there exactly as they are
+inside one repository. Cross-repository figures are confounded: every author in
+a sample like this writes in one project, so "which author" and "which project"
+are the same question. Predicting the repository scores 3.46x in Java and 2.51x
+in Python, which is most of the cross-repository author figure.
+
+Medians over 25 draws, the four features `behavioural.ts` scores:
+
+| project | language | authors | median | range | verdict |
+|---|---|---|---|---|---|
+| sympy | Python | 9 | **2.51x** | 2.12x to 2.78x | holds |
+| metrics | Java | 5 | **2.16x** | 1.62x to 2.57x | holds |
+| aiohttp | Python | 2 | 1.67x | no spread | holds |
+| gson | Java | 2 | 1.64x | no spread | holds |
+| scikit-learn | Python | 7 | 1.43x | 0.91x to 1.69x | **chance** |
+| celery | Python | 2 | 1.37x | 1.05x to 1.68x | holds |
+| zxing | Java | 3 | 1.30x | 0.78x to 1.83x | **chance** |
+| jackson-core | Java | 2 | 1.12x | 0.62x to 1.50x | **chance** |
+| mitmproxy | Python | 2 | 1.12x | 0.50x to 1.50x | **chance** |
+| scrapy | Python | 2 | 0.89x | 0.33x to 1.33x | **chance** |
+| django | Python | 2 | 0.60x | no spread | **chance** |
+
+**Five of eleven hold and six do not.** sympy is the strongest evidence either
+language produced: nine authors, 68 files, 2.51x and never below 2.12x across
+25 draws. But scikit-learn with seven authors and 54 files does not clear
+chance, so sample size is not the whole story: projects differ in how much
+personal style survives their own conventions.
+
+**The honest operational sentence: within one project the features reach roughly
+1.4x to 2.5x where they work at all, and they fail to beat chance in more than
+half the projects tested.** That is the figure the report should carry, and it is
+far more sober than Day 19's 2.27x and 3.15x.
+
+## The feature ranking, and a problem for File 075
+
+F ratio is between-author variance over within-author variance; above 1.0 means
+the feature separates authors. Ranked by the Python measurement, with the Java
+value and the Day 19 claim beside it. **Bold** marks the four `behavioural.ts`
+currently scores.
+
+| feature | Python F | Java F | Day 19 claim | applies (Py / Java) |
+|---|---|---|---|---|
+| **comment_density** | **13.97** | 2.49 | 1.21, 4th | 100% / 100% |
+| avg_params_per_function | 5.84 | 1.34 | 0.14, 10th | 93.6% / 97.6% |
+| avg_function_lines | 4.60 | 1.33 | 0.46, 6th | 93.6% / 97.6% |
+| avg_identifier_length | 4.58 | 3.24 | 0.18, 9th | 100% / 100% |
+| underscore_identifier_ratio | 3.90 | 11.43 | 0.17, 9th | 100% / 100% |
+| functions_per_100_lines | 3.24 | 3.52 | 0.56, 5th | 100% / 100% |
+| **max_block_depth** | 2.50 | 1.80 | 1.94, 3rd | 100% / 100% |
+| **avg_line_length** | 2.14 | 3.96 | 2.11, 2nd | 100% / 100% |
+| **blank_line_ratio** | 1.08 | 3.34 | 2.73, **1st** | 100% / 100% |
+| for_loop_ratio | 0.90 | 0.90 | 0.26, 7th | 59.8% / 27.6% |
+
+**Day 19's ranking does not replicate on its own language.** `blank_line_ratio`,
+which Day 19 made the top feature at 2.73 and which drove the choice of the four
+scored features, comes ninth of ten at 1.08 on a sample three times the size.
+The two naming features Day 19 ranked last at 0.17 and 0.18 come fourth and
+fifth. Day 19 ran on 60 files from 7 repositories, this runs on 204 files from
+15, and Day 19's script was deleted, so the disagreement cannot be diagnosed
+directly. On every ground that can be checked, this measurement supersedes it.
+
+**And the chosen four are beaten by simply using everything that applies**, in
+both languages:
+
+| | the four scored | all applicable | authors |
 |---|---|---|---|
-| author, all applicable features | **3.65x** | 2.94x to 4.94x | holds |
-| author, the four scored features | 2.68x | 1.59x to 3.29x | holds |
-| **predicting the repository** | **3.23x** | 2.58x to 3.82x | holds |
-| within metrics, scored four | **2.03x** | 1.62x to 2.43x | holds |
-| within gson, scored four | 1.64x | no spread | holds |
-| within zxing, scored four | 1.17x | 0.78x to 1.96x | **chance** |
-| within jackson-core, scored four | 1.12x | 0.88x to 1.38x | **chance** |
+| Java | 2.80x | **3.88x** | 14 |
+| Python | 2.91x | **5.56x** | 27 |
 
-**The confound is the main finding, and it is robust.** Every author in a sample
-like this writes in exactly one repository, so "which author" and "which
-project" are the same question. Predicting the *repository* from the same
-features scores 3.23x chance, never below 2.58x in 25 draws. A large part of the
-3.65x author figure is the model recognising the project.
+So the fixed set of four costs real accuracy. The simplest change that both
+languages support is for `behavioural.ts` to score every feature that applies
+to the submission rather than a fixed four. That is a decision about Layer 2's
+scoring and is recorded in `docs/PROJECT_NOTES.md` as open, not made here.
 
-**Within one repository the honest answer is narrower than it first looked.**
-Only the two largest samples support a claim: metrics at 2.03x, never below
-1.62x across 25 draws, and gson at a flat 1.64x. zxing and jackson-core both
-straddle 1.0 depending on which files the cap keeps, so neither is
-distinguishable from chance and neither belongs in the report as a number.
+One caution if the four are kept: `blank_line_ratio` carries almost no author
+signal in Python (1.08) while doing real work in Java (3.34), and
+`comment_density` is the reverse in degree (13.97 against 2.49). A fixed
+four cannot be right for both languages.
 
-So the defensible sentence is: **with the project held constant, the scored
-features separate authors at about 1.6x to 2.0x in the samples large enough to
-measure, and are indistinguishable from chance in the samples that are not.**
-That is the operationally relevant figure, because Layer 2 always compares a
-student against their own work inside one course, where conventions are held
-constant exactly as they are inside one repository.
+## Size bands do not help, in either language
 
-**Six of the ten features clear F = 1.0 in every draw**, where the Python run had
-six *below* 1.0. Ranked by median F:
+`SIZE_BAND_LOW` and `SIZE_BAND_HIGH` came from Day 19 deriving an 80-250 line
+band on Python files. Medians over 25 draws, against the unbanded figure for the
+same features:
 
-| feature | median F | above 1.0 | in the top four |
-|---|---|---|---|
-| underscore_identifier_ratio | 7.31 | 25/25 | 24/25 |
-| avg_line_length | 4.12 | 25/25 | 19/25 |
-| avg_identifier_length | 3.79 | 25/25 | 21/25 |
-| comment_density | 3.47 | 25/25 | 17/25 |
-| blank_line_ratio | 3.23 | 25/25 | 9/25 |
-| functions_per_100_lines | 3.10 | 25/25 | 9/25 |
-| avg_params_per_function | 1.44 | 24/25 | 0/25 |
-| max_block_depth | 1.32 | 21/25 | 0/25 |
-| avg_function_lines | 1.27 | 18/25 | 0/25 |
-| for_loop_ratio | 0.87 | 10/25 | 1/25 |
+| band | Java | Python |
+|---|---|---|
+| unbanded | 3.88x | 5.56x |
+| 80-250 | 3.18x | 3.86x |
+| 50-150 | 3.53x | 4.70x |
+| 40-120 | 3.87x | 4.48x |
+| 30-100 | 3.44x | 4.10x |
 
-The two naming features make the top four in 20 of 25 draws, and in Python they
-were the worst two at F 0.17 and 0.18. That reversal is what prompted the
-confound check, and the confound explains it: identifier length and underscore
-ratio vary enormously between projects and barely between authors inside one.
+**No band beats leaving the band off, in either language.** Every one is marked
+`no better` by the script. `behavioural.ts` is unaffected in its current form
+because its band is a ratio of the submission's own line count rather than an
+absolute range, but the idea that an absolute size window improves author
+separation is not supported by either measurement.
 
-**One caution for Layer 2 as built.** `max_block_depth`, one of the four features
-`behavioural.ts` scores, clears 1.0 in only 21 of 25 draws on Java. It was
-chosen on Python data where it ranked third. It is not disqualified, but it is
-the weakest of the four here and worth re-checking if Java ever becomes a
-primary language for the system.
+## `for_loop_ratio` and the None rather than zero rule
 
-**`for_loop_ratio` applies to 27.6% of real Java files**, against 43% in Python.
-Writing zero rather than null would fabricate a measurement in nearly three
-quarters of them. Its F ratio is also the least stable of the ten, ranging 0.28
-to 3.08, which is what a feature measured on a quarter of the sample looks like.
+It applies to 59.8% of real Python files and 27.6% of real Java files, and its F
+ratio is 0.90 in both: it is the only feature that fails to separate authors in
+either language, and it is the only sparse one. Writing zero rather than null
+would fabricate a measurement in 40% of Python files and 72% of Java files. The
+rule is vindicated; the feature itself earns nothing and is a candidate for
+removal.
 
-### Retracted
+## Caveats
 
-Three claims from the first write-up of this measurement, all of which came from
-the single alphabetical sample and none of which survived the 25 draws:
+Two-author within-project tests are nearly meaningless and five of the eleven
+are two-author. This is library code written by professionals over years, not
+student coursework. Classification is a proxy for the anomaly detection Layer 2
+actually performs: it answers "whose file is this" rather than "is this file
+unlike that student's others". The 25 draws measure sensitivity to the
+per-author cap only; they say nothing about the choice of repositories, the 85%
+ownership threshold or the 30-700 line bounds, any of which could matter as
+much. And the Python ownership rate of 23% means the Python sample is drawn from
+a narrower, more unusual slice of its candidates than the Java one.
 
-1. **"All ten F ratios are above 1.0."** Six are, in every draw. Four are not
-   reliable, and `for_loop_ratio` clears 1.0 in fewer than half the draws.
-2. **"Within one repository, 1.30x to 2.16x, median about 1.6x."** The 1.30x
-   (zxing) and 1.50x (jackson-core) figures were one lucky sample each; both
-   straddle chance. Only metrics and gson support a number.
-3. **"A Java-appropriate 50 to 150 line band gives 4.81x against 3.76x
-   unbanded."** No band beats the unbanded figure once the sample is accounted
-   for. Band 40-120 medians 3.67x against 3.65x unbanded, which is noise, and
-   band 80-250 swings from 0.88x to 4.05x. Size banding did not transfer to Java
-   in either direction: it neither helps nor hurts reliably.
+## What the Day 19 entry still owes
 
-The classification figures that did *not* change between Linux and Windows were
-the funnel and the all-features lift. Everything quoted to three significant
-figures in the first write-up moved.
-
-### Caveats
-
-The within-repository tests run on 11 to 37 files and 2 to 5 authors, which is
-why two of the four straddle chance. This is library code rather than student
-code, written by professionals over years, and classification is a proxy for the
-anomaly detection Layer 2 actually does. The 25 draws measure sensitivity to the
-per-author cap only; they do not address the choice of repositories, the 85%
-ownership threshold, or the line bounds, any of which could matter as much.
-
-### Still missing
-
-The Python measurement of 02 October has no script. Its method is described in
-`docs/PROJECT_NOTES.md` but the code was a scratch file that was deleted, so its
-numbers cannot be reproduced and its confound cannot be checked directly. Its
-2.27x and 3.15x almost certainly carry the same confound, and on the evidence
-here they also carry an unreported sampling range.
+Its 2.27x and 3.15x came from a deleted scratch file. They are now superseded
+rather than reproduced: this measurement is larger, confound-controlled,
+reports ranges, and holds the author count fixed when comparing. The Day 19
+entry in `docs/PROJECT_NOTES.md` carries dated amendments pointing here.

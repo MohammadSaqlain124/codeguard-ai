@@ -6994,6 +6994,17 @@ and a demo run through compose would fail Zod validation on the first
 
 ## 2026-10-02 — Day 19 — The measurement session: does Layer 2 work?
 
+> **AMENDED 07 Oct (second amendment, see also the confound note below).** This
+> entry's feature ranking does not replicate. Measured on 204 Python files from
+> 15 repositories against this entry's 60 files from 7,
+> `blank_line_ratio` falls from first (F 2.73) to ninth of ten (F 1.08) and the
+> two naming features rise from last (0.17, 0.18) to fourth and fifth (4.58,
+> 3.90). Since the four features `behavioural.ts` scores were chosen from the
+> ranking below, File 075's feature selection rests on a measurement that a
+> larger, reproducible run contradicts. This entry's 2.27x and 3.15x are also
+> not comparable to any other run's lift, for the reason File 088 gives. See
+> File 088.
+
 **Why:** Files 069 to 074 left two constants that must not be guessed — the
 variance floor and whether features get equal weight — and the whole layer
 rested on the untested assumption that these ten features separate authors.
@@ -8159,6 +8170,14 @@ unreproducible, and these ones will not be.
 
 ### File 087 — The measurement measures the sample (Day 23, 07 Oct)
 
+> **AMENDED 07 Oct, later again.** Every Java figure below moved in File 088,
+> because a bug in `attribute()` was aliasing authors after computing each
+> file's ownership share rather than per blame line. Single-author Java files go
+> from 687 to 769 and all the medians rise by 0.1x to 0.25x. **No verdict
+> changes**: the three retractions below stand, the `holds` and `chance` labels
+> stand, and all four bands stay `no better`. Take the numbers from File 088 and
+> the reasoning from here.
+
 **An optional verification step found a real bug, which is the entire argument
 for optional verification steps.** File 086's script was committed as `c5feba4`
 and the numbers were in these notes. Sam then re-ran it on Windows, which I had
@@ -8289,3 +8308,138 @@ It was already blocked on holding the project constant. It also needs a `--draws
 equivalent, because its 2.27x and 3.15x were produced by the same
 single-arbitrary-sample method and carry an unreported sampling range on top of
 the unreported confound.
+
+### File 088 — Python measured properly, and the metric that was never comparable (Day 23, 07 Oct)
+
+**The job was to re-run the Day 19 Python measurement with the project held
+constant and a committed script. It produced four findings, and the largest one
+invalidates the way every previous figure was reported.**
+
+**First, the two scripts were made one script.** The report's claim is "the same
+method applied to both languages", and that is only credible if it is the same
+code. `measurements/common.py` now holds all the selection, attribution,
+statistics and reporting; `java_authorship.py` and `python_authorship.py` are
+configuration only, naming their repositories, file filters and alias maps and
+nothing else. The refactor was verified rather than trusted: the exclusion logic
+was run against all 3529 real Java paths beside the original implementation with
+zero disagreements, and the full Java pipeline was diffed against the output
+Sam's machine produced for `dba98eb` and matched on all 62 non-blank lines.
+
+**Second, a real bug in `attribute()`, found while building the Python alias
+map.** Aliases were applied to the winning author name *after* the ownership
+share was computed. So when one human appears in a file under two spellings,
+their lines are counted as two authors, the top share is deflated, and the file
+can fall below the 85% cut and be dropped from the sample entirely. Aliasing now
+happens per blame line, before the share. On the Python sample this changed
+nothing, because the alternate spellings belong to different eras and different
+files rather than mixing inside one file. On the Java sample it moved
+single-author files from **687 to 769**, because zxing's `srowen` and `sean
+owen` do co-occur. Every figure in File 087 therefore moved, and **no verdict
+did**: the three `holds`, the two `chance` and the four `no better` are all
+unchanged, with medians up 0.1x to 0.25x because a larger pool yields better
+samples. That is exactly what reporting ranges is for, and it is the first time
+the ranges have earned their keep rather than merely embarrassed an earlier
+claim.
+
+**Third, the Python sample had to be rebuilt before it was worth measuring.**
+Only 23% of candidate Python files have a single 85% owner, against 55% of Java
+files: mature Python libraries have been edited by too many hands for one person
+to own a file. Eleven famous repositories (requests, flask, click, pytest,
+scrapy, celery, urllib3, Pillow, mitmproxy, black, django) yielded nine eligible
+authors and no project with more than three of them, which is the exact
+configuration that came out as chance in Java. Four modular projects were added
+(sympy, scikit-learn, faker, aiohttp) on the reasoning that individuals own
+whole subpackages there. sympy alone then produced nineteen authors with three or
+more single-author files, and the final sample is 204 files from 27 authors
+across 15 repositories, against Day 19's 60 files from 7.
+
+**The alias map was built systematically rather than by eye.** Every commit
+author name in all fifteen repositories was grouped by commit email, which
+yielded 23 candidate groups, each then hand checked. Most were ordinary variants
+(`nicoddemus` for Bruno Oliveira, `nessita` for Natalia Bidart, four spellings of
+Björn Dahlgren on one address). One was a mojibaked quoted-printable header,
+`utf8qloc3afc20estc3a8ve`, which no amount of reading a name list would have
+caught. And **one was a false merge that hand checking rejected**: `adrian` =
+`thiefmaster` = `adrian chaves` = `adrian moennich` joins two different humans
+who share a display name across two addresses, so only Adrián Chaves was merged.
+The Java run's map was built by eye and happened to be right; this one would not
+have been.
+
+**Fourth, and this is the finding that matters most: lift was never a comparable
+number.** Lift is accuracy over chance and chance is 1/k, so lift rises with the
+number of authors in the sample while nothing about the features changes. On one
+dataset, with one code path, the Python features score 2.43x over five authors,
+3.76x over fourteen and 5.43x over twenty-seven, while accuracy *falls* from
+48.6% to 20.1%. A bare lift therefore reports how many authors were in the
+sample more than how well the features work.
+
+**The consequence is retrospective and broad.** Day 19's 2.27x and 3.15x, File
+086's and File 087's Java figures, and this run's 5.56x were never comparable to
+one another, because each had a different author count. Any report sentence of
+the form "Java scores 3.88x against Python's 5.56x" is meaningless. Both scripts
+now print accuracy and lift at a fixed author count, and that table is the only
+cross-language comparison permitted.
+
+**With the author count held fixed, the two languages are the same.** Medians
+over 25 draws: at five authors Java 2.39x and Python 2.43x, at eight 3.13x and
+3.03x, at ten 3.41x and 3.29x, at fourteen 3.88x and 3.76x. Every gap is 0.12x
+or less, inside the draw noise. **Layer 2's features separate authors equally
+well in Java and in Python**, which replaces the Day 18 and Day 19 speculation
+that Java would be weaker for exposing fewer features. Zero parse failures
+across all 327 files of both samples.
+
+**The within-project answer got better evidence and a worse number.** Across
+both languages eleven projects now have two or more eligible authors. Five hold
+and six do not: sympy 2.51x over nine authors and never below 2.12x, metrics
+2.16x, aiohttp 1.67x, gson 1.64x and celery 1.37x hold, while scikit-learn
+1.43x, zxing 1.30x, jackson-core 1.12x, mitmproxy 1.12x, scrapy 0.89x and
+django 0.60x straddle or sit below chance. scikit-learn is the instructive
+failure: seven authors and 54 files, so sample size is not the whole story and
+projects genuinely differ in how much personal style survives their own
+conventions. **The operational sentence is that within one project the features
+reach roughly 1.4x to 2.5x where they work at all, and fail to beat chance in
+more than half the projects tested.**
+
+**NEW PROBLEM — Day 19's feature ranking does not replicate on its own
+language, which undermines File 075.** `blank_line_ratio` was Day 19's top
+feature at F 2.73 and is one of the four `behavioural.ts` scores because of
+that. On 204 Python files it ranks **ninth of ten at F 1.08**, which is barely
+any author signal at all. The two naming features Day 19 ranked last at 0.17 and
+0.18 now rank fourth and fifth at 4.58 and 3.90. `comment_density`, which Day 19
+placed fourth at 1.21, is first at 13.97. Day 19's script was deleted so the
+disagreement cannot be diagnosed, but on every ground that can be checked —
+sample size, repository count, confound control, reported ranges — this
+measurement supersedes it.
+
+**And the four scored features lose to simply using everything applicable, in
+both languages:** Java 2.80x against 3.88x, Python 2.91x against 5.56x. The
+fixed set costs real accuracy. A fixed four also cannot suit both languages,
+since `blank_line_ratio` does real work in Java at 3.34 and almost none in
+Python at 1.08, while `comment_density` is 13.97 in Python and 2.49 in Java.
+
+**NEW CARRY-OVER AND A DECISION FOR SAM — should `behavioural.ts` score every
+applicable feature instead of a fixed four?** Both measurements say yes and the
+change is small, but it alters Layer 2's scoring and therefore the RPS
+distribution, every calibrated threshold, and the baseline profiles already
+written. It is recorded here and not made.
+
+**CARRY-OVER CLOSED — size bands do not help, in either language.** No band
+beats leaving the band off: Java unbanded 3.88x against 3.18x, 3.53x, 3.87x and
+3.44x; Python unbanded 5.56x against 3.86x, 4.70x, 4.48x and 4.10x. The Day 19
+derivation of an 80-250 window was sampling noise. `behavioural.ts` is
+unaffected in its current form because its band is a ratio of the submission's
+own line count, but the absolute-window idea is dead in both languages.
+
+**`for_loop_ratio` is the one feature that fails everywhere.** F 0.90 in Python
+and 0.90 in Java, applying to 59.8% and 27.6% of real files. The None rather
+than zero rule is vindicated hard, since writing zero would fabricate a
+measurement in 40% of Python files and 72% of Java ones. The feature itself
+earns nothing and is a candidate for removal.
+
+**Lesson, and it is about reporting rather than about code.** A ratio to chance
+looks like a normalised, comparable quantity and is not one: it is a function of
+how many classes the problem had. Three days of figures were quoted across runs
+whose author counts differed by a factor of five. The fix is cheap, which is the
+annoying part: hold k fixed, print accuracy beside the ratio, and the comparison
+becomes honest. Checking a metric's own behaviour before comparing with it
+belongs in the methodology chapter alongside the sampling lesson from File 087.
