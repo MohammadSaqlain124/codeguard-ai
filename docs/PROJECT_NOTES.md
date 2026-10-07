@@ -8443,3 +8443,71 @@ whose author counts differed by a factor of five. The fix is cheap, which is the
 annoying part: hold k fixed, print accuracy beside the ratio, and the comparison
 becomes honest. Checking a metric's own behaviour before comparing with it
 belongs in the methodology chapter alongside the sampling lesson from File 087.
+
+### File 089 — Three decisions, and the gap nobody had written down (Day 23, 07 Oct)
+
+**NEW WORKING RULE — no retractable figure goes in a commit message.** Sam
+asked why the commit messages had grown to thirty and forty lines when the same
+prose was already going into these notes. He was right that it was duplication,
+and there is a worse reason he did not name: **a pushed commit message cannot be
+edited, and these notes can.** The evidence is in this project's own history.
+`c5feba4` carries "all ten F ratios are above 1.0" and "a Java-appropriate 50 to
+150 gives 4.81x"; both were retracted the same day. `dba98eb` carries "the
+repository lift is 3.23x, never below 2.58x"; the alias fix moved it to 3.46x
+that evening. The claims most likely to need correcting were being written to
+the one file in the repository that cannot be corrected.
+
+The division of labour from here:
+
+| where | holds | editable |
+|---|---|---|
+| commit message | why the change exists, one to three sentences | no |
+| `docs/PROJECT_NOTES.md` | the narrative, findings, retractions, lessons | yes |
+| `measurements/README.md` | the current numbers anyone quoting should use | yes |
+| the notebooks | the study and reference view | yes |
+
+A commit message may name a file number so a reader can find the detail. It may
+not carry a measured figure.
+
+**DECISION — `behavioural.ts` keeps the fixed four features.** File 088
+established that scoring every applicable feature beats the fixed four in both
+languages, 3.88x against 2.80x in Java and 5.56x against 2.91x in Python, and
+that `blank_line_ratio` carries almost no author signal in Python. The change
+itself is small. It is not being made, for three reasons. It would invalidate
+the calibration in Files 071 to 077, the RPS distribution, every threshold
+derived from it and every baseline profile already written. There is no time to
+re-derive those before the report. And the finding is worth more than the fix:
+a report that says "we measured our own feature selection, found it suboptimal,
+and can show by how much" is stronger than one that quietly ships a better four
+and never mentions it. Recorded as a known limitation and as future work rather
+than as an open question.
+
+**NEW CARRY-OVER, and it is the largest one in the project — there is no user
+interface.** `apps/` contains `api` and `detector` and nothing else. Every
+capability is reachable only over HTTP. This has been true since Day 1 and had
+never been written down as a risk, which is exactly why it is being written
+down now: a viva is normally a demonstration, and an examiner asked to look at a
+plagiarism detector expects to see a submission go in and a result come out.
+`docs/REPORT_PLAN.md` sets out three options with their costs. The
+recommendation there is a scripted demo with seeded data and a Postman
+collection, about half a day, as cheap insurance, with a real web UI only if the
+report finishes early. The decision is Sam's and it changes the calendar rather
+than the report's content.
+
+**`docs/REPORT_PLAN.md` written.** Chapter by chapter, what each must claim,
+which committed files already supply the evidence, and what is genuinely
+missing. It is deliberately format-independent, so the writing can be planned
+before the Word-versus-LaTeX question is settled. The two real gaps it exposes:
+**the literature survey, where nothing exists at all** and which is three to
+four days of reading that no part of the repository substitutes for, and **every
+diagram**, since the repository contains none and the viva will be conducted
+from them. It also records that **Layer 1 has never been measured** the way
+Layer 2 now has, because no labelled corpus of known-copied pairs exists; that
+belongs in the report as a stated limitation rather than being quietly filled
+with a manufactured corpus.
+
+**Note on write scope.** `docs/REPORT_PLAN.md` is a new file in `docs/`, which
+is outside the paths Sam granted for editing (`apps/api`, `apps/detector`, and
+this file by earlier exception). Nothing existing was touched and a new file is
+trivially reversible, but it should be said rather than assumed: move it or
+delete it if it does not belong there.
