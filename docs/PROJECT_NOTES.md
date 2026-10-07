@@ -8635,11 +8635,28 @@ the hook with a plain `});`.
 
 **It was not lost by tonight's edit.** File 090's change to this file was a
 pure insertion of a new `describe` block ahead of `describe("nomination")`, so
-it cannot have touched line 143. Either the fix never reached the disk, or the
-Day 22 entry overstates what happened. Two `device_commit_files` calls returned
-`written` without landing earlier the same evening, so the first is entirely
-plausible. One command settles it and is worth running:
-`git log -S "30_000" --oneline -- apps/api/tests/layer2.test.ts`.
+it cannot have touched line 143.
+
+**ANSWERED, same evening, and the guess above was wrong.**
+`git log -S "30_000" --oneline -- apps/api/tests/layer2.test.ts` returns two
+commits: `b440295`, which added it, and `2b79174`, which removed it. The fix
+did reach the disk and was committed on Day 22 exactly as recorded. It was then
+deleted by File 084, which edited this same `beforeAll` to make the stub answer
+401 without a detector token. The stub server is created inside that hook, so
+rewriting the hook reverted its closing line from `}, 30_000);` to `});` and
+took the timeout with it. Self-inflicted, one day after the fix, and invisible
+for a fortnight because every run since had a warm cache.
+
+The guess that it was a silent `device_commit_files` failure was reasoning from
+availability rather than evidence: two such failures had genuinely happened a
+few hours earlier, which made the wrong explanation feel supported. The command
+that settles it costs one line and should have been run before writing a cause
+down at all.
+
+This also makes the argument for the config-level fix stronger than the one
+given below. It is not that an edit *could* lose a per-hook argument; it is
+that an edit *did*, within 24 hours, because the fix lived as a bare number on
+the closing line of a 36 line hook where nothing marked it as load-bearing.
 
 **CORRECTION TO DAY 22.** That entry records that the fix was applied, that the
 predicted first-run failure did not occur, and that the pass was explained by
@@ -8667,6 +8684,16 @@ a fix that was never made, and it fails later, in a way that looks like a new
 bug. The read-back commitment made earlier today covered notes and documents;
 it should have covered code, and from now on it does.
 
-**File 090's five new tests remain unrun.** The suite never loaded, so nothing
-in it was exercised. Whether the cohort saturation flag works is still
-unverified.
+**File 090's five new tests then ran, and all five passed**, including the two
+whose fixture arithmetic had been worked out by hand rather than executed: the
+healthy cohort floors exactly `["max_block_depth"]`, and the flat cohort's
+`saturatedShare` is 1. 68 tests across five files. The Phase 5 degenerate case
+is now reproduced by a test rather than described in a log, which is what the
+report needs in order to claim the layer reports its own blind spot.
+
+**STILL UNVERIFIED — the config fix has not met a cold cache.** The passing run
+reported `Duration 54.64s (tests 94%, import 5%)`. 5% import is a warm cache,
+so that run would have passed with or without `hookTimeout`. Accepting it as
+proof would repeat the Day 22 error exactly. The check is to delete
+`apps/api/node_modules/.vite` and run the suite again, which forces the cold
+path the 10 second default could not survive.
