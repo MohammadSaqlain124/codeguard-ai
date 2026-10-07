@@ -7068,6 +7068,21 @@ fit-to-your-own-test-set failure flagged in File 069; all ten stay measured
 so the choice is reversible, and it must be re-run on real student
 submissions before the report claims anything stronger.
 
+**AMENDED 07 Oct 2026, after the Java replication.** This measurement has a
+confound that was not checked at the time, and the Java run found it. Every
+author in a sample built this way writes in one repository only, so "which
+author wrote this" and "which project is this from" are the same question, and
+the classifier can score well by recognising project vocabulary rather than
+personal habit. On the Java sample, predicting the *repository* from the same
+features scores 2.98x chance, and classifying authors *within* one repository
+drops the lift from 3.76x to between 1.30x and 2.16x. The eleven-repository
+Python sample has the same structure, so **the 2.27x and 3.15x figures above
+are very likely inflated the same way** and should be quoted with that caveat
+until the Python measurement is re-run with the project held constant. Its
+script was a scratch file and was deleted, which is why this cannot simply be
+rechecked. See `apps/detector/measurements/java_authorship.py`, which exists
+precisely so the Java numbers do not end up in the same position.
+
 **What this supports claiming:** the behavioural layer carries real but weak
 authorship signal, about three times chance on real-world code. That is
 exactly why it is one weighted input of three and why the system reports
@@ -8020,3 +8035,116 @@ without failing.
 **NEW CARRY-OVER — `trust proxy` and the rate limiter need deciding together**
 before any deployment behind a reverse proxy. Setting one without patching the
 other is a bypass; patching without setting it is a shared bucket.
+
+### File 086 — Does Layer 2 work in Java? (Day 23, 07 Oct)
+
+**Files:** `apps/detector/measurements/java_authorship.py` (new),
+`apps/detector/measurements/README.md` (new)
+
+**Why.** Java was the largest hole in the evaluation. Every Layer 2 constant
+rested on seven authors of Python library code, and the report could say nothing
+about the second supported language. Replicated the Day 19 method on Java so the
+two are comparable: same 85% ownership threshold, same 30 to 700 line bounds,
+same cap of twelve files per author, same leave-one-out nearest-centroid
+classifier on z-scored features.
+
+**Better than Day 19 in two ways.** Features came from
+`app.features.extract_features` **directly rather than from a replica**, so
+there is nothing that can disagree with the running service, where Day 19 had a
+replica agreeing to 0.0005. And the sample is larger: **123 files and 15
+authors** against 60 files and 7 authors.
+
+```
+3,529 .java files in 11 repositories
+1,397 candidates (30-700 lines, tests excluded)
+  687 where one author owns >=85% of surviving lines
+   57 distinct authors after merging aliases
+   15 authors with >=4 files
+  123 files measured
+```
+
+**An alias merge was necessary, and skipping it would have understated the
+layer.** One person commits under several names: three identities for Sean Owen,
+three for Gary Gregory, two for Tatu Saloranta, with `59b500cc` suffixes left by
+zxing's SVN to git migration. Treating one human as three moves within-author
+variance into the between-author term and makes leave-one-out count "Sean Owen's
+file assigned to Sean Owen's other identity" as an error. Each merge was
+confirmed against the commit emails and the map is in the script rather than
+applied invisibly.
+
+**Zero parse failures on 123 real Java files.** `parsing.py` handles these
+repositories cleanly, including modern Java.
+
+**First result: every feature separates authors in Java.** All ten F ratios
+above 1.0, where Python had six below it. And the ranking inverts: the two
+naming features top the table at **5.41** and **5.37**, where Python measured
+them worst at 0.17 and 0.18.
+
+**Second result, and the one that matters: that ranking is confounded.** Every
+author in a sample built this way writes in exactly one repository, so author
+and project are the same question. Predicting the *repository* from the same
+features scores **2.98x** chance. Classifying authors **within** one repository
+removes the confound:
+
+| repository | authors | the four scored features | the two naming features |
+|---|---|---|---|
+| metrics | 5 | **2.16x** | 1.62x |
+| gson | 2 | **1.64x** | 1.27x |
+| jackson-core | 2 | **1.50x** | 1.25x |
+| zxing | 3 | **1.30x** | 1.17x |
+
+**The naming features' dominance was project vocabulary, not personal habit.**
+Identifier length and underscore ratio vary enormously between projects and
+barely between authors inside one, so their F ratios of 5.4 were measuring
+zxing against metrics. With the project held constant the four features
+`behavioural.ts` actually scores **win in all four repositories**.
+
+**So File 075's choice of features is confirmed for Java, not overturned.**
+`SCORED_FEATURES` needs no change. The raw F table said the opposite and the
+raw F table was wrong.
+
+**And the honest performance figure is 1.3x to 2.2x, median about 1.6x**, not
+the 3.76x the cross-project number gives. That is the operationally relevant
+one, because Layer 2 always compares a student against their own work inside
+one course, where conventions are held constant exactly as they are inside one
+repository.
+
+**Third result: the Python size band does not transfer.** 80 to 250 lines was
+derived on Python files, and the median Java file here is **78**, so that band
+starts above the middle of the distribution and discards most of the sample. A
+Java-appropriate 50 to 150 gives **4.81x** against 3.76x unbanded.
+`behavioural.ts` is unaffected, because `SIZE_BAND_LOW` and `SIZE_BAND_HIGH`
+are a ratio of the submission's own line count rather than an absolute range.
+That design choice, made for a different reason, is what makes the layer
+language-portable here.
+
+**Fourth: the None rather than zero rule is vindicated harder than in Python.**
+`for_loop_ratio` applies to **26.8%** of real Java files, against 43% in
+Python. Writing zero would fabricate a measurement in nearly three quarters of
+them.
+
+**Correction to Day 18.** "Java `class A {}` measured 7 of 10 features where a
+14 line Python file measured 10 of 10" was a one-line-fixture artefact, not a
+property of the language. On real Java, eight features apply to 100% of files
+and two to 97.6%. Only `for_loop_ratio` is genuinely sparse.
+
+**Day 19 amended rather than rewritten.** The same confound almost certainly
+inflates its 2.27x and 3.15x, and a dated amendment now sits in that entry.
+Its script was a deleted scratch file, so this cannot be rechecked directly,
+which is the whole argument for committing this one.
+
+**Caveats, stated rather than buried.** The within-repository tests run on 11 to
+37 files and 2 to 5 authors, so those lifts have wide error bars. Resampling the
+full sample at 80% of authors gives a median of 19.6% against a point estimate
+of 26.9%, so the point estimate is optimistic. Still library code rather than
+student code. And classification remains a proxy for the anomaly detection
+Layer 2 actually performs.
+
+**NEW CARRY-OVER — the Python measurement needs re-running with the project
+held constant,** and it needs a committed script. Until then its two headline
+figures carry a caveat instead of a number.
+
+**NEW CARRY-OVER — nothing in the repository changed today.** This was a
+measurement, so there was nothing to typecheck and nothing to test. That is
+exactly why the script is committed: the previous measurement's numbers are now
+unreproducible, and these ones will not be.
