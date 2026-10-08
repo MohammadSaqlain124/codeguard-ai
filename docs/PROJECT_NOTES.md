@@ -8977,3 +8977,83 @@ is needed. All three were verified against real mongoose and TypeScript
 installed for the purpose, in a reproduction that also confirmed the *broken*
 form of yesterday's error reproduces the same `TS2769` and `TS2339` codes Sam's
 run reported. A syntax-only parse would again have seen none of it.
+
+### File 095 — The scripted demo, and twice nearly reporting a gap that is not there (Day 24, 08 Oct)
+
+**Built: `apps/api/src/scripts/demo.ts`, run with `npm run demo`.** Option B from
+`docs/REPORT_PLAN.md`, and the viva's answer to having no web interface. It
+drives the real HTTP API end to end and reaches into MongoDB for nothing: every
+number it prints came back from an endpoint. Seven steps.
+
+A course, four enrolled students, three invigilated sittings and one take-home.
+Each student writes across all three sittings in a style of their own, which is
+what Layer 2's baselines get built from and which also exercises the rebuild
+job. Then the take-home, with two things planted: one student submits in a style
+unlike their own three sittings and with no second copy anywhere, which is the
+outsourcing shape only Layer 2 can see; two others hand in the identical file,
+which Layer 1 finds by hash. Then the review queue, then the evidence behind the
+top result, then a decision recorded and the queue shrinking by one.
+
+**The closing lines are the point.** Both scores, the weights that produced
+them, and the evidence behind them are printed, and a person made the only
+decision that was made. The system ranked and stopped.
+
+**The worker is not optional and the script says so.** `docker compose up`
+starts five containers — mongo, redis, minio, api, detector — and **there is no
+worker service.** Uploading only queues a job; detection, the baseline rebuild
+and the recalibration all run in the worker. So without `npm run worker` every
+submission stays "queued" forever. Rather than hang, `waitAnalysed` polls for
+45 seconds and then prints the exact command to run. Worth adding a worker
+service to the compose file eventually, which would make the demo two commands
+instead of three.
+
+**Order matters, because the seed clears the database.** `npm run seed` first,
+for the users the demo logs in as, then the worker, then the demo. Running the
+seed again wipes the course the demo leaves behind.
+
+**The fixtures are real files, not stubs.** `MIN_ANCHOR_LINES` is 30, so a
+short file is silently not an anchor and no baseline would ever build. The
+generator produces about 36 lines and varies exactly the four features
+`behavioural.ts` scores — blank line ratio, line length, comment density and
+block depth — so different students genuinely differ to Layer 2 without the
+files being nonsense.
+
+**LESSON, and it nearly cost two false reports in one session.** The staged
+copy of the repository under `/mnt/user-data/uploads` is a **partial mirror**:
+it holds only the files read so far. Grepping it and finding nothing proves
+nothing about the repository. That happened twice today.
+
+First, a grep for `DetectionResultModel` across the mirror returned no files,
+which would have meant nothing in the codebase referenced the model at all —
+obviously false, since `detection.ts` creates results. The real conclusion, that
+no *endpoint* served them, was reached by reading all four route files instead,
+and it held.
+
+Second, a grep for `enqueueBaselineRebuild` found it only in the nomination and
+withdrawal handlers, which reads as **the baseline never builds for invigilated
+work** — a serious gap, and wrong. `worker.ts` had not been staged, and line 99
+is `if (isAnchor(submission)) await enqueueBaselineRebuild(...)`. The pipeline is
+complete and always was. That claim was one sentence away from being written
+down as a finding.
+
+**The rule from here: absence is only established by reading the file that
+would contain the thing, or by listing the real directory.** A negative grep
+over the mirror is evidence of nothing. The same discipline as not trusting a
+syntax-only typecheck, and it failed the same way: a check that cannot see the
+thing it is checking returns a clean result.
+
+**The typecheck discipline earned its keep again.** `demo.ts` lives in
+`src/scripts/`, which `tsconfig.test.json` includes, so a type error there
+breaks `npm test` through `pretest`. Checking it against real `@types/node`
+under `lib: ES2023` with no DOM caught that **`BodyInit` is not a global**,
+though `fetch`, `FormData` and `Blob` are. One error, and it would have stopped
+the whole suite. The entire script body was then typechecked with only the `env`
+import stubbed, under the project's exact compiler settings.
+
+**CARRY-OVER — the demo has not been run.** Nothing in this session could run
+it: there is no API, no Mongo and no worker here. It typechecks and its failure
+paths explain themselves, but the first real run is still the first test, and
+something will probably need a fix. The likely candidates are the API's host
+port if the container publishes something other than `API_PORT`, for which
+`--base` is the override, and the course code's validation pattern, which is
+guessed from the seed's `CS-501` and `CS-101`.

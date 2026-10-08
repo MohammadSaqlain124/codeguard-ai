@@ -16,7 +16,8 @@
     "pretest": "npm run typecheck",
     "test": "vitest run --no-file-parallelism",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
-    "seed": "tsx --env-file=../../infra/.env src/scripts/seed.ts"
+    "seed": "tsx --env-file=../../infra/.env src/scripts/seed.ts",
+    "demo": "tsx --env-file=../../infra/.env src/scripts/demo.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
