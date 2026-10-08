@@ -1,0 +1,192 @@
+% CodeGuard AI - report bibliography
+%
+% Verified on 08 October 2026. Each entry was checked against a publisher
+% record, an author's own copy, or the project's own README, and every field
+% that could not be confirmed carries a TODO rather than a guess, because a
+% wrong identifier in a viva is worse than a missing one.
+%
+% Three fields in the first draft of this file were written from memory and
+% then removed on a second pass: a DOI on schleimer2003 and the author lists
+% on frantzeskou2006 and abuhamad2019. They are called out below where they
+% sat. Treat any field without a TODO as seen in a source; treat a TODO as
+% work still to do, not as a formatting note.
+%
+% Entries still to add are listed at the bottom of
+% docs/report/chapter2_plan.md, with what each is wanted for.
+
+% ---------------------------------------------------------------------------
+% Systematic reviews. Read these two first: between them they frame the whole
+% chapter and supply most of the references it still needs.
+% ---------------------------------------------------------------------------
+
+@article{novak2019,
+  author  = {Novak, Matija and Joy, Mike and Kermek, Dragutin},
+  title   = {Source-code Similarity Detection and Detection Tools Used in
+             Academia: A Systematic Review},
+  journal = {ACM Transactions on Computing Education},
+  volume  = {19},
+  number  = {3},
+  pages   = {1--37},
+  year    = {2019},
+  doi     = {10.1145/3313290},
+  note    = {Article 27, 37 pages},
+}
+
+@article{zakeri2023,
+  author  = {Zakeri-Nasrabadi, Morteza and Parsa, Saeed and Ramezani, Mohammad
+             and Roy, Chanchal and Ekhtiarzadeh, Masoud},
+  title   = {A systematic literature review on source code similarity
+             measurement and clone detection: techniques, applications, and
+             challenges},
+  journal = {Journal of Systems and Software},
+  year    = {2023},
+  note    = {Preprint at arXiv:2306.16171},
+  % TODO verify volume, pages and DOI against the ScienceDirect record
+  %      (article S0164121223001917)
+}
+
+% ---------------------------------------------------------------------------
+% Layer 1 ancestry: token and fingerprint methods, then tree methods.
+% ---------------------------------------------------------------------------
+
+@inproceedings{schleimer2003,
+  author    = {Schleimer, Saul and Wilkerson, Daniel S. and Aiken, Alex},
+  title     = {Winnowing: Local Algorithms for Document Fingerprinting},
+  booktitle = {Proceedings of the 2003 ACM SIGMOD International Conference on
+               Management of Data},
+  year      = {2003},
+  pages     = {76--85},
+  % TODO confirm pages and add the DOI from the ACM record. The start page 76
+  %      is corroborated by the published filename p76-schleimer.pdf; the end
+  %      page and the DOI are NOT yet verified. An earlier draft of this file
+  %      carried a DOI written from memory, which is precisely the mistake
+  %      this file's header rule exists to prevent.
+  note      = {The fingerprinting algorithm behind MOSS},
+}
+
+@article{prechelt2002,
+  author  = {Prechelt, Lutz and Malpohl, Guido and Philippsen, Michael},
+  title   = {Finding Plagiarisms among a Set of Programs with JPlag},
+  journal = {Journal of Universal Computer Science},
+  volume  = {8},
+  number  = {11},
+  pages   = {1016--1038},
+  year    = {2002},
+  doi     = {10.3217/jucs-008-11-1016},
+}
+
+@article{pawlik2016,
+  author  = {Pawlik, Mateusz and Augsten, Nikolaus},
+  title   = {Tree edit distance: Robust and memory-efficient},
+  journal = {Information Systems},
+  volume  = {56},
+  year    = {2016},
+  note    = {The APTED algorithm, which Layer 1 uses directly},
+  % TODO verify pages and DOI
+}
+
+@article{pawlik2015,
+  author  = {Pawlik, Mateusz and Augsten, Nikolaus},
+  title   = {Efficient Computation of the Tree Edit Distance},
+  journal = {ACM Transactions on Database Systems},
+  volume  = {40},
+  number  = {1},
+  year    = {2015},
+  note    = {RTED, which APTED supersedes. The APTED authors ask that both
+             this and pawlik2016 be cited},
+  % TODO verify article number and DOI
+}
+
+@inproceedings{jiang2007,
+  author    = {Jiang, Lingxiao and Misherghi, Ghassan and Su, Zhendong and
+               Glondu, Stephane},
+  title     = {{DECKARD}: Scalable and Accurate Tree-based Detection of Code
+               Clones},
+  booktitle = {Proceedings of the 29th International Conference on Software
+               Engineering},
+  year      = {2007},
+  % TODO confirm venue, year and pages. The author's copy does not state them;
+  %      its acknowledgements thank "the anonymous ICSE reviewers".
+}
+
+% ---------------------------------------------------------------------------
+% Layer 2 ancestry: source-code authorship attribution and stylometry.
+% ---------------------------------------------------------------------------
+
+@inproceedings{caliskan2015,
+  author    = {Caliskan-Islam, Aylin and Harang, Richard and Liu, Andrew and
+               Narayanan, Arvind and Voss, Clare and Yamaguchi, Fabian and
+               Greenstadt, Rachel},
+  title     = {De-anonymizing Programmers via Code Stylometry},
+  booktitle = {24th USENIX Security Symposium (USENIX Security 15)},
+  year      = {2015},
+  pages     = {255--270},
+  publisher = {USENIX Association},
+  note      = {About 94\% accuracy over 1,600 programmers and 98\% over 250,
+               on Google Code Jam. Read the caveat in chapter2_plan.md before
+               quoting these figures},
+}
+
+@inproceedings{frantzeskou2006,
+  % TODO the author list below is NOT verified. The title and DOI are. Replace
+  %      the whole list from the ACM record before citing.
+  author    = {Frantzeskou, Georgia and others},
+  title     = {Effective identification of source code authors using
+               byte-level information},
+  booktitle = {Proceedings of the 28th International Conference on Software
+               Engineering},
+  year      = {2006},
+  doi       = {10.1145/1134285.1134445},
+  note      = {The SCAP n-gram profile method},
+  % TODO verify the author list order and pages against the ACM record
+}
+
+@article{abuhamad2019,
+  % TODO the author list below is NOT verified beyond the first author, who is
+  %      confirmed by the hosting page. Replace from the publisher record.
+  author = {Abuhamad, Mohammed and others},
+  title  = {Large-scale and Robust Code Authorship Identification with Deep
+            Feature Learning},
+  note   = {DL-CAIS. Author's copy at abuhamad.cs.luc.edu/pub/dl-cais.pdf},
+  % TODO verify journal, volume, year and DOI; there is also a related
+  %      CCS 2018 paper by the same group, check which one is wanted
+}
+
+% ---------------------------------------------------------------------------
+% Layer 3 ancestry: detecting AI-generated code. Kept in the bibliography
+% even though the layer was dropped, because the report has to justify the
+% decision rather than leave a hole in the architecture.
+% ---------------------------------------------------------------------------
+
+@article{nguyen2023,
+  author = {Nguyen, Phuong T. and Di Rocco, Juri and Di Sipio, Claudio and
+            Rubei, Riccardo and Di Ruscio, Davide and Di Penta, Massimiliano},
+  title  = {Is this Snippet Written by {ChatGPT}? An Empirical Study with a
+            {CodeBERT}-Based Classifier},
+  year   = {2023},
+  note   = {arXiv:2307.09381. The journal version is gptsniffer2024},
+}
+
+@article{gptsniffer2024,
+  title   = {{GPTSniffer}: A {CodeBERT}-based classifier to detect source code
+             written by {ChatGPT}},
+  journal = {Journal of Systems and Software},
+  year    = {2024},
+  note    = {ScienceDirect article S0164121224001043},
+  % TODO verify the author list, volume, pages and DOI. Same group as
+  %      nguyen2023; confirm whether it supersedes it or stands alongside.
+}
+
+% ---------------------------------------------------------------------------
+% Tooling actually used, cited so the implementation chapter can point at it.
+% ---------------------------------------------------------------------------
+
+@software{treesitter,
+  author = {Brunsfeld, Max and others},
+  title  = {tree-sitter: An incremental parsing system for programming tools},
+  url    = {https://tree-sitter.github.io/tree-sitter/},
+  note   = {Archived releases carry Zenodo DOIs; cite the version actually
+             used},
+  % TODO pin the exact version and its Zenodo DOI from the installed
+  %      tree-sitter, tree-sitter-python and tree-sitter-java packages
+}

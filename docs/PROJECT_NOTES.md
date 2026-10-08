@@ -8697,3 +8697,92 @@ so that run would have passed with or without `hookTimeout`. Accepting it as
 proof would repeat the Day 22 error exactly. The check is to delete
 `apps/api/node_modules/.vite` and run the suite again, which forces the cold
 path the 10 second default could not survive.
+
+### File 092 — Three decisions, and the literature survey starts (Day 24, 08 Oct)
+
+**Decisions taken, all three of the ones blocking the report.** The report is
+written in **LaTeX**, which also matches how Sam already authors PDF work. The
+chapter list is the **nine in `docs/REPORT_PLAN.md`**, since Invertis does not
+prescribe one. The demo question is **option B**: a scripted demo with seeded
+data, a script that uploads and prints the RPS with its evidence, and a Postman
+collection, rather than a web UI. Half a day against three to five, and it
+guarantees something to show at the viva without eating the report's time.
+
+**The survey's governing rule: no citation goes in a file unverified.** Every
+entry in `docs/report/references.bib` was checked against a publisher record,
+an author's own copy, or the project's own README, and the file says so at the
+top. Fields that could not be confirmed carry a TODO rather than a plausible
+guess. A fabricated or wrong citation in a literature survey is the worst
+failure available in this chapter, and it is the one a careless pass produces
+most easily.
+
+**The best find of the day, and it is not a method.** Novak, Joy and Kermek's
+systematic review in ACM Transactions on Computing Education concludes that
+*"tools do not find plagiarism regardless of how good they are"* and that
+humans must judge. **That is this project's "evidence system, not a verdict
+machine" principle, stated in a peer-reviewed venue rather than asserted by
+the person who built the system.** Chapter 1 should quote it. It converts the
+design philosophy into a supported position and pre-empts the challenge that
+ranking rather than deciding dodges the hard part. It is also the justification
+for RPS being a ranked figure with its evidence attached rather than a
+percentage against a threshold.
+
+**A correction caught while verifying.** Pawlik and Augsten's 2015 TODS paper
+is **RTED**, not APTED. APTED is their 2016 Information Systems paper, *Tree
+edit distance: Robust and memory-efficient*, and the project's own
+`DatabaseGroup/apted` README asks that both be cited. Layer 1 uses APTED, so
+citing only the TODS paper would have been citing the superseded algorithm.
+
+**The hard viva question is now identified, and it comes from the literature
+rather than from the code.** Caliskan-Islam et al. report about 94% accuracy
+over 1,600 programmers and 98% over 250. This project reports roughly 1.4x to
+2.5x over chance. An examiner who has read one paper in this field has read
+that one, and the comparison sounds damning until four differences are stated:
+they do closed-set attribution against a candidate list while Layer 2 does
+anomaly detection against one student's own baseline, with no candidate list
+because the ghostwriter is not enrolled; they use hundreds to thousands of
+features while `behavioural.ts` scores four, because four is what survived
+measurement and because each must be explainable to a student contesting a
+flag; their data is Google Code Jam, where many authors solve identical
+problems and style dominates, while this project's figures come from library
+code where the project itself is a confound; and attribution is graded on
+naming the right author while Layer 2 is graded on whether a reviewer shown
+the evidence reaches a defensible decision.
+
+**That belongs in Chapter 2, not only in Chapter 7.** Positioning the project
+against the attribution literature before presenting any numbers is far
+stronger than defending the gap afterwards. `docs/report/chapter2_plan.md`
+carries the full argument.
+
+**Layer 3's removal now has a citation behind it.** GPTSniffer's authors report
+that their classifier improves when the training data resembles the target
+code. A detector whose accuracy depends on in-distribution training data needs
+a labelled corpus of student work from the course it polices, and no such
+corpus exists here. The layer could have been built; its performance could
+never have been reported. An unreportable layer, in a system whose premise is
+auditable evidence, is worse than an absent one. That is a decision with
+support rather than an omission.
+
+**Status.** 13 entries in the bibliography: 4 with every field
+confirmed and 9 that are real publications with a confirmed title but a
+field still to fill. The target is 15 to 25.
+
+**And the rule caught a violation of itself, on the second pass.** Three fields
+in the first draft were written from memory rather than read from a source: a
+DOI on `schleimer2003`, and the author lists on `frantzeskou2006` and
+`abuhamad2019`. All three were removed and replaced with explicit TODOs naming
+what is unverified. The lesson is narrow and worth stating: declaring a
+discipline at the top of a file does not enforce it, and the habit that
+actually catches the error is auditing the file against the tool output after
+writing it, which is the same read-back rule that has now caught three
+different classes of mistake in two days. Seven known gaps are
+tabulated in `chapter2_plan.md` with what each is wanted for, and Baxter et
+al. 1998 is explicitly marked as not to be cited until confirmed, having
+resisted verification today. `novak2019`'s own bibliography should close most
+of the rest.
+
+**CARRY-OVER STILL OPEN — the vitest hook timeout has not met a cold cache.**
+Last night's passing run reported 4% import, so it was warm and proves nothing
+about the fix. Deleting `apps/api/node_modules/.vite` and
+`node_modules/.vitest`, then re-running, is the check; import should jump to
+roughly 25%.
