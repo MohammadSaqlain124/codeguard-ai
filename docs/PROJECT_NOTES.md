@@ -8786,3 +8786,108 @@ Last night's passing run reported 4% import, so it was warm and proves nothing
 about the fix. Deleting `apps/api/node_modules/.vite` and
 `node_modules/.vitest`, then re-running, is the check; import should jump to
 roughly 25%.
+
+### File 093 — The detection results had no read API (Day 24, 08 Oct)
+
+**Found while scoping the option B demo, and it stopped that work.** The demo
+was specified as a script that uploads a submission and prints its RPS with the
+evidence. That cannot be written over HTTP, because **no endpoint serves a
+DetectionResult.** The complete surface, read from the four mounted routers
+rather than from memory, is: six auth routes, six course routes, four
+assignment routes, six submission routes. `listSubmissions` returns Submission
+documents with no score. `getSubmissionDetails` returns `{ submission }`. Not
+one route returns a detection result, the ranked queue, the per-feature
+evidence, or the review workflow.
+
+**It is an unbuilt phase rather than an oversight, and the notes say so.**
+Phases 0 to 5 are closed; **Phase 6 and Phase 7 never began.** File 029's seed
+script was written specifically to give *"a working review queue on day one of
+Phase 7 rather than building the UI blind"*, and listed the review queue,
+evidence view and student dashboard as the screens it was feeding. The days
+after Phase 5 closed went into the detector's tests, CI, the object store,
+authentication, the audit, and the measurements of Files 078 to 092 instead.
+
+**The schema has been carrying the evidence of this the whole time.**
+`DetectionResult` declares two indexes whose comments name the queries they
+serve: `{ assignment, isCurrent, rps: -1 }` as *"the review queue: this
+assignment, current results, highest rps first"*, and
+`{ course, "review.status", rps: -1 }` as *"faculty dashboard: unreviewed work
+across a course"*. **No code made either query.** Two indexes built for
+consumers that did not exist.
+
+**CORRECTION TO FILE 089.** Yesterday's answer to "is the backend finished"
+listed Layer 3 as the spec gap, a tail of small defects, some
+deployment-only items, and the absence of a UI. It did not say that the read
+side of the project's central feature was missing. That is structurally more
+serious than any item on the small-defects list, and it was answerable by
+reading four route files, which is what should have happened before giving an
+assessment of completeness at all. The assessment was built from the notes and
+from recollection of what had been written, not from the routing table.
+
+**Built today: the two reads that make the system usable.**
+
+`GET /api/assignments/:assignmentId/results` is the review queue. Current
+results for one assignment, highest RPS first, optional `reviewStatus` and
+`minRps` filters, paginated on the existing helpers. It serves the index that
+has been waiting for it.
+
+`GET /api/submissions/:submissionId/result` is the evidence behind one score:
+the weights and configuration version that produced the RPS, the structural
+matches with their line spans and the student each matched, the per-feature
+deviations with the baseline mean and spread each was measured against, and
+the `lowVariance` and `cohortHealth` flags. **This is the endpoint that makes
+the phrase "evidence system, not a verdict machine" true of the running
+software rather than only of the design.** Until today a reviewer could not
+see any of it.
+
+**DECISION — both endpoints are staff only, and a student gets a 404 rather
+than a 403.** The 404 follows the access layer's existing stance, so ids
+cannot be probed. The staff-only part is a judgement and is reversible: a
+student who can read their own per-feature z-scores can tune a submission
+against them, which makes Layer 2 gameable by precisely the people it measures.
+The schema's `review.studentExplanation` field shows a student is meant to be
+able to answer a flag, but answering needs the status and the reviewer's note,
+not the deviations, so the student-facing view is a separate narrower endpoint
+and deliberately not this one.
+
+**DECISION — the queue returns summary rows and the detail endpoint returns
+everything.** The projection drops `structural.matches.spans` and
+`behavioral.features`, which are the two arrays that grow without bound. A
+queue row is judged on the score, the flags and who matched whom; the spans and
+the deviations are what a reviewer opens one row to see. This also keeps the
+indexed query cheap, which is the reason the index exists.
+
+**The detail endpoint reports which revisions exist.** Results are versioned
+rather than overwritten, which the design claims credit for, and that
+versioning was invisible from outside: a reader had no way to know an earlier
+revision existed. `revisions` is returned alongside the result and
+`?revision=N` fetches an earlier one.
+
+**Eleven tests, in a new `tests/results.test.ts`.** Ranking, superseded
+revisions excluded from the queue, the projection actually dropping the heavy
+arrays, both filters separately and together, a student refused, another
+faculty member's assignment hidden, the full evidence payload, the populated
+match counterparty, revision listing and retrieval, and 404s for an unanalysed
+submission and a nonexistent revision. The fixtures build results directly
+rather than running detection, because these endpoints only read: putting a
+detector round trip in front of each test would pay for behaviour `layer2` and
+`detection` already cover, and would make a failure here ambiguous between the
+pipeline and the endpoint.
+
+**NEW CARRY-OVER, and it is the next real piece — the review workflow has no
+endpoint.** `review` carries a five-state enum (pending, dismissed, contested,
+escalated, confirmed_clean), `reviewedBy`, `reviewedAt`, `note` and
+`studentExplanation`. Nothing can write any of it. A faculty member cannot
+dismiss, escalate or annotate a flag, and a student cannot answer one. **That
+workflow is the thesis**: the system ranks and a human decides, and right now
+the human has no way to record the decision. It needs a state machine, an
+audit entry per transition, and authorisation, which is more than the tail of
+this session. It should be the next thing built.
+
+**Impact on the plan.** The demo is unblocked and can now be written over HTTP
+as specified, which is the honest version: it will drive the real API rather
+than reaching into MongoDB to show a capability the system does not have.
+Chapter 5 gains the read side it was going to have to omit, and
+`docs/REPORT_PLAN.md`'s demo section should be revisited once the review
+workflow exists, because a demo that ranks without recording a decision tells
+only half the story.

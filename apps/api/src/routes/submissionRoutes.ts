@@ -1,5 +1,6 @@
 import { Router } from "express";
 
+import { getResult } from "../controllers/resultController.js";
 import {
   createSubmission,
   downloadSubmission,
@@ -13,6 +14,7 @@ import { uploadPerUser } from "../middleware/rateLimit.js";
 import { uploadSourceFile } from "../middleware/upload.js";
 import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { assignmentIdParams } from "../validation/assignmentSchemas.js";
+import { resultRevisionQuery } from "../validation/resultSchemas.js";
 import {
   listSubmissionsQuery,
   nominateBody,
@@ -48,6 +50,17 @@ submissionRouter.use(requireAuth);
 
 submissionRouter.get("/:submissionId", validateParams(submissionIdParams), getSubmissionDetails);
 submissionRouter.get("/:submissionId/file", validateParams(submissionIdParams), downloadSubmission);
+
+// The evidence behind one score. Staff only, enforced inside the controller
+// by loadSubmissionForManage rather than by a role guard here, so that a
+// student reaches a 404 and not a 403: a 403 would confirm the submission
+// exists, which is the leak the access layer's 404s avoid.
+submissionRouter.get(
+  "/:submissionId/result",
+  validateParams(submissionIdParams),
+  validateQuery(resultRevisionQuery),
+  getResult,
+);
 
 // Nomination changes what a student's baseline is built from, so it costs
 // the extra query requireActiveUser makes: a revoked faculty account must
