@@ -1,6 +1,6 @@
 import { Router } from "express";
 
-import { getResult } from "../controllers/resultController.js";
+import { getResult, reviewResult } from "../controllers/resultController.js";
 import {
   createSubmission,
   downloadSubmission,
@@ -14,7 +14,7 @@ import { uploadPerUser } from "../middleware/rateLimit.js";
 import { uploadSourceFile } from "../middleware/upload.js";
 import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { assignmentIdParams } from "../validation/assignmentSchemas.js";
-import { resultRevisionQuery } from "../validation/resultSchemas.js";
+import { resultRevisionQuery, reviewBody } from "../validation/resultSchemas.js";
 import {
   listSubmissionsQuery,
   nominateBody,
@@ -60,6 +60,18 @@ submissionRouter.get(
   validateParams(submissionIdParams),
   validateQuery(resultRevisionQuery),
   getResult,
+);
+
+// Recording a decision about a student is at least as consequential as a
+// nomination, so it carries the same guards: re-check the account, then the
+// role, before the body is looked at.
+submissionRouter.patch(
+  "/:submissionId/review",
+  requireActiveUser,
+  requireRole("faculty", "admin"),
+  validateParams(submissionIdParams),
+  validateBody(reviewBody),
+  reviewResult,
 );
 
 // Nomination changes what a student's baseline is built from, so it costs

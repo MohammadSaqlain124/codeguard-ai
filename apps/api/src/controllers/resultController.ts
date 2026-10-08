@@ -1,11 +1,17 @@
 import type { Request, Response } from "express";
+import { Types } from "mongoose";
 
 import { componentLogger } from "../config/logger.js";
 import { DetectionResultModel } from "../models/DetectionResult.js";
 import { loadAssignmentFor, loadSubmissionForManage } from "../services/access.js";
+import { recordAudit } from "../services/audit.js";
 import { AppError } from "../utils/AppError.js";
 import { skipFor } from "../validation/common.js";
-import type { ListResultsQuery, ResultRevisionQuery } from "../validation/resultSchemas.js";
+import type {
+  ListResultsQuery,
+  ResultRevisionQuery,
+  ReviewBody,
+} from "../validation/resultSchemas.js";
 
 const log = componentLogger("result");
 
@@ -97,4 +103,77 @@ export async function getResult(req: Request, res: Response) {
   );
 
   res.json({ result, revisions });
+}
+
+/**
+ * Records a human's decision about one result.
+ *
+ * This is the other half of the claim the project makes. Layers 1 and 2 rank
+ * and stop; this is where a person takes responsibility for what happens
+ * next, and where that is written down so a disciplinary committee can later
+ * ask who decided what and why.
+ *
+ * Three rules, none of them invented here:
+ *
+ * The reachable states are the four in REVIEW_DECISIONS, because those are
+ * the four the audit vocabulary has actions for. Reopening to "pending" is
+ * refused by the schema rather than by this function.
+ *
+ * Any of the four may follow any other. A disciplinary process genuinely goes
+ * contested then escalated, or revisits a dismissal, and constraining that
+ * would be the system making a judgement about process, which is the thing it
+ * is built not to do. Only a no-op is refused, because an audit entry saying
+ * nothing changed is noise in the one record that must stay readable.
+ *
+ * The fields are set by path rather than by replacing `review` wholesale, so
+ * that a student's `studentExplanation` is not destroyed by a reviewer acting
+ * on the flag it answers.
+ */
+export async function reviewResult(req: Request, res: Response) {
+  const { submission, course } = await loadSubmissionForManage(req);
+  const user = req.user!;
+  const { status, note } = req.body as ReviewBody;
+
+  const result = await DetectionResultModel.findOne({
+    submission: submission._id,
+    isCurrent: true,
+  });
+  if (!result) throw AppError.notFound("Detection result");
+
+  const before = result.review?.status ?? "pending";
+  if (before === status) throw AppError.conflict(`This result is already ${status}`);
+
+  result.set("review.status", status);
+  result.set("review.reviewedBy", new Types.ObjectId(user.id));
+  result.set("review.reviewedAt", new Date());
+  result.set("review.note", note);
+  await result.save();
+
+  // After the save, so it cannot report something that did not happen, and
+  // reporting its own outcome rather than throwing: see recordAudit's comment
+  // on why a failed audit must not undo a decision that already landed.
+  const audited = await recordAudit({
+    actor: user.id,
+    actorRole: user.role,
+    action: `result.${status}`,
+    targetType: "DetectionResult",
+    targetId: result.id,
+    course: course.id,
+    changes: { before: { status: before }, after: { status } },
+    reason: note,
+  });
+
+  log.info(
+    {
+      submissionId: submission.id,
+      resultId: result.id,
+      from: before,
+      to: status,
+      by: user.id,
+      audited,
+    },
+    "review recorded",
+  );
+
+  res.json({ result, audited });
 }

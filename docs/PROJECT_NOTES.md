@@ -8891,3 +8891,89 @@ Chapter 5 gains the read side it was going to have to omit, and
 `docs/REPORT_PLAN.md`'s demo section should be revisited once the review
 workflow exists, because a demo that ranks without recording a decision tells
 only half the story.
+
+### File 094 — The review workflow, and a trust weight that drifted (Day 24, 08 Oct)
+
+**Built: `PATCH /api/submissions/:submissionId/review`.** The other half of the
+project's claim. Layers 1 and 2 rank and stop; this is where a person takes
+responsibility and where that is written down, so a disciplinary committee can
+later ask who decided what and why. Until today the five-state enum,
+`reviewedBy`, `reviewedAt`, `note` and `studentExplanation` existed and nothing
+could write any of them.
+
+**The state machine was not invented, it was read out of the audit
+vocabulary.** `AUDIT_ACTIONS` already carries `result.dismissed`,
+`result.escalated`, `result.confirmed_clean` and `result.contested`, and the
+`DetectionResult` audit target. It carries **no `result.pending`**. So the four
+reachable states are exactly those four, and reopening to pending is refused,
+because that would be a state change with no audit action and File 025's
+guarantee is that the review *history* is append-only even though the current
+state is not. The endpoint was designed for in Phase 2 and simply never built.
+
+**Any of the four may follow any other, and only a no-op is refused.** A
+disciplinary process genuinely goes contested then escalated, or revisits a
+dismissal. Constraining that would be the system making a judgement about
+process, which is the thing the five-state enum exists not to do. A no-op is
+refused with a 409 because an audit entry saying nothing changed is noise in
+the one record that has to stay readable.
+
+**The note is required in every direction**, ten characters minimum, for the
+reason `nominateBody` already gives: a decision recorded about a student should
+carry its justification. The friction is real — a reviewer clearing fifty false
+positives types fifty notes — and if that becomes the complaint, the answer is
+a bulk endpoint with one shared reason, not an optional note.
+
+**The fields are set by path, not by replacing `review`.** `result.set("review.status", …)` rather than `result.set("review", {…})`, because the
+second form would destroy a student's `studentExplanation` at the moment a
+reviewer acts on the flag it answers. That is a real bug avoided rather than a
+style preference, and there is a test for it.
+
+**NEW FINDING — the design note and the code disagree about anchor trust, and
+the code is the one that shipped.** File 025 says *"confirmed_clean is also
+what makes a take-home submission baseline-eligible at trust weight 0.3"*. But
+`ANCHOR_TRUST` in `anchors.ts` is keyed on **provenance**, not on review state:
+invigilated 1, takehome 0.6, unknown 0.4. There is no 0.3 anywhere in the code,
+and `trustFor()` cannot distinguish a take-home that was nominated from one
+that was confirmed clean. The Phase 2 intent was superseded when File 072 chose
+a provenance-based trust model, and nobody noticed the earlier note had become
+wrong.
+
+**DECISION DEFERRED, deliberately — `confirmed_clean` does not grant baseline
+eligibility.** Wiring it would be two lines, and two lines is exactly why it
+needs a decision rather than an implementation. Setting `baselineEligible` on
+confirmed_clean gives that anchor trust 0.6, which contradicts the design note,
+and anchor trust feeds baselines, which feed every z-score, which feed RPS.
+This is the same class of change as File 088's question about
+`behavioural.ts` scoring the four features, and it gets the same answer: the
+number moves, so the measurement comes before the change. Three options for
+Sam:
+
+1. `confirmed_clean` sets `baselineEligible` and inherits provenance trust
+   0.6. Simplest, consistent with the model that shipped, and makes the design
+   note's 0.3 a documentation error to correct.
+2. Trust stops being a pure function of provenance and a review-granted anchor
+   carries 0.3. Honours the original intent, but changes `trustFor()`'s
+   signature and every baseline built from a nominated or confirmed anchor.
+3. `confirmed_clean` stays a label and nomination remains the only route to
+   eligibility. Nomination already requires a reason and passes
+   `eligibilityFor`, so this loses nothing except the Phase 2 sentence.
+
+Until it is answered, File 025's sentence should be read as superseded rather
+than as a specification.
+
+**Twenty tests in `results.test.ts`**, nine of them new: the decision and its
+actor and timestamp, the audit entry's action and role and transition, one
+decision following another with both audited, a no-op refused without writing a
+second entry, pending refused, a short note refused, a student's explanation
+surviving a reviewer's decision, a student refused with 403 and an unrelated
+faculty member with 404 and neither writing an audit entry, and the queue's
+`reviewStatus` filter reflecting the decision afterwards.
+
+**The typecheck lesson from File 093 was applied rather than noted.** Three
+patterns in this change were risky under `strict`: a template literal
+`` `result.${status}` `` being assignable to the `AuditAction` union, `.set()`
+on a nested path, and `review` being inferred optional so `?.status ?? "pending"`
+is needed. All three were verified against real mongoose and TypeScript
+installed for the purpose, in a reproduction that also confirmed the *broken*
+form of yesterday's error reproduces the same `TS2769` and `TS2339` codes Sam's
+run reported. A syntax-only parse would again have seen none of it.

@@ -7,6 +7,7 @@ import { bearer, pick, signIn, startTestApp, stopTestApp } from "./helpers.js";
 let app: Express;
 let models: typeof import("../src/models/index.js");
 let DetectionResultModel: (typeof import("../src/models/DetectionResult.js"))["DetectionResultModel"];
+let AuditLogModel: (typeof import("../src/models/AuditLog.js"))["AuditLogModel"];
 
 // unique emails per test, so per-email rate limits never accumulate
 let run = 0;
@@ -21,6 +22,7 @@ beforeAll(async () => {
   app = started.app;
   models = started.models;
   ({ DetectionResultModel } = await import("../src/models/DetectionResult.js"));
+  ({ AuditLogModel } = await import("../src/models/AuditLog.js"));
 });
 
 afterAll(async () => {
@@ -407,5 +409,134 @@ describe("the evidence behind one score", () => {
       .set(bearer(students[0]!.token));
 
     expect(res.status).toBe(404);
+  });
+});
+
+describe("recording a decision", () => {
+  const decide = (token: string, submission: string, status: string, note: string) =>
+    request(app)
+      .patch(`/api/submissions/${submission}/review`)
+      .set(bearer(token))
+      .send({ status, note });
+
+  async function oneResult() {
+    const seeded = await seedAssignment();
+    const submission = await makeSubmission(seeded.assignmentId, seeded.students[0]!.id);
+    await makeResult({
+      submission,
+      assignmentId: seeded.assignmentId,
+      courseId: seeded.courseId,
+      student: seeded.students[0]!.id,
+      rps: 0.81,
+    });
+    return { ...seeded, submission };
+  }
+
+  it("records the decision, who made it, and when", async () => {
+    const { faculty, submission } = await oneResult();
+
+    const res = await decide(faculty.token, submission, "dismissed", "Same template as the lab notes");
+
+    expect(res.status).toBe(200);
+    expect(res.body.result.review.status).toBe("dismissed");
+    expect(res.body.result.review.note).toBe("Same template as the lab notes");
+    expect(res.body.result.review.reviewedBy).toBe(faculty.id);
+    expect(res.body.result.review.reviewedAt).toBeTruthy();
+  });
+
+  it("writes an audit entry naming the action, the actor's role and the transition", async () => {
+    const { faculty, submission } = await oneResult();
+
+    const res = await decide(faculty.token, submission, "escalated", "Referred to the committee");
+    expect(res.body.audited).toBe(true);
+
+    const entries = await AuditLogModel.find({ targetType: "DetectionResult" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.action).toBe("result.escalated");
+    expect(entries[0]!.actorRole).toBe("faculty");
+    expect(entries[0]!.reason).toBe("Referred to the committee");
+    expect(entries[0]!.changes?.before).toMatchObject({ status: "pending" });
+    expect(entries[0]!.changes?.after).toMatchObject({ status: "escalated" });
+  });
+
+  it("allows one decision to follow another, and audits both", async () => {
+    const { faculty, submission } = await oneResult();
+
+    await decide(faculty.token, submission, "contested", "The student disputes this");
+    const second = await decide(faculty.token, submission, "escalated", "Dispute went to committee");
+
+    expect(second.status).toBe(200);
+    expect(second.body.result.review.status).toBe("escalated");
+
+    const actions = (await AuditLogModel.find({ targetType: "DetectionResult" }).sort({ at: 1 }))
+      .map((e) => e.action);
+    expect(actions).toEqual(["result.contested", "result.escalated"]);
+  });
+
+  it("refuses a decision that changes nothing", async () => {
+    const { faculty, submission } = await oneResult();
+    await decide(faculty.token, submission, "dismissed", "Nothing to answer for here");
+
+    const again = await decide(faculty.token, submission, "dismissed", "Still nothing to answer");
+
+    expect(again.status).toBe(409);
+    // the refused call must not have written a second entry
+    expect(await AuditLogModel.countDocuments({ targetType: "DetectionResult" })).toBe(1);
+  });
+
+  it("refuses reopening to pending, which has no audit action", async () => {
+    const { faculty, submission } = await oneResult();
+    await decide(faculty.token, submission, "dismissed", "Looked at it and it is fine");
+
+    const reopen = await decide(faculty.token, submission, "pending", "Changed my mind about this");
+
+    expect(reopen.status).toBe(400);
+  });
+
+  it("requires a note of real length", async () => {
+    const { faculty, submission } = await oneResult();
+
+    expect((await decide(faculty.token, submission, "dismissed", "ok")).status).toBe(400);
+    expect((await decide(faculty.token, submission, "dismissed", ".")).status).toBe(400);
+  });
+
+  it("does not destroy a student's explanation", async () => {
+    const { faculty, submission } = await oneResult();
+    await DetectionResultModel.updateOne(
+      { submission, isCurrent: true },
+      { $set: { "review.studentExplanation": "I wrote this in the lab, see my commits" } },
+    );
+
+    await decide(faculty.token, submission, "confirmed_clean", "Commit history supports this");
+
+    const after = await DetectionResultModel.findOne({ submission, isCurrent: true });
+    expect(after?.review?.studentExplanation).toBe("I wrote this in the lab, see my commits");
+    expect(after?.review?.status).toBe("confirmed_clean");
+  });
+
+  it("refuses a student and an unrelated faculty member", async () => {
+    const { students, submission } = await oneResult();
+    const outsider = await signIn("faculty", `resy${run}@example.com`);
+
+    expect((await decide(students[0]!.token, submission, "dismissed", "Please drop this one")).status)
+      .toBe(403);
+    expect((await decide(outsider.token, submission, "dismissed", "Not my course at all")).status)
+      .toBe(404);
+    expect(await AuditLogModel.countDocuments({ targetType: "DetectionResult" })).toBe(0);
+  });
+
+  it("is visible to the queue's review filter afterwards", async () => {
+    const { faculty, submission, assignmentId } = await oneResult();
+    await decide(faculty.token, submission, "dismissed", "Matches the worked example");
+
+    const pending = await request(app)
+      .get(`/api/assignments/${assignmentId}/results?reviewStatus=pending`)
+      .set(bearer(faculty.token));
+    expect(pending.body.total).toBe(0);
+
+    const dismissed = await request(app)
+      .get(`/api/assignments/${assignmentId}/results?reviewStatus=dismissed`)
+      .set(bearer(faculty.token));
+    expect(dismissed.body.total).toBe(1);
   });
 });
