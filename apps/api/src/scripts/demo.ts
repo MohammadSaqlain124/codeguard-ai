@@ -149,6 +149,27 @@ async function waitAnalysed(submissionId: string, token: string) {
   );
 }
 
+/** Fails early, and says what to do, if the api is older than this script. */
+async function requireRoutes(token: string) {
+  const absent = "0".repeat(24);
+  const paths = [`/api/assignments/${absent}/results`, `/api/submissions/${absent}/result`];
+  for (const path of paths) {
+    const res = await fetch(`${base}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    const body = await res.text();
+    if (body.includes("Route GET")) {
+      throw new Error(
+        `the api at ${base} has no ${path.replace(absent, ":id")} route.\n` +
+          `  It is running older code than this working tree. Rebuild it:\n` +
+          `      cd infra && docker compose up -d --build api\n` +
+          `  or stop that container and serve the api from source instead:\n` +
+          `      cd infra && docker compose stop api\n` +
+          `      cd apps/api && npm run dev`,
+      );
+    }
+  }
+  console.log("  endpoints      review queue, evidence and review routes present");
+}
+
 async function main() {
   heading("0  Is the service up, and is the worker draining the queue?");
   const faculty = await login(FACULTY);
@@ -157,6 +178,13 @@ async function main() {
   const tokens: string[] = [];
   for (const s of STUDENTS) tokens.push(await login(s.email));
   console.log(`  students       ${STUDENTS.length} signed in`);
+
+  // A stale api process is the likeliest reason this stops, because the
+  // container runs an image rather than the working tree, and the worker runs
+  // from source. Probing costs one request and saves sixteen uploads: a route
+  // that is not registered answers "Route GET ... not found", while a
+  // registered one complains about the assignment instead.
+  await requireRoutes(faculty);
 
   heading("1  A course, four enrolled students, three sittings and one take-home");
   const code = `CS-${(Date.now() % 900) + 100}`;
