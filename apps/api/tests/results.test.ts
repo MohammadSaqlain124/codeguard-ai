@@ -440,8 +440,27 @@ describe("recording a decision", () => {
     expect(res.status).toBe(200);
     expect(res.body.result.review.status).toBe("dismissed");
     expect(res.body.result.review.note).toBe("Same template as the lab notes");
-    expect(res.body.result.review.reviewedBy).toBe(faculty.id);
+    expect(res.body.result.review.reviewedBy).toMatchObject({
+      email: `resf${run}@example.com`,
+    });
     expect(res.body.result.review.reviewedAt).toBeTruthy();
+  });
+
+  it("names the reviewer on the evidence afterwards, without their password hash", async () => {
+    const { faculty, submission } = await oneResult();
+
+    await decide(faculty.token, submission, "dismissed", "Same template as the lab notes");
+
+    const detail = await request(app)
+      .get(`/api/submissions/${submission}/result`)
+      .set(bearer(faculty.token));
+
+    expect(detail.body.result.review.reviewedBy).toMatchObject({
+      email: `resf${run}@example.com`,
+    });
+    // the hash is select:false and hidden by the serialize plugin, and
+    // populating a user must not be the way it comes back
+    expect(detail.body.result.review.reviewedBy.passwordHash).toBeUndefined();
   });
 
   it("writes an audit entry naming the action, the actor's role and the transition", async () => {

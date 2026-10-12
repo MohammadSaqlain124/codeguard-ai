@@ -66,9 +66,9 @@ export async function listResults(req: Request, res: Response) {
  * verdict machine: it returns the weights that produced the RPS, the
  * configuration version they came from, the structural matches with their line
  * spans and who they matched, the per-feature deviations with the baseline
- * mean and spread each was measured against, and the flags that say when a
- * layer is not to be trusted. A reviewer can disagree with the number and see
- * why it was what it was.
+ * mean and spread each was measured against, the flags that say when a layer
+ * is not to be trusted, and, once a decision exists, who recorded it. A
+ * reviewer can disagree with the number and see why it was what it was.
  *
  * `revisions` is returned alongside because results are versioned rather than
  * overwritten. Without it a reader has no way to know an earlier revision
@@ -83,7 +83,10 @@ export async function getResult(req: Request, res: Response) {
     ...(revision === undefined ? { isCurrent: true } : { revision }),
   })
     .populate("student", "name rollNo")
-    .populate("structural.matches.otherStudent", "name rollNo");
+    .populate("structural.matches.otherStudent", "name rollNo")
+    // the reviewer as a person rather than an id, because a screen showing a
+    // decision has to say who made it
+    .populate("review.reviewedBy", "name email");
 
   if (!result) {
     throw AppError.notFound(
@@ -162,6 +165,11 @@ export async function reviewResult(req: Request, res: Response) {
     changes: { before: { status: before }, after: { status } },
     reason: note,
   });
+
+  // After the audit, not before it, for the same reason the audit comes after
+  // the save: this is one more query that can fail, and a failure here must
+  // not cost the record of a decision that has already landed.
+  await result.populate("review.reviewedBy", "name email");
 
   log.info(
     {
