@@ -9236,3 +9236,77 @@ suite then passed 89 of 89 on the real machine.
   Docker Desktop and `docker compose up -d` from `infra`; a run without it
   fails six suites with `FAIL file [ file ]`, which means the file never
   loaded, so all 89 tests are skipped rather than failed.
+
+**AMENDMENT, same evening (12 Oct), after the demo was run.** The table above
+was written as computed and not observed. It has now been observed, and the
+run is recorded here beside the prediction rather than substituted for it,
+because the agreement is the evidence that measuring a fixture with the
+detector's own code actually predicts the pipeline:
+
+| student  | L1 pred / obs      | L2 pred / obs        | RPS pred / obs       |
+|----------|--------------------|----------------------|----------------------|
+| Shubham  | 1.000 / 1.000      | 0.763 / 0.7631       | 0.898 / 0.8985       |
+| Trisha   | 1.000 / 1.000      | 0.236 / 0.2365       | 0.673 / 0.6728       |
+| Krishna  | 0.438 / 0.4377     | 0.856 / 0.8556       | 0.617 / 0.6168       |
+| Vanshika | 0.438 / 0.4377     | 0.126 / 0.1259       | 0.304 / 0.3041       |
+
+Every row reported `flooredFeatures: 0` and `cohortHealthFlagged: false`, and
+`cohort not separating` does not appear anywhere in the run. All four
+baselines came back `status=ready invig=3 conf=1 features=10`, with
+`anchors=3` and `sizeMatched: true`, so `effectiveW2` stayed at 0.3 and no
+attenuation was in play. `duplicateOf` was set on both sides of the Shubham
+and Trisha pair once the recalibration had come round to both. Disagreement
+fired on exactly Trisha and Krishna.
+
+The two invigilated similarities the run logged, 0.6074 and 0.5796, are the
+same four decimals the harness computed for the krishna-trisha and
+vanshika-shubham sitting-one pairs. The replication was faithful rather than
+fitted, which is the claim that matters for trusting the method next time.
+
+**Unpredicted, and a better demo than the one that was designed: mitigation 4
+fired on Shubham.** `lowVariance.flagged` came back true for the submission at
+the top of the queue. His layout is the sparsest of the four, so his
+coefficient of variation is the cohort's lowest and he lands in the bottom
+percentile of `intraStudentVariance`. The effect is that the highest-ranked
+result now carries, in its own evidence, the caveat that this student's work
+barely varies and that a large deviation therefore means less than it looks.
+That is the system arguing against its own top row. It was not planned, and
+it was predictable from the dispersion arithmetic, so it should have been
+predicted.
+
+**FINDING 1 IS NOT THEORETICAL. It fired on honest invigilated work.** Two lab
+submissions scored `structuralScore` 0.6074 and 0.5796 against `behavioural`
+0.2148 and 0.242, and both carry `signalDisagreement: true`. Nobody copied
+anything in those sittings: that is four students solving one assigned problem
+and the similarity floor alone carrying Layer 1 past the 0.5 review threshold.
+Their RPS stayed at 0.4392 and 0.4349, under the threshold, so neither was
+queued, and the only reason is that there are four students writing four
+deliberately different shapes. A real cohort of thirty writing ordinary
+solutions to one problem will sit higher, and the flag will start firing on
+work nobody suspects. This moves from an observation to the project's most
+important open measurement: what is the floor for a real cohort, and does
+`w1 = 0.4` survive it.
+
+**The renormalisation was observed doing its job.** Krishna's take-home was
+the first in the assignment, so Layer 1 had nothing to compare against:
+`matches=0`, structural skipped, and the RPS came back 0.8556, which is the
+Layer 2 score alone rather than `0.3 * 0.8556`. Treating an absent layer as
+zero would have put an outsourced submission at 0.2567 and under the review
+threshold. That is the case `detection.ts` renormalises for, and it is now a
+thing the demo shows rather than a thing the comment claims.
+
+**CARRY-OVER, revised.**
+- ~~The demo has not been re-run with the new fixtures.~~ Done, and the table
+  held. Still unconfirmed from the demo's own stdout rather than the server
+  log: the printed queue's column alignment, that `reviewed by` now prints a
+  name, and the derived closing counts.
+- Finding 1 needs its measurement before Chapter 5 defends `w1`. The cheapest
+  version is to take the existing multi-author corpora and score honest
+  same-problem files against each other, which gives the floor's distribution
+  without needing a new dataset.
+- Finding 3 and Finding 4 are unchanged and both still unflagged.
+- The cold-cache check for the vitest hook timeout is still not done.
+- There is still no worker service in `docker-compose.yml`.
+- The three design decisions from the 8th are still open, and the
+  `confirmed_clean` to `baselineEligible` trust question is the one that feeds
+  baselines, so z-scores, so RPS.
