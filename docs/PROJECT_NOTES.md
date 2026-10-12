@@ -9057,3 +9057,182 @@ something will probably need a fix. The likely candidates are the API's host
 port if the container publishes something other than `API_PORT`, for which
 `--base` is the override, and the course code's validation pattern, which is
 guessed from the seed's `CS-501` and `CS-101`.
+
+### File 096 — The demo's fixtures measured nothing, and four things the layers do that nobody had written down (Day 25, 12 Oct)
+
+The 9th closed with one commit and no entry. The 10th and 11th were not worked.
+
+**The demo ran, printed a success story, and the numbers were wrong.** Every
+row scored close to 1, every row carried `cohort not separating`, and the
+closing paragraph claimed Layer 1 had found the identical pair. It had found
+all four students identical. The diagnosis started from distrusting output that
+ended in a success line, before anyone had looked at whether the numbers made
+sense.
+
+**Bug one: the fixtures had no within-author spread at all.** `source(style,
+tag)` keyed the layout on the student index and used `tag` only for a function
+name. The three tags were `lab1`, `lab2`, `lab3` — four characters each — so
+every one of the four scored features was byte-identical across a student's
+three sittings. That makes each student's standard deviation exactly zero.
+`cohortCalibration` pools those: with four students at three anchors each,
+every student contributes two degrees of freedom and the pooled spread reduces
+to the root mean square of their individual standard deviations. Four zeros
+give zero. Every denominator then fell back to `VARIANCE_FLOOR`, every z-score
+was divided by a constant invented in `behavioural.ts` rather than measured,
+and the root-mean-square z came out at 21 and 31, so every score pinned at 1.
+
+`layer2.test.ts` carries a comment warning about exactly this, written two days
+earlier: "without that spread the cohort's pooled standard deviation is zero,
+every z-score divides by VARIANCE_FLOOR, and the tests pass for the wrong
+reason." Knowing the failure mode and writing a fixture that walks into it are
+evidently independent skills.
+
+**Bug two: the four files had two distinct syntax trees between them.**
+`normalise.py` maps every identifier to `ID`, every number to `NUM`, drops
+comment nodes, and blank lines never reach a tree at all. The generator varied
+names, constants, comments, blank lines and one nesting flag, `deep = style >=
+2`. Everything except the flag normalises away. So in the take-home, Krishna
+(style 3), Trisha (2) and Shubham (2) were all "deep" and matched at 1.000,
+while Vanshika (1) was shallow and matched at 0.910. The printed numbers
+reproduce that exactly, which is what turned the diagnosis from a guess into a
+confirmation.
+
+**The cohort health flag caught it, in plain language, on every row.** The
+stored reason read "This cohort shows no measurable spread in
+blank_line_ratio, avg_line_length, max_block_depth, comment_density, so the
+score separates nobody." File 090's guard found File 095's bug. That is the
+first time a guard built for a hypothesised failure mode has caught that mode
+in work nobody suspected, and it is the strongest argument yet for reporting a
+layer's health beside its score rather than folding it in.
+
+**The closing paragraph was the worst part.** A hard-coded sentence asserted a
+finding the run had not produced. It is now computed from the queue response:
+how many rows carry an exact duplicate, how many scored higher on Layer 2 than
+Layer 1, how many carry a disagreement flag, how many report the cohort not
+separating, and the range of RPS. A sentence that cannot check itself should
+not be printed.
+
+**The method, which is the part worth keeping.** Hand arithmetic produced the
+bug, so the fix was not more hand arithmetic. The detector's own modules were
+run directly in the session — `features.py`, `normalise.py`, `units.py`,
+`similarity.py`, `prefilter.py` against real `tree_sitter` and `apted` — over
+sixteen generated fixtures, computing each student's mean and sample standard
+deviation per feature, the pooled cohort spread, every z-score, the resulting
+Layer 2 score, and every pairwise similarity in both assignments. Then the
+skeletons were tuned against those numbers until each threshold had real
+margin. Three iterations were needed, and each one found something: files at
+15 to 27 lines against `MIN_ANCHOR_LINES` of 30, which would have meant no
+baseline ever built; a student whose extra nesting landed in a function that
+was not the deepest, so `max_block_depth` never moved; and two scores sitting
+within two per cent of the 0.5 review threshold that decides the disagreement
+flag.
+
+**Then the drift was closed twice.** The generator was rewritten in JavaScript,
+run, and diffed byte-for-byte against the Python the measurements came from:
+identical. After it went into `demo.ts`, the fixture block was sliced out of
+the file mechanically by its marker comments, compiled, run, and diffed again:
+identical. So the numbers that were measured and the code that ships are
+provably the same fixtures, rather than a transcription that looks the same.
+
+**The fixture as it now stands.** Four students, four different outcomes, each
+with its own shape and its own layout, every file between 34 and 49 lines.
+Shubham submits Trisha's take-home unchanged; Krishna submits a ghostwriter's
+file that matches nobody. **Computed from the fixtures, not yet observed from a
+run** — the demo has not been re-run since the rewrite:
+
+| student  |    L1 |    L2 |   RPS | layers disagree |
+|----------|-------|-------|-------|-----------------|
+| Shubham  | 1.000 | 0.763 | 0.898 | no, both agree  |
+| Trisha   | 1.000 | 0.236 | 0.673 | yes             |
+| Krishna  | 0.438 | 0.856 | 0.617 | yes             |
+| Vanshika | 0.438 | 0.126 | 0.304 | no, both low    |
+
+Trisha and Shubham are indistinguishable on Layer 1 and separated only by
+Layer 2, which is the honest shape of that evidence: the system cannot say who
+copied from whom, and the asymmetry in Layer 2 is the only thing that points.
+
+**FINDING 1 — Layer 1's score has a floor near 0.5, and nothing reports it.**
+`similarity = 1 - distance / (size_a + size_b)`. APTED relabels a node for a
+cost of 1 where deleting and inserting costs 2, so two unrelated trees of
+similar size are about one size apart in distance, not two. Measured on
+genuinely different skeletons, honest pairs scored 0.27 to 0.61. The
+consequence is that `best` is never near zero for any real submission, so
+`w1 * best` contributes a floor to every RPS, and that floor rises as a
+cohort's solutions converge in shape. For a real class all solving one
+assigned problem it will be considerably higher than it is here, inflating
+every student's RPS together. Nothing in the result records what the floor was
+for that cohort, so a reader cannot subtract it. This wants measuring before
+Layer 1's weight is defended in the report.
+
+**FINDING 2 — "matches" is the peer list, not a findings list.** `main.py:253`
+appends a `Match` for every candidate compared, with no similarity threshold
+anywhere; `MIN_SPAN_SIMILARITY` filters only the line *spans* inside a match.
+So `structural.matches` has one entry per peer and `cohortSampleSize` counts
+peers compared. The demo printed "Layer 1 matched 3", which reads as three
+findings and is three comparisons. Relabelled to "compared 3 peers, closest
+first". Worth deciding whether the API should carry a threshold, or whether
+every consumer is expected to know this.
+
+**FINDING 3 — a student who varies more than their cohort is penalised on
+honest work.** The z-score divides by the pooled cohort spread, not the
+student's own, and the measurement recorded in `cohortCalibration`'s own
+comment found that the better choice by a wide margin — AUC 0.909 against
+0.766. But Trisha's own standard deviation in
+`blank_line_ratio` is 0.0347 against a pooled cohort spread of 0.0219, so a
+single step of her ordinary variation scored z = 2.31 on genuine work. The
+submission was hers, in her own style, and Layer 2 called it two standard
+deviations foreign. Mitigation 4 flags the opposite case, the student who
+barely varies; there is no flag for this one, and the ratio of a student's own
+spread to the cohort's is already available where `lowVariance` is computed.
+
+**FINDING 4 — a size-pruned pair scores 0.0, which looks like a clean
+comparison.** Seen during tuning: a five-unit file against a one-unit file
+reported `similarity 0.0000` with `pruned 1, compared 0`. `compare_unit_sets`
+leaves a pruned pair out of `exact`, so it contributes nothing to the
+numerator and the score is zero. `behavioural.ts` is careful that "we could
+not check" and "we checked and found nothing" never look the same on a
+student's record. The structural layer does not make that distinction at all.
+
+**The baseline race, closed without new API surface.** The rebuild is a job of
+its own, enqueued once an anchor is analysed, so a take-home uploaded moments
+after the last sitting can be scored against a baseline still being built, or
+before `MIN_COHORT_BASELINES` of them exist. There is no endpoint that reports
+a baseline's status, so rather than add one the demo now polls the review queue
+until every row reports `behavioral.status: ok`, and on timeout prints the
+API's own skip reasons. The recalibration job re-analyses after every
+detection, so this settles on its own; what it must not do is print a queue in
+which a skipped layer scored zero and looked clean.
+
+**`review.reviewedBy` came back as a bare ObjectId** from both result
+endpoints, which is why the demo printed a hex string where a name belongs.
+Both now populate the reviewer's name and email. On the decision endpoint the
+populate runs *after* the audit write, for the same reason the audit runs after
+the save: it is one more query that can fail, and a failure there must not cost
+the record of a decision that has already landed. `listResults` deliberately
+still returns the bare id, because the queue is served by the
+`{ assignment, isCurrent, rps }` index and its projection exists to keep rows
+cheap.
+
+**A verification gap of my own, caught late.** `demo.ts` was typechecked
+against TypeScript 5.9 and `@types/node` 22. The manifest pins `^7.0.2` and
+`^26.4.1`. A major compiler version is not a detail to skip, and the first
+clean result was under-evidenced rather than wrong: re-checked under TypeScript
+7.0.2, `@types/node` 26.6.5 and mongoose 9.11.1, both files are clean, and the
+suite then passed 89 of 89 on the real machine.
+
+**CARRY-OVER.**
+- The demo has not been re-run with the new fixtures. The table above is
+  computed, not observed. A 1.000 anywhere outside the Shubham and Trisha pair
+  would mean the model of Layer 1 in this entry is wrong.
+- Findings 1 and 3 are both unflagged conditions that change how a score should
+  be read. Finding 1 needs a measurement before the report defends `w1`.
+- Finding 4 is a small fix in `units.py` or its caller: a pruned pair should be
+  reported as not compared, not as zero.
+- The cold-cache check for the vitest hook timeout is still not done. Today's
+  run spent 4 per cent of 74 seconds on imports, but the cache was warm.
+- There is still no worker service in `docker-compose.yml`, so the demo remains
+  three commands rather than two.
+- The tests needed Docker and nobody said so. Step 0 of any end-to-end run is
+  Docker Desktop and `docker compose up -d` from `infra`; a run without it
+  fails six suites with `FAIL file [ file ]`, which means the file never
+  loaded, so all 89 tests are skipped rather than failed.
