@@ -9408,3 +9408,65 @@ category differences worth asserting are in the 30-120 band.
 - The Layer 1 and Layer 2 independence question is new and affects the RPS
   formula itself, not just its weights.
 - Finding 4 now has a measured frequency, which makes it worth fixing.
+
+**AMENDMENT, same night (13 Oct), three seeds instead of one.** The 30-120
+band was re-run at seeds 1 and 2. One claim survives, one has to be widened,
+and one has to be withdrawn. `--seed` moves both the per-author file selection
+and the pair sample, so these are three genuinely different draws: the band
+held 93, 97 and 98 files.
+
+| category                         | median range    | spread | p90 range       | at or above 0.5, per 100 sampled |
+|----------------------------------|-----------------|--------|-----------------|----------------------------------|
+| same repo, different author      | 0.2963 - 0.3611 | 0.0648 | 0.4760 - 0.5282 | 7 - 13                           |
+| different repo, different author | 0.2907 - 0.3044 | 0.0137 | 0.5075 - 0.5194 | 10 - 13                          |
+| same author, different file      | 0.3751 - 0.4119 | 0.0368 | 0.5494 - 0.6183 | 18 - 25                          |
+
+**SURVIVES. Same-author pairs score highest, in all three seeds, against both
+other categories.** Medians 0.3751 to 0.4119 against 0.2907 to 0.3611, and 18
+to 25 of every 100 sampled pairs crossing the review threshold against 7 to
+13. So the finding that Layer 1 is partly measuring authorship rather than
+copying is not an artefact of one draw, and it remains the most consequential
+thing this measurement found: the RPS formula treats the two layers as
+independent evidence and they are not.
+
+**WIDENED. The honest figure for honest different-author pairs crossing 0.5 at
+coursework size is 7 to 13 per 100, not 13.** File 097 above quotes 13 of 100
+from seed 0 alone, which is the top of the range. "About one honest pair in
+ten" is defensible; "one in six", which is what 16.5 per cent of scored pairs
+suggested, is not.
+
+**WITHDRAWN. The same-repository category cannot be claimed to differ from the
+different-repository one.** Seed 2 reverses their order, with a gap of 0.0053,
+and seeds 0 and 1 put them 0.057 and 0.056 apart in the other direction. So
+there is no evidence here that shared project conventions raise similarity
+between different authors, which is exactly the effect the category was built
+to detect, and therefore no measured support for calling it a classroom proxy
+beyond the plain fact that the authors differ.
+
+**The weakest number is the one the report most wanted.** The same-repository
+median moves by 0.0648, which is 19 per cent of its own mean, and its p90
+straddles the 0.5 threshold at 0.4760 to 0.5282. The different-repository
+figure, which the report cares least about, is the stable one at 0.0137. The
+reason is sample structure rather than anything interesting: the
+different-repository pool holds 3,607 to 4,038 pairs drawn from eight
+repositories, so 100 of them behave almost independently, while the
+same-repository pool holds only 505 to 558 and the seed also changes which
+authors the per-author cap keeps, so the pool's composition shifts under it.
+
+**PRECISION RULE for anything quoted from this script.** At about 85 scored
+pairs per cell the third decimal is noise, and in the same-repository category
+so is the second. Quote two decimals for the different-repository and
+same-author figures, quote the same-repository figure as a range across seeds
+or not at all, and give the seed and pair count every time.
+
+**CARRY-OVER, revised.**
+- ~~Re-run with two or three further seeds.~~ Done, three seeds.
+- Raising `--pairs` is now the obvious next step rather than more seeds: the
+  instability is sample size, and at 0.07s per pair in this band 500 pairs per
+  category costs about two minutes. That is the cheapest available improvement
+  to the one number Chapter 5 needs.
+- The Java corpus at `E:\temp\javarepos` is still unmeasured.
+- The same-problem question remains unmeasurable with this corpus, and the
+  withdrawal above makes that worse: without a same-problem corpus there is
+  now no measured proxy for a classroom at all, only a lower bound from
+  unrelated code.
