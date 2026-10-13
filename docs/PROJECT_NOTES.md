@@ -9310,3 +9310,101 @@ thing the demo shows rather than a thing the comment claims.
 - The three design decisions from the 8th are still open, and the
   `confirmed_clean` to `baselineEligible` trust question is the one that feeds
   baselines, so z-scores, so RPS.
+
+### File 097 — Layer 1 measured at last, and File 096's floor claim retracted (Day 26, 13 Oct)
+
+**RETRACTION. File 096's FINDING 1 said Layer 1's similarity "has a floor near
+0.5". That is wrong, and the reasoning behind it was wrong.** The argument was
+that APTED relabels a node for 1 where deleting and inserting costs 2, so two
+unrelated trees of similar size sit one size apart and score about 0.5. That
+holds only when the two trees have the same *shape* and differ in labels. Real
+unrelated code differs in shape as well, so the edit distance approaches the
+sum of the two sizes and the similarity approaches zero, not a half. The claim
+was arithmetic applied to the wrong case, and it was generalised from four
+contrived demo fixtures, which is not a sample.
+
+**Measured on 15 Python repositories: 1,989 candidate files, 466 single-author,
+204 selected, spread over 8 repositories and 27 authors.** Only 8 of the 15
+repositories produced any author with enough single-author files to qualify,
+which is worth knowing before the next corpus is chosen. 100 pairs sampled per
+category, seed 0, production comparison settings.
+
+Whole corpus, files of 30 to 700 lines, normalised node counts median 401 and
+max 15,073:
+
+| pair category                    | n  | median | p90    | at or above 0.5 |
+|----------------------------------|----|--------|--------|-----------------|
+| same repo, different author      | 86 | 0.2470 | 0.4555 | 3 (3.5%)        |
+| different repo, different author | 91 | 0.2571 | 0.4908 | 7 (7.7%)        |
+| same author, different file      | 94 | 0.2545 | 0.5180 | 11 (11.7%)      |
+
+Restricted to 30 to 120 lines, which is the size a coursework submission
+actually is, node counts median 188 and max 669:
+
+| pair category                    | n  | median | p90    | at or above 0.5 |
+|----------------------------------|----|--------|--------|-----------------|
+| same repo, different author      | 79 | 0.3611 | 0.5282 | 13 (16.5%)      |
+| different repo, different author | 91 | 0.3044 | 0.5075 | 10 (11.0%)      |
+| same author, different file      | 89 | 0.3781 | 0.6030 | 21 (23.6%)      |
+
+**So the median is a quarter, not a half. But the median was never the thing
+that mattered.** The distribution has a long right tail, and at coursework file
+sizes 13 of 100 sampled honest pairs by different authors in one project
+crossed the 0.5 review threshold on structure alone. That is the number
+`w1 = 0.4` has to survive, and it is a tail problem rather than a floor
+problem. The two honest invigilated submissions in Day 25's demo, at 0.6074 and
+0.5796, sit around the 95th percentile of this distribution: rare, real, and
+not a fluke of that fixture.
+
+**The size effect is large and it points the wrong way.** Narrowing from 30-700
+to 30-120 lines moves the same-repository median from 0.2470 to 0.3611, a
+relative rise of 46 per cent, and the rate crossing 0.5 from 3.5 to 16.5 per
+cent of scored pairs, roughly five times. Fewer units per file means less
+unmatched material in the denominator, so small files score higher. Coursework
+files are small. The regime the system is built for is the regime where the
+measure is least discriminating.
+
+**Unexpected, and a problem of its own: at coursework size, a student's own two
+files resemble each other more than two different students' do.** Same-author
+pairs had the highest median, 0.3781, the highest p90, 0.6030, and 21 of 89
+crossed 0.5. One pair in the whole-corpus run scored exactly 1.0000. Layer 1
+is therefore partly measuring authorship rather than copying, which is Layer
+2's job, so the two layers are not as independent as the RPS formula assumes.
+A student's second submission across two assignments is exactly this pair
+shape.
+
+**FINDING 4 is material, not theoretical.** Between 6 and 21 of every 100
+sampled pairs were never actually compared, because their only matched units
+were size pruned. Those report `similarity 0.0`, indistinguishable from a
+clean comparison, and this script had to count them separately to avoid
+dragging its own distribution down with values that mean nothing. Any consumer
+of the API has the same problem and no way to tell.
+
+**A caveat on the percentages above.** They are shares of the pairs that were
+comparable, not of the pairs sampled. Pruning removes size-mismatched pairs,
+which are the ones that would have scored lowest, so each scored subsample is
+biased upward. Quoting "13 of 100 sampled" is the honest form and "16.5% of
+scored" is the generous one; both are in the table above for that reason.
+
+**Reproducibility, confirmed by accident.** The run was done twice, once
+through the activated virtualenv and once by calling its interpreter directly.
+Every figure came out identical, which is what the seeded sampling is for.
+
+**LIMITATIONS, all of which belong beside any citation of these numbers.**
+Every pair measured solves a *different* problem, so a class set one problem
+sits higher than this and the same-repository row is a lower bound rather than
+an estimate. Around 90 scored pairs per cell is enough for a median and not
+enough for a p90 worth three decimals. One seed. Python only. And the three
+whole-corpus categories are within noise of each other, so the only
+category differences worth asserting are in the 30-120 band.
+
+**CARRY-OVER.**
+- Re-run with two or three further seeds before any of these figures goes into
+  the report. `--pairs` is cheap at 0.07s per pair in the small band.
+- Run the Java corpus, which is already cloned at `E:\temp\javarepos`.
+- The same-problem question is still unmeasured and this corpus cannot answer
+  it. Either accept the lower bound and say so, or find a coursework or
+  competitive-programming corpus where many authors solve one problem.
+- The Layer 1 and Layer 2 independence question is new and affects the RPS
+  formula itself, not just its weights.
+- Finding 4 now has a measured frequency, which makes it worth fixing.
