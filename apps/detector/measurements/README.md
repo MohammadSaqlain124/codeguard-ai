@@ -4,9 +4,10 @@ Scripts that produce the numbers the report quotes. A measurement nobody can
 re-derive is an anecdote, not evidence, so anything cited belongs in here.
 
 ```
-common.py              everything both measurements share
+common.py              everything both authorship measurements share
 java_authorship.py     the Java repository list and file filters
 python_authorship.py   the Python repository list and file filters
+structural_floor.py    what Layer 1 scores for code nobody copied
 ```
 
 The two language scripts are configuration only. All the selection,
@@ -18,11 +19,23 @@ disagree with the running service. `app/features.py` is already
 language-agnostic: it unions every language's node labels instead of branching,
 which is why one extractor serves both.
 
+The detector's dependencies live in its own virtualenv, so bare `python` will
+not find tree_sitter. Activate it first, or call its interpreter directly.
+`--work` is a real directory and these are the ones the October 2026 runs
+used, not the Unix-looking paths an earlier version of this file printed:
+
 ```
 cd apps/detector
-python measurements/java_authorship.py   --work /tmp/javarepos
-python measurements/python_authorship.py --work /tmp/pyrepos
+.\.venv\Scripts\Activate.ps1
+python measurements/java_authorship.py   --work E:\temp\javarepos --skip-clone
+python measurements/python_authorship.py --work E:\temp\pyrepos  --skip-clone
+python measurements/structural_floor.py  --language python --work E:\temp\pyrepos --skip-clone
 ```
+
+`structural_floor.py` also takes `--language`, `--pairs` to trade precision for
+time, and `--min-lines`/`--max-lines`. Run it twice, once over the whole band
+and once restricted to 30-120 lines, because the score depends strongly on file
+size and 30-120 is the size a real submission is.
 
 `--skip-clone` reuses a work directory you already have. `--save FILE` writes
 the measured features as JSON. `--seed N` chooses which sample of files the
