@@ -40,6 +40,23 @@ jobs:
       - run: ruff check .
       - run: pytest -q
 
+  web:
+    name: Web typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run audit:prod
+
 # The integration suite is deliberately absent. apps/api's vitest run needs
 # Mongo, Redis and an object store, and it reads infra/.env, which is not in
 # the repository. Adding it means putting those credentials into GitHub
