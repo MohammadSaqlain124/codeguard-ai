@@ -1,0 +1,93 @@
+#!/bin/sh
+#
+# Runs the same checks .github/workflows/ci.yml runs, before the push leaves
+# this machine.
+#
+# CI only reports after a commit exists, so a red main is something you find
+# out about once it is already pushed. On 13 October a lint error sat on main
+# for about twenty hours across seven commits, four of which could not
+# possibly have caused it, because the only signal was an email.
+#
+# Enable it once per clone:
+#     git config core.hooksPath .githooks
+#
+# Bypass it when you genuinely mean to:
+#     git push --no-verify
+#
+# Only the parts you actually changed are checked, so a docs commit costs
+# nothing and an api change does not wait for the detector.
+
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+
+# What this push would add. With no upstream set yet, check everything rather
+# than nothing, because "no upstream" usually means the first push of a branch.
+upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)
+if [ -n "$upstream" ]; then
+  changed=$(git diff --name-only "$upstream..HEAD")
+else
+  changed=$(git ls-files)
+fi
+
+touched() {
+  printf '%s\n' "$changed" | grep -q "^$1/"
+}
+
+# The detector's tools live in its virtualenv, not on PATH. Windows puts them
+# in Scripts, everything else in bin.
+venv="$root/apps/detector/.venv/Scripts"
+[ -d "$venv" ] || venv="$root/apps/detector/.venv/bin"
+
+failed=""
+
+note() {
+  failed="$failed  $1
+"
+}
+
+# Runs one check in one directory. Does not stop at the first failure: seeing
+# every problem at once beats finding them one push at a time.
+gate() {
+  where=$1
+  shift
+  # the venv path is long and uninteresting, so show "ruff check ." rather
+  # than the absolute path to the binary
+  shown=$(printf '%s' "$*" | sed "s|$venv/||g")
+  printf '  %-14s %s\n' "$where" "$shown"
+  ( cd "$root/$where" && "$@" ) || note "$where: $shown"
+}
+
+if touched "apps/api"; then
+  echo "pre-push: apps/api"
+  gate apps/api npm run --silent typecheck
+  gate apps/api npm run --silent audit:prod
+fi
+
+if touched "apps/detector"; then
+  echo "pre-push: apps/detector"
+  if [ -x "$venv/ruff" ]; then
+    gate apps/detector "$venv/ruff" check .
+    gate apps/detector "$venv/python" -m pytest -q
+  else
+    echo "  no virtualenv at apps/detector/.venv, falling back to PATH"
+    gate apps/detector ruff check .
+    gate apps/detector python -m pytest -q
+  fi
+fi
+
+if touched "apps/web"; then
+  echo "pre-push: apps/web"
+  gate apps/web npm run --silent typecheck
+  gate apps/web npm run --silent audit:prod
+fi
+
+if [ -n "$failed" ]; then
+  echo ""
+  echo "pre-push blocked, these failed:"
+  printf '%s' "$failed"
+  echo "Fix them, or push with --no-verify if you mean to."
+  exit 1
+fi
+
+echo "pre-push: ok"
+exit 0
