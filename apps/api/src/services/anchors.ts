@@ -1,8 +1,8 @@
 import { componentLogger } from "../config/logger.js";
 import { AssignmentModel, LANGUAGES, PROVENANCE, SubmissionModel } from "../models/index.js";
-import { DEFAULT_DETECTION_CONFIG, DetectionConfigModel } from "../models/DetectionConfig.js";
 import { DetectionResultModel } from "../models/DetectionResult.js";
 import { MAX_ANCHORS } from "../models/BaselineProfile.js";
+import { configFor } from "./detectionConfig.js";
 
 const log = componentLogger("anchors");
 
@@ -129,8 +129,11 @@ export async function eligibilityFor(submissionId: string): Promise<Eligibility>
     return { eligible: false, reason: "Its assignment no longer exists" };
   }
 
-  const config =
-    (await DetectionConfigModel.findOne({ course: assignment.course })) ?? DEFAULT_DETECTION_CONFIG;
+  // Resolved for the assignment's language, the same way runDetection does
+  // it. Reading the course-level threshold here instead would mean a course
+  // with a Java override judged its queue by one number and its baseline
+  // eligibility by another, on the same rps.
+  const config = await configFor(String(assignment.course), assignment.language);
 
   if (result.rps >= config.reviewThreshold) {
     return {

@@ -56,6 +56,8 @@ let models: typeof import("../src/models/index.js");
 let runDetection: (typeof import("../src/services/detection.js"))["runDetection"];
 let recalibrateAssignment: (typeof import("../src/services/recalibrate.js"))["recalibrateAssignment"];
 let DetectionResultModel: (typeof import("../src/models/DetectionResult.js"))["DetectionResultModel"];
+let DetectionConfigModel: (typeof import("../src/models/DetectionConfig.js"))["DetectionConfigModel"];
+let configFor: (typeof import("../src/services/detectionConfig.js"))["configFor"];
 
 // unique emails per test, so per-email rate limits never accumulate
 let run = 0;
@@ -90,6 +92,8 @@ beforeAll(async () => {
   ({ runDetection } = await import("../src/services/detection.js"));
   ({ recalibrateAssignment } = await import("../src/services/recalibrate.js"));
   ({ DetectionResultModel } = await import("../src/models/DetectionResult.js"));
+  ({ DetectionConfigModel } = await import("../src/models/DetectionConfig.js"));
+  ({ configFor } = await import("../src/services/detectionConfig.js"));
 });
 
 afterAll(async () => {
@@ -125,7 +129,7 @@ async function seed() {
     maxSubmissions: 3,
     dueAt: new Date(Date.now() + 86_400_000),
   });
-  return { assignment, students };
+  return { assignment, students, faculty };
 }
 
 async function upload(assignmentId: unknown, who: { token: string }, source: string) {
@@ -340,5 +344,143 @@ describe("recalibration", () => {
     const again = await recalibrateAssignment(String(assignment._id));
     expect(again.reanalysed).toBe(0);
     expect(again.samples).toBe(6);
+  });
+});
+
+describe("detection config, resolved per language", () => {
+  it("falls back to the defaults when the course has no row at all", async () => {
+    const { assignment } = await seed();
+
+    const config = await configFor(String(assignment.course), "python");
+
+    expect(config.w1).toBe(0.4);
+    expect(config.reviewThreshold).toBe(0.5);
+    expect(config.languageOverride).toBe(false);
+    // a course on the defaults still reports a version, so a stored result
+    // always records which settings produced it
+    expect(config.version).toBe(1);
+  });
+
+  it("applies an override only to the language it names", async () => {
+    const { assignment, faculty } = await seed();
+    await DetectionConfigModel.create({
+      course: assignment.course,
+      updatedBy: faculty.id,
+      overrides: [{ language: "java", reviewThreshold: 0.65 }],
+    });
+
+    const java = await configFor(String(assignment.course), "java");
+    const python = await configFor(String(assignment.course), "python");
+
+    expect(java.reviewThreshold).toBe(0.65);
+    expect(java.languageOverride).toBe(true);
+    // the Python assignment in the same course is untouched, which is the
+    // whole point: one course, two distributions
+    expect(python.reviewThreshold).toBe(0.5);
+    expect(python.languageOverride).toBe(false);
+  });
+
+  it("leaves the weights alone when an override only moves the threshold", async () => {
+    const { assignment, faculty } = await seed();
+    await DetectionConfigModel.create({
+      course: assignment.course,
+      updatedBy: faculty.id,
+      overrides: [{ language: "java", reviewThreshold: 0.65 }],
+    });
+
+    const java = await configFor(String(assignment.course), "java");
+
+    expect([java.w1, java.w2, java.w3]).toEqual([0.4, 0.3, 0.3]);
+  });
+
+  it("takes an overridden weight triple as a set", async () => {
+    const { assignment, faculty } = await seed();
+    await DetectionConfigModel.create({
+      course: assignment.course,
+      updatedBy: faculty.id,
+      overrides: [{ language: "java", w1: 0.2, w2: 0.5, w3: 0.3 }],
+    });
+
+    const java = await configFor(String(assignment.course), "java");
+
+    expect([java.w1, java.w2, java.w3]).toEqual([0.2, 0.5, 0.3]);
+    // a weights-only override does not drag the threshold with it
+    expect(java.reviewThreshold).toBe(0.5);
+  });
+
+  it("never overrides the three baseline settings", async () => {
+    const { assignment, faculty } = await seed();
+    await DetectionConfigModel.create({
+      course: assignment.course,
+      updatedBy: faculty.id,
+      minBaselineConfidence: 0.6,
+      overrides: [{ language: "java", reviewThreshold: 0.65 }],
+    });
+
+    const java = await configFor(String(assignment.course), "java");
+
+    // the course's own value, not the default and not overridable per language
+    expect(java.minBaselineConfidence).toBe(0.6);
+    expect(java.lowVariancePercentile).toBe(5);
+    expect(java.minAnchorsForBaseline).toBe(3);
+  });
+
+  it("refuses a weight triple that does not sum to one", async () => {
+    const { assignment, faculty } = await seed();
+
+    await expect(
+      DetectionConfigModel.create({
+        course: assignment.course,
+        updatedBy: faculty.id,
+        overrides: [{ language: "java", w1: 0.2, w2: 0.2, w3: 0.2 }],
+      }),
+    ).rejects.toThrow(/must equal 1/);
+  });
+
+  it("refuses a partial weight triple, rather than filling the gaps", async () => {
+    const { assignment, faculty } = await seed();
+
+    // inheriting w2 and w3 from the course would store an override that means
+    // something other than what it says
+    await expect(
+      DetectionConfigModel.create({
+        course: assignment.course,
+        updatedBy: faculty.id,
+        overrides: [{ language: "java", w1: 0.2 }],
+      }),
+    ).rejects.toThrow(/together or none/);
+  });
+
+  it("refuses two overrides for the same language", async () => {
+    const { assignment, faculty } = await seed();
+
+    await expect(
+      DetectionConfigModel.create({
+        course: assignment.course,
+        updatedBy: faculty.id,
+        overrides: [
+          { language: "java", reviewThreshold: 0.6 },
+          { language: "java", reviewThreshold: 0.7 },
+        ],
+      }),
+    ).rejects.toThrow(/already has an override/);
+  });
+
+  it("records the resolved weights on the result, so a stored score stays explicable", async () => {
+    const { assignment, students, faculty } = await seed();
+    await DetectionConfigModel.create({
+      course: assignment.course,
+      updatedBy: faculty.id,
+      overrides: [{ language: "python", w1: 0.2, w2: 0.5, w3: 0.3 }],
+    });
+    const first = await upload(assignment._id, students[0], ORIGINAL);
+    await runDetection(first);
+    const second = await upload(assignment._id, students[1], ORIGINAL);
+
+    await runDetection(second);
+
+    const result = await current(second._id);
+    expect(result?.weights?.w1).toBe(0.2);
+    expect(result?.weights?.w2).toBe(0.5);
   });
 });

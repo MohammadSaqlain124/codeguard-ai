@@ -1,6 +1,6 @@
 import { componentLogger } from "../config/logger.js";
 import { AssignmentModel, SubmissionModel } from "../models/index.js";
-import { DEFAULT_DETECTION_CONFIG, DetectionConfigModel } from "../models/DetectionConfig.js";
+import { configFor } from "./detectionConfig.js";
 import { DetectionResultModel } from "../models/DetectionResult.js";
 import type { SubmissionDoc } from "../models/Submission.js";
 import { getSubmission } from "../storage/minio.js";
@@ -78,10 +78,12 @@ export async function runDetection(submission: SubmissionDoc) {
   const assignment = await AssignmentModel.findById(submission.assignment);
   if (!assignment) throw new Error("Assignment no longer exists");
 
-  const config =
-    (await DetectionConfigModel.findOne({ course: assignment.course })) ?? DEFAULT_DETECTION_CONFIG;
-  // a course with no config row is using the defaults, which are version 1
-  const configVersion = "version" in config ? config.version : 1;
+  // Resolved for this assignment's language, not just its course. A course
+  // running both a Python and a Java assignment can now hold a different
+  // review threshold for each, which matters because honest Java work crosses
+  // the current one roughly twice as often as honest Python work.
+  const config = await configFor(String(assignment.course), assignment.language);
+  const configVersion = config.version;
 
   const candidates = await findCandidates(submission);
   const byId = new Map(candidates.map((c) => [c.submissionId, c]));
