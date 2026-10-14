@@ -9470,3 +9470,76 @@ or not at all, and give the seed and pair count every time.
   withdrawal above makes that worse: without a same-problem corpus there is
   now no measured proxy for a classroom at all, only a lower bound from
   unrelated code.
+
+**AMENDMENT 2, same day (14 Oct), 500 pairs and the Java corpus.** The
+instability was sample size, as predicted. Raising `--pairs` to 500 put the
+Python same-repository median at 0.3539 on 418 scored pairs, which sits inside
+the 0.2963 to 0.3611 spread the three 100-pair seeds produced. Three cells
+exhausted their pools and are therefore complete enumerations of this corpus
+rather than samples, with no sampling error at all: Python same-author at 166
+pairs, Java same-repository at 285, Java same-author at 194.
+
+Python, 30 to 120 lines, 500 pairs requested per category:
+
+| category                         | n   | median | p90    | at or above 0.5     | never compared |
+|----------------------------------|-----|--------|--------|---------------------|----------------|
+| same repo, different author      | 418 | 0.3539 | 0.5159 | 57, 13.6% of scored | 16.4%          |
+| different repo, different author | 446 | 0.3114 | 0.4970 | 42,  9.4%           | 10.8%          |
+| same author, different file      | 150 | 0.3791 | 0.5913 | 36, 24.0%           |  9.6%          |
+
+Java, same band and settings:
+
+| category                         | n   | median | p90    | at or above 0.5     | never compared |
+|----------------------------------|-----|--------|--------|---------------------|----------------|
+| same repo, different author      | 258 | 0.3710 | 0.5564 | 50, 19.4% of scored |  9.5%          |
+| different repo, different author | 467 | 0.3291 | 0.5448 | 81, 17.3%           |  6.6%          |
+| same author, different file      | 183 | 0.3586 | 0.5990 | 42, 23.0%           |  5.7%          |
+
+**QUALIFIED. The same-author finding holds in the tail in both languages, and
+in the median only in Python.** Amendment 1 said flatly that same-author pairs
+"score highest", on Python evidence alone. Java reverses the median ordering:
+same-repository 0.3710 above same-author 0.3586. But both languages agree
+where it matters, in the upper tail, where the threshold lives. Same-author has
+the highest p90 in both, 0.5913 and 0.5990, and the highest rate crossing 0.5
+in both, 24.0 and 23.0 per cent against at most 19.4 anywhere else. So the
+defensible claim is that **a student's own files are over-represented in the
+upper tail of the similarity distribution**, not that they score higher on
+average. The consequence for Layer 1 and Layer 2 independence is unchanged and
+possibly strengthened, because the overlap shows up exactly in the region that
+triggers review.
+
+**NEW FINDING. The distribution is language-dependent, and the configuration
+is not.** Java code of the same size is substantially more alike than Python:
+unrelated files from different repositories cross 0.5 at 17.3 per cent in Java
+against 9.4 in Python, a ratio of 1.84, and within one repository at 19.4
+against 13.6. Plausibly Java's boilerplate, since getters, constructors and
+standard method shapes normalise to near-identical trees. But
+`DEFAULT_DETECTION_CONFIG` has one `reviewThreshold` of 0.5 and one `w1` of
+0.4, and `DetectionConfig` is keyed on the course with no language field at
+all, while `language` lives on the assignment. So a course running both a
+Python and a Java assignment applies a single threshold to two measurably
+different distributions, and the Java one will flag roughly twice as much
+honest work. Nothing in the schema can currently express a per-language
+threshold.
+
+**FINDING 4's frequency, now in both languages: 5.7 to 16.4 per cent of pairs
+were never actually compared.** Consistent with the 6 to 21 per cent the
+100-pair runs showed, and the reason the fix committed earlier today was worth
+making.
+
+**Corpus note.** The Java selection is thinner than the Python one: 71 files
+over 9 repositories and 15 authors, against 93 files over 8 repositories and
+24 authors. Both are after the 30 to 120 line restriction. The Java
+same-repository and same-author cells being complete enumerations is a
+consequence of that thinness rather than a strength.
+
+**CARRY-OVER, revised again.**
+- ~~Raising `--pairs` is the obvious next step.~~ Done, and it resolved the
+  instability. The Python same-repository figure to quote is 0.3539 with p90
+  0.5159 on 418 scored pairs, seed 0, 30 to 120 lines.
+- ~~The Java corpus is unmeasured.~~ Done.
+- The per-language threshold question is new and is a schema change, not a
+  tuning change. It should be decided before Chapter 5 defends a single `w1`.
+- The same-problem question is still unmeasured and still unmeasurable with
+  these corpora.
+- Finding 3 remains unflagged.
