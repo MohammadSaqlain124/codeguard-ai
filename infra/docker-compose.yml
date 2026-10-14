@@ -100,6 +100,52 @@ services:
       retries: 5
       start_period: 10s
 
+  worker:
+    # The same build context as the api on purpose. The Dockerfile's build
+    # stage compiles all of src, so dist/worker.js is already in that image
+    # and no second Dockerfile is needed. Building it twice costs nothing:
+    # identical context and identical steps mean every layer is a cache hit.
+    build:
+      context: ../apps/api
+    container_name: codeguard-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Every override below is here for the same reason as the api's, and
+      # NODE_ENV most of all: the worker imports config/logger.js too, so
+      # without this it would ask the production image for pino-pretty and
+      # restart-loop exactly as the api did.
+      NODE_ENV: production
+      MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DB}?authSource=admin
+      REDIS_HOST: redis
+      MINIO_ENDPOINT: minio
+      DETECTOR_URL: http://detector:8000
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      # Unlike the api, which serves plenty of routes that never touch the
+      # detector. Every analyse job calls it, so starting first would just
+      # burn the three attempts in detectionQueue.ts against a port that is
+      # not listening yet.
+      detector:
+        condition: service_healthy
+    command: ["node", "dist/worker.js"]
+    # No ports and no healthcheck. It serves nothing, and a check that only
+    # proved the process was alive would report "healthy" for a worker wedged
+    # on a job, which is worse than admitting there is no check.
+    #
+    # worker.close() waits for the jobs in flight, and one analyse job can sit
+    # on the detector for DETECTOR_TIMEOUT_MS, which defaults to 30000. There
+    # is no internal force-exit timer here as there is in server.ts, so this is
+    # the only backstop: at the 10s default Docker would SIGKILL mid-analysis
+    # and leave the submission stuck at "analyzing", which nothing recovers.
+    stop_grace_period: 45s
+
   detector:
     build:
       context: ../apps/detector
