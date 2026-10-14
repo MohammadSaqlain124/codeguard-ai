@@ -3,11 +3,12 @@ import { Types } from "mongoose";
 
 import { componentLogger } from "../config/logger.js";
 import { DetectionResultModel } from "../models/DetectionResult.js";
-import { loadAssignmentFor, loadSubmissionForManage } from "../services/access.js";
+import { loadAssignmentFor, loadSubmissionFor, loadSubmissionForManage } from "../services/access.js";
 import { recordAudit } from "../services/audit.js";
 import { AppError } from "../utils/AppError.js";
 import { skipFor } from "../validation/common.js";
 import type {
+  ExplanationBody,
   ListResultsQuery,
   ResultRevisionQuery,
   ReviewBody,
@@ -184,4 +185,134 @@ export async function reviewResult(req: Request, res: Response) {
   );
 
   res.json({ result, audited });
+}
+
+/**
+ * What a student may see about their own result.
+ *
+ * `getResult` above returns the evidence, and a student must never reach it:
+ * a student who can read their own per-feature z-scores can tune a submission
+ * against them, which makes Layer 2 gameable by exactly the people it exists
+ * to measure. This endpoint exists because the schema's
+ * `review.studentExplanation` field promises a student can answer a decision
+ * taken about them, and answering needs the decision and the reviewer's note,
+ * not the deviations.
+ *
+ * Two rules, both deliberate.
+ *
+ * The projection is a whitelist and the response is assembled field by field.
+ * Naming what to keep rather than what to drop means a field added to the
+ * schema next month is excluded by default. A blacklist leaks it the day
+ * somebody adds it, and nothing would fail to warn us.
+ *
+ * Nothing at all is disclosed while the review is pending. A result sitting
+ * in the queue is a ranking, not an accusation, and the whole claim of this
+ * project is that a person decides. Telling a student "you are being looked
+ * at" before anyone has looked would make the ranking itself the verdict. An
+ * un-analysed submission and a pending one are therefore indistinguishable
+ * from here, which is the point rather than an oversight.
+ */
+export async function getMyResult(req: Request, res: Response) {
+  const submission = await loadSubmissionFor(req);
+
+  const result = await DetectionResultModel.findOne({
+    submission: submission._id,
+    isCurrent: true,
+  }).select(
+    "review.status review.note review.reviewedAt review.studentExplanation review.explainedAt",
+  );
+
+  const status = result?.review?.status;
+  const decided = status !== undefined && status !== "pending";
+
+  // the submission's own status is the student's, and says only whether their
+  // upload was processed
+  const self = { id: submission.id as string, status: submission.status };
+
+  if (!decided || !result?.review) {
+    res.json({ submission: self, review: null });
+    return;
+  }
+
+  res.json({
+    submission: self,
+    review: {
+      status: result.review.status,
+      note: result.review.note,
+      reviewedAt: result.review.reviewedAt,
+      studentExplanation: result.review.studentExplanation,
+      explainedAt: result.review.explainedAt,
+    },
+  });
+}
+
+/**
+ * A student's answer to a decision recorded about them.
+ *
+ * Only the student themself, never staff. `loadSubmissionFor` lets a faculty
+ * member reach a submission they manage, which is right for reading and wrong
+ * for writing: words attributed to a student must be the student's.
+ *
+ * Refused while the review is pending, for the reason above. There is nothing
+ * to answer yet, and saying so reveals nothing a student does not already
+ * know about their own upload.
+ *
+ * The fields are set by path rather than by replacing `review`, which is the
+ * same care `reviewResult` takes in the other direction: a student answering
+ * a flag must not wipe the status and note they are answering.
+ */
+export async function explainResult(req: Request, res: Response) {
+  const submission = await loadSubmissionFor(req);
+  const user = req.user!;
+  const { explanation } = req.body as ExplanationBody;
+
+  if (!submission.student.equals(user.id)) {
+    // staff reach this submission through loadSubmissionFor, and must not
+    // write in the student's name. Same 404 as a stranger.
+    throw AppError.notFound("Submission");
+  }
+
+  const result = await DetectionResultModel.findOne({
+    submission: submission._id,
+    isCurrent: true,
+  });
+  if (!result) throw AppError.notFound("Detection result");
+
+  const status = result.review?.status ?? "pending";
+  if (status === "pending") {
+    throw AppError.conflict("No decision has been recorded yet, so there is nothing to answer");
+  }
+
+  const replacing = Boolean(result.review?.studentExplanation);
+  result.set("review.studentExplanation", explanation);
+  result.set("review.explainedAt", new Date());
+  await result.save();
+
+  // After the save, and reporting its own outcome rather than throwing, for
+  // the reason recordAudit's comment gives. An explanation overwrites the
+  // previous one, so without this entry the earlier version is unrecoverable.
+  const audited = await recordAudit({
+    actor: user.id,
+    actorRole: user.role,
+    action: "result.explained",
+    targetType: "DetectionResult",
+    targetId: result.id,
+    course: result.course,
+    changes: { before: { explained: replacing }, after: { explained: true } },
+    reason: explanation,
+  });
+
+  log.info(
+    { submissionId: submission.id, resultId: result.id, by: user.id, replacing, audited },
+    "student explanation recorded",
+  );
+
+  res.json({
+    review: {
+      status: result.review?.status,
+      studentExplanation: result.review?.studentExplanation,
+      explainedAt: result.review?.explainedAt,
+    },
+    audited,
+  });
 }

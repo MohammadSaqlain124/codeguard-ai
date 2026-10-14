@@ -1,6 +1,11 @@
 import { Router } from "express";
 
-import { getResult, reviewResult } from "../controllers/resultController.js";
+import {
+  explainResult,
+  getMyResult,
+  getResult,
+  reviewResult,
+} from "../controllers/resultController.js";
 import {
   createSubmission,
   downloadSubmission,
@@ -14,7 +19,11 @@ import { uploadPerUser } from "../middleware/rateLimit.js";
 import { uploadSourceFile } from "../middleware/upload.js";
 import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { assignmentIdParams } from "../validation/assignmentSchemas.js";
-import { resultRevisionQuery, reviewBody } from "../validation/resultSchemas.js";
+import {
+  explanationBody,
+  resultRevisionQuery,
+  reviewBody,
+} from "../validation/resultSchemas.js";
 import {
   listSubmissionsQuery,
   nominateBody,
@@ -60,6 +69,26 @@ submissionRouter.get(
   validateParams(submissionIdParams),
   validateQuery(resultRevisionQuery),
   getResult,
+);
+
+// What a student is allowed to see about their own result, and their answer
+// to it. Not grouped with the staff routes above on purpose: these go through
+// loadSubmissionFor, which lets a student reach their own work, rather than
+// loadSubmissionForManage, which refuses them.
+submissionRouter.get(
+  "/:submissionId/student-view",
+  validateParams(submissionIdParams),
+  getMyResult,
+);
+
+// Named for what it returns rather than who asks, because a faculty member
+// checking what a student can see is a use for it too.
+submissionRouter.patch(
+  "/:submissionId/explanation",
+  requireActiveUser,
+  validateParams(submissionIdParams),
+  validateBody(explanationBody),
+  explainResult,
 );
 
 // Recording a decision about a student is at least as consequential as a

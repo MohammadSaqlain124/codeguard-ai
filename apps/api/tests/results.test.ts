@@ -559,3 +559,147 @@ describe("recording a decision", () => {
     expect(dismissed.body.total).toBe(1);
   });
 });
+
+describe("what a student may see about their own result", () => {
+  const studentView = (token: string, submission: string) =>
+    request(app).get(`/api/submissions/${submission}/student-view`).set(bearer(token));
+
+  const explain = (token: string, submission: string, explanation: string) =>
+    request(app)
+      .patch(`/api/submissions/${submission}/explanation`)
+      .set(bearer(token))
+      .send({ explanation });
+
+  /** A result with full evidence on it, optionally already decided. */
+  async function withResult(decision?: { status: string; note: string }) {
+    const seeded = await seedAssignment();
+    const submission = await makeSubmission(seeded.assignmentId, seeded.students[0]!.id);
+    // the evidence needs a real counterpart: otherSubmission and otherStudent
+    // are required on a structural match, so withEvidence alone will not save
+    const other = await makeSubmission(seeded.assignmentId, seeded.students[1]!.id);
+    await makeResult({
+      submission,
+      assignmentId: seeded.assignmentId,
+      courseId: seeded.courseId,
+      student: seeded.students[0]!.id,
+      rps: 0.91,
+      withEvidence: true,
+      otherSubmission: other,
+      otherStudent: seeded.students[1]!.id,
+    });
+    if (decision) {
+      const res = await request(app)
+        .patch(`/api/submissions/${submission}/review`)
+        .set(bearer(seeded.faculty.token))
+        .send(decision);
+      expect(res.status).toBe(200);
+    }
+    return { ...seeded, submission };
+  }
+
+  it("tells a student nothing while the review is still pending", async () => {
+    const { students, submission } = await withResult();
+
+    const res = await studentView(students[0]!.token, submission);
+
+    expect(res.status).toBe(200);
+    // a result in the queue is a ranking, not an accusation
+    expect(res.body.review).toBeNull();
+  });
+
+  it("shows the decision and the reviewer's note once one is recorded", async () => {
+    const { students, submission } = await withResult({
+      status: "escalated",
+      note: "Identical file to another submission; referred to the committee.",
+    });
+
+    const res = await studentView(students[0]!.token, submission);
+
+    expect(res.status).toBe(200);
+    expect(res.body.review.status).toBe("escalated");
+    expect(res.body.review.note).toMatch(/referred to the committee/);
+    expect(res.body.review.reviewedAt).toBeTruthy();
+  });
+
+  it("never includes the evidence, whatever is on the result", async () => {
+    const { students, submission } = await withResult({
+      status: "escalated",
+      note: "Identical file to another submission; referred to the committee.",
+    });
+
+    const res = await studentView(students[0]!.token, submission);
+
+    // A blunt search of the whole body rather than named fields, so that a
+    // field added to the schema later cannot leak through this endpoint
+    // without failing here first.
+    const body = JSON.stringify(res.body);
+    for (const leak of ["rps", "zScore", "structural", "behavioral", "similarity", "weights"]) {
+      expect(body).not.toContain(leak);
+    }
+  });
+
+  it("hides another student's result completely", async () => {
+    const { students, submission } = await withResult({
+      status: "dismissed",
+      note: "Same template as the lab notes, nothing to answer.",
+    });
+
+    const res = await studentView(students[1]!.token, submission);
+
+    // the same 404 a stranger gets, so ids cannot be probed
+    expect(res.status).toBe(404);
+  });
+
+  it("lets a student answer a recorded decision, and audits the answer", async () => {
+    const { students, submission } = await withResult({
+      status: "escalated",
+      note: "Identical file to another submission; referred to the committee.",
+    });
+
+    const res = await explain(students[0]!.token, submission, "We revised together from the lab notes.");
+
+    expect(res.status).toBe(200);
+    expect(res.body.review.studentExplanation).toMatch(/revised together/);
+    expect(res.body.audited).toBe(true);
+
+    const entries = await AuditLogModel.find({ action: "result.explained" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.actorRole).toBe("student");
+  });
+
+  it("refuses an answer while the review is still pending", async () => {
+    const { students, submission } = await withResult();
+
+    const res = await explain(students[0]!.token, submission, "Nothing has been decided yet.");
+
+    expect(res.status).toBe(409);
+  });
+
+  it("does not let an answer destroy the decision it answers", async () => {
+    const { faculty, students, submission } = await withResult({
+      status: "escalated",
+      note: "Identical file to another submission; referred to the committee.",
+    });
+
+    await explain(students[0]!.token, submission, "We revised together from the lab notes.");
+
+    const staff = await request(app)
+      .get(`/api/submissions/${submission}/result`)
+      .set(bearer(faculty.token));
+
+    expect(staff.body.result.review.status).toBe("escalated");
+    expect(staff.body.result.review.note).toMatch(/referred to the committee/);
+    expect(staff.body.result.review.studentExplanation).toMatch(/revised together/);
+  });
+
+  it("refuses to let a faculty member write in a student's name", async () => {
+    const { faculty, submission } = await withResult({
+      status: "escalated",
+      note: "Identical file to another submission; referred to the committee.",
+    });
+
+    const res = await explain(faculty.token, submission, "Writing this on the student's behalf.");
+
+    expect(res.status).toBe(404);
+  });
+});

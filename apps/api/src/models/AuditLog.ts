@@ -7,6 +7,10 @@ export const AUDIT_ACTIONS = [
   "result.escalated",
   "result.confirmed_clean",
   "result.contested",
+  // a student answering a decision taken about them. Their explanation
+  // overwrites the previous one on the result, so without this the earlier
+  // version of what they said would simply be gone.
+  "result.explained",
   // baseline integrity
   "baseline.sample_added",
   "baseline.sample_removed",

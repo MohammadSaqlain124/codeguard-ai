@@ -52,3 +52,14 @@ export const reviewBody = z
   .strict();
 
 export type ReviewBody = z.infer<typeof reviewBody>;
+
+// A student's answer to a decision recorded about them. Same floor as a
+// reviewer's note and for the same reason: an explanation of "ok" is not an
+// explanation. The ceiling matches review.studentExplanation in the schema.
+export const explanationBody = z
+  .object({
+    explanation: z.string().trim().min(10).max(2000),
+  })
+  .strict();
+
+export type ExplanationBody = z.infer<typeof explanationBody>;
