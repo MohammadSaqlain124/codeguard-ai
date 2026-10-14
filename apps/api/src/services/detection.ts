@@ -108,16 +108,30 @@ export async function runDetection(submission: SubmissionDoc) {
     // cohort. Written as zero with its sample size so nobody mistakes it
     // for a finding, rather than left absent, which the schema forbids.
     cohortZScore: 0,
+    compared: match.compared,
     spans: match.spans,
   }));
 
-  const best = matches.length > 0 ? Math.max(...matches.map((m) => m.similarity)) : 0;
+  // A pair the detector refused to score reports a similarity of 0 that means
+  // "never compared", not "compared and found unrelated". Letting one of those
+  // stand as the layer's answer would report a measurement nobody made.
+  // Absent is read as compared, which is what an older detector implies and
+  // is exactly the behaviour before this field existed.
+  const scored = analysis.matches.filter((match) => match.compared !== false);
+  const best = scored.length > 0 ? Math.max(...scored.map((m) => m.similarity)) : 0;
 
   const structural = !analysis.parsed
     ? { status: "failed" as const, reason: analysis.parseError ?? "Could not parse the submission" }
     : !analysis.compared
       ? { status: "skipped" as const, reason: "No other submissions to compare against yet" }
-      : { status: "ok" as const, score: best };
+      : scored.length === 0
+        ? {
+            status: "skipped" as const,
+            reason:
+              `${analysis.matches.length} candidates were considered and none could be scored, ` +
+              `every unit pairing being too far apart in size to compare`,
+          }
+        : { status: "ok" as const, score: best };
 
   // ---- Layer 2 ----
   let behavioural;

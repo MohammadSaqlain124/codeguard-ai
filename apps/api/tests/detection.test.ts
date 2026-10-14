@@ -194,6 +194,61 @@ describe("detection", () => {
     expect(String(result?.structural?.exactDuplicateOf)).toBe(String(first._id));
   });
 
+  it("skips the layer when every candidate was refused as uncomparable", async () => {
+    const { assignment, students } = await seed();
+    const first = await upload(assignment._id, students[0], ORIGINAL);
+    const second = await upload(assignment._id, students[1], OTHER);
+
+    // the detector looked, but every unit pairing was outside the size range
+    reply = () => ({
+      detectorVersion: "test-0.0.1",
+      parsed: true,
+      compared: true,
+      candidatesCompared: 1,
+      matches: [
+        { submissionId: String(first._id), similarity: 0, compared: false, spans: [] },
+      ],
+      durationMs: 1,
+    });
+
+    const outcome = await runDetection(second);
+
+    // a refused pair is not a measured zero, so the layer must not claim one
+    expect(outcome.structuralStatus).toBe("skipped");
+    const result = await current(second._id);
+    expect(result?.structural?.reason).toMatch(/none could be scored/);
+    expect(result?.structural?.score ?? 0).toBe(0);
+    // the peer is still recorded, so a reviewer can see who was considered
+    expect(result?.structural?.matches).toHaveLength(1);
+    expect(result?.structural?.matches?.[0]?.compared).toBe(false);
+  });
+
+  it("still scores the pairs that were compared when only some were refused", async () => {
+    const { assignment, students } = await seed();
+    const first = await upload(assignment._id, students[0], ORIGINAL);
+    const second = await upload(assignment._id, students[1], OTHER);
+    const third = await upload(assignment._id, students[2], ORIGINAL);
+
+    reply = () => ({
+      detectorVersion: "test-0.0.1",
+      parsed: true,
+      compared: true,
+      candidatesCompared: 2,
+      matches: [
+        { submissionId: String(first._id), similarity: 0, compared: false, spans: [] },
+        { submissionId: String(second._id), similarity: 0.62, compared: true, spans: [] },
+      ],
+      durationMs: 1,
+    });
+
+    const outcome = await runDetection(third);
+
+    expect(outcome.structuralStatus).toBe("ok");
+    const result = await current(third._id);
+    // 0.62 and not 0.62 averaged with a zero nobody measured
+    expect(result?.structural?.score).toBe(0.62);
+  });
+
   it("offers only each student's latest attempt as a candidate", async () => {
     const { assignment, students } = await seed();
     await upload(assignment._id, students[0], ORIGINAL);

@@ -36,6 +36,12 @@ const structuralMatchSchema = new Schema(
     cohortZScore: { type: Number, required: true },
     // which transformation level of the harness this resembles, if identifiable
     obfuscationLevel: { type: Number, min: 1, max: 6 },
+    // False when the detector never actually scored this pair. Deliberately
+    // not required: the recalibration job re-saves existing results, and a
+    // required field would make every document written before this one
+    // existed fail validation on its next save. Nothing is scored from this
+    // field, because the RPS comes from the detector's live answer.
+    compared: { type: Boolean },
     spans: { type: [spanSchema], default: [] },
   },
   { _id: false },

@@ -35,6 +35,11 @@ const spanSchema = z.object({
 const matchSchema = z.object({
   submissionId: z.string(),
   similarity: z.number().min(0).max(1),
+  // False means the detector never actually scored this pair, so its
+  // similarity of 0 is an absence. Optional rather than required, because a
+  // detector older than this field cannot say either way, and demanding it
+  // would turn a version skew into a failed analysis for every submission.
+  compared: z.boolean().optional(),
   spans: z.array(spanSchema).default([]),
 });
 
