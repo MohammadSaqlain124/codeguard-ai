@@ -1,0 +1,181 @@
+/* Hand written rather than a framework, so there is nothing to explain in a
+   viva that was not written here, and no build step beyond Vite's own. */
+
+:root {
+  --ink: #1b1b1f;
+  --muted: #6a6a76;
+  --line: #dcdce4;
+  --bg: #ffffff;
+  --flag: #f3f3f7;
+  --error: #9b1c1c;
+  --accent: #2a4bd7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+main {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+main.narrow {
+  max-width: 380px;
+}
+
+h1 {
+  font-size: 1.35rem;
+  margin: 0;
+}
+
+.bar {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.bar h1 {
+  margin-right: auto;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--error);
+}
+
+.strong {
+  font-weight: 600;
+}
+
+a {
+  color: var(--accent);
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 16px;
+}
+
+label {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+input {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+}
+
+button {
+  font: inherit;
+  padding: 8px 14px;
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--flag);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+button.link {
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+}
+
+.filters {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.chip {
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.chip.on {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+ul.plain {
+  list-style: none;
+  padding: 0;
+}
+
+ul.plain li {
+  padding: 6px 0;
+}
+
+ul.indent {
+  padding-left: 20px;
+  border-left: 2px solid var(--line);
+  margin-left: 4px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.flag {
+  display: inline-block;
+  background: var(--flag);
+  border-radius: 4px;
+  padding: 1px 7px;
+  margin: 0 4px 3px 0;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}

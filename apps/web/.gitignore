@@ -1,0 +1,8 @@
+node_modules
+dist
+# tsc -b writes these next to the configs; they are build state, not source
+*.tsbuildinfo
+# Vite reads .env.local for real values; only .env.example belongs in git
+.env.local
+.env
+*.local
