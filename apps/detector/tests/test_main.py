@@ -19,10 +19,12 @@ from app.main import (
 )
 from tests.conftest import (
     JAVA_SIMPLE,
+    PY_BIG_FUNCTION,
     PY_BROKEN,
     PY_NO_FUNCTIONS,
     PY_ORIGINAL,
     PY_RENAMED,
+    PY_TINY_FUNCTION,
     PY_TWO_FUNCTIONS,
     TEST_TOKEN,
 )
@@ -81,6 +83,23 @@ def test_an_identical_candidate_scores_one():
     assert body["candidatesCompared"] == 1
     assert body["matches"][0]["similarity"] == 1.0
     assert body["matches"][0]["submissionId"] == "c0"
+
+
+def test_a_pair_too_different_in_size_says_it_was_not_compared():
+    body = analyze(PY_TINY_FUNCTION, [PY_BIG_FUNCTION]).json()
+    # the candidate parsed, so we did look at it
+    assert body["compared"] is True
+    assert body["candidatesCompared"] == 1
+    match = body["matches"][0]
+    # but no unit pairing survived the size prune, so nothing was scored and
+    # the zero below is an absence rather than a measurement
+    assert match["compared"] is False
+    assert match["similarity"] == 0.0
+
+
+def test_a_pair_that_really_was_scored_says_so():
+    body = analyze(PY_ORIGINAL, [PY_RENAMED]).json()
+    assert body["matches"][0]["compared"] is True
 
 
 def test_a_renamed_candidate_also_scores_one():

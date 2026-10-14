@@ -100,6 +100,34 @@ y = x + 2
 print(y)
 """
 
+# A one line body against a long one. The only unit pairing between these two
+# is refused by SIZE_PRUNE_FLOOR, because no edit sequence between trees this
+# far apart in size could score above it, so the comparison never happens.
+# Written for the test that the 0.0 which comes back is an absence and says so.
+PY_TINY_FUNCTION = """\
+def pick(x):
+    return x
+"""
+
+PY_BIG_FUNCTION = """\
+def summarise(values):
+    total = 0
+    count = 0
+    biggest = None
+    for v in values:
+        if v is None:
+            continue
+        total = total + v
+        count = count + 1
+        if biggest is None:
+            biggest = v
+        elif v > biggest:
+            biggest = v
+    if count == 0:
+        return 0, None
+    return total / count, biggest
+"""
+
 PY_BROKEN = """\
 def total(numbers):
     result = 0

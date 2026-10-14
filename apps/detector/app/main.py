@@ -91,6 +91,12 @@ class Span(BaseModel):
 class Match(BaseModel):
     submissionId: str
     similarity: float = Field(ge=0, le=1)
+    # False means this pair was never actually scored: every unit pairing
+    # between the two files was refused, either for being too different in
+    # size to possibly match or for being too big to compare. The similarity
+    # is then 0 because nothing contributed to it, which is not a measured
+    # zero. Same distinction as `compared` on the response, one level down.
+    compared: bool
     spans: list[Span] = Field(default_factory=list)
 
 
@@ -254,6 +260,7 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
             Match(
                 submissionId=submission_id,
                 similarity=outcome.similarity,
+                compared=outcome.compared_pairs > 0,
                 spans=spans_for(outcome.matches),
             )
         )
