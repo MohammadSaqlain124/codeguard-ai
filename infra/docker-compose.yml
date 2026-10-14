@@ -92,6 +92,9 @@ services:
     ports:
       - "127.0.0.1:4000:4000"
     # longer than the 10s force-exit timer in server.ts, so our own timer wins
+    # see the worker service: without this, StopSignal is empty and docker
+    # compose stop waits out the grace period and SIGKILLs instead
+    stop_signal: SIGTERM
     stop_grace_period: 15s
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
@@ -144,6 +147,11 @@ services:
     # is no internal force-exit timer here as there is in server.ts, so this is
     # the only backstop: at the 10s default Docker would SIGKILL mid-analysis
     # and leave the submission stuck at "analyzing", which nothing recovers.
+    # docker inspect reported an empty StopSignal, and docker compose stop was
+    # then waiting out the whole grace period and sending SIGKILL, while an
+    # explicit SIGTERM shut the worker down in 9ms. Stated here so the stop
+    # path cannot fall through to the timeout.
+    stop_signal: SIGTERM
     stop_grace_period: 45s
 
   detector:
@@ -157,6 +165,7 @@ services:
       DETECTOR_TOKEN: ${DETECTOR_TOKEN}
     ports:
       - "127.0.0.1:8000:8000"
+    stop_signal: SIGTERM
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
