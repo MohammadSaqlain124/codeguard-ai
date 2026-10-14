@@ -28,6 +28,21 @@ const log = componentLogger("worker");
 // and more than two would fight the api, mongo and minio for one laptop
 const CONCURRENCY = 2;
 
+// How long a shutdown is allowed to take before it gives up.
+//
+// worker.close() waits for the jobs in flight, and one of those can be sitting
+// on the detector for the whole of DETECTOR_TIMEOUT_MS, so the flat 10 seconds
+// server.ts uses would cut off a perfectly healthy analysis. Five seconds on
+// top covers the mongo writes that follow the detector call. Derived rather
+// than written as a number, so raising the detector timeout cannot leave this
+// one quietly too short.
+//
+// It has to stay below stop_grace_period for the worker service in
+// infra/docker-compose.yml, which is 45s, so that this timer is what fires and
+// writes a line rather than docker sending SIGKILL with nothing recorded.
+// Raising DETECTOR_TIMEOUT_MS above 40000 means raising that too.
+const SHUTDOWN_TIMEOUT_MS = env.DETECTOR_TIMEOUT_MS + 5_000;
+
 // BullMQ blocks while waiting for work, so this connection must never
 // give up on a command. the shared client in db/redis.ts uses 3 retries.
 const connection = new Redis({
@@ -183,12 +198,38 @@ let shuttingDown = false;
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
-  log.info({ signal }, "shutting down, finishing the jobs in flight first");
-  // close() waits for active jobs instead of abandoning them half done
-  await worker.close();
-  await connection.quit();
-  await disconnectRedis();
-  await disconnectDb();
+  log.info(
+    { signal, timeoutMs: SHUTDOWN_TIMEOUT_MS },
+    "shutting down, finishing the jobs in flight first",
+  );
+
+  // A job wedged on something that never comes back would keep close()
+  // waiting for ever, which is how a worker ends up killed by docker with
+  // nothing in the log to say why. Exiting non-zero leaves the job in its
+  // active state, which is what the stalled check is for: it goes back on
+  // the queue rather than being dropped.
+  const force = setTimeout(() => {
+    log.error({ signal }, "shutdown timed out, forcing exit with jobs still in flight");
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+
+  try {
+    // close() waits for active jobs instead of abandoning them half done
+    await worker.close();
+    await connection.quit();
+    await disconnectRedis();
+    await disconnectDb();
+  } catch (err) {
+    // without this the rejection would travel back up to the signal
+    // handler, which discards it, and the timer above would be the only
+    // thing left to end the process half a minute later
+    clearTimeout(force);
+    log.error({ err, signal }, "shutdown did not finish cleanly");
+    process.exit(1);
+  }
+
+  clearTimeout(force);
+  log.info("shutdown complete");
   process.exit(0);
 }
 
