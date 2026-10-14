@@ -41,16 +41,15 @@ import random
 import statistics
 import sys
 import time
-from collections import defaultdict
 from itertools import combinations
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from common import MAX_LINES, MIN_LINES, attribute, clone_all, posix, select  # noqa: E402
+
 from app.normalise import normalise, size  # noqa: E402
 from app.parsing import parse_source  # noqa: E402
 from app.units import compare_files  # noqa: E402
-
-from common import MAX_LINES, MIN_LINES, attribute, clone_all, posix, select  # noqa: E402
 
 # The thresholds worth knowing the exceedance of. 0.5 is reviewThreshold in
 # DetectionConfig.ts, which is the one that decides signalDisagreement.
@@ -239,11 +238,11 @@ def main():
 
     classroom = results.get("same repo, different author")
     if classroom:
-        print(f"\n  The same-repository figure is the closest proxy available here for a")
-        print(f"  classroom: shared conventions, different people. Its median is")
+        print("\n  The same-repository figure is the closest proxy available here for a")
+        print("  classroom: shared conventions, different people. Its median is")
         print(f"  {classroom['med']:.4f} and its 90th percentile {classroom['p90']:.4f}.")
-        print(f"  Every pair measured solves a DIFFERENT problem, so a class set one")
-        print(f"  problem will sit higher than this. Treat it as a lower bound.")
+        print("  Every pair measured solves a DIFFERENT problem, so a class set one")
+        print("  problem will sit higher than this. Treat it as a lower bound.")
     print("\n  Quote these as measured on this corpus with this seed and this many")
     print("  pairs, and re-run with another --seed before trusting the third decimal.")
 
