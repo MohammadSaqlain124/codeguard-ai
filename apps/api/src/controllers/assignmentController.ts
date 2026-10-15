@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { componentLogger } from "../config/logger.js";
 import { AssignmentModel, SubmissionModel } from "../models/index.js";
 import { loadAssignmentFor, loadCourseFor } from "../services/access.js";
+import { recordAudit } from "../services/audit.js";
 import { AppError } from "../utils/AppError.js";
 import { skipFor } from "../validation/common.js";
 import type {
@@ -87,11 +88,44 @@ export async function updateAssignment(req: Request, res: Response) {
     }
   }
 
+  // read before set(), because after it the old value is gone
+  const provenanceBefore = assignment.provenance;
+
   assignment.set(input);
   // what really changed, not just what was sent: Mongoose ignores a value set to itself
   const changed = assignment.modifiedPaths();
   await assignment.save();
 
-  log.info({ assignmentId: assignment.id, changes: changed, by: req.user!.id }, "assignment updated");
-  res.json({ assignment });
+  // Provenance decides whether this assignment's work can anchor a student's
+  // behavioural baseline, so moving a take-home to invigilated turns ordinary
+  // homework into evidence of how that student writes. AUDIT_ACTIONS has
+  // reserved assignment.provenance_changed since File 026 and nothing had ever
+  // written one, which left the one trust-affecting edit on this route
+  // recorded in a log line and nowhere else.
+  //
+  // Only this field. A changed title or due date is not a claim about anybody,
+  // and there is no audit action for one.
+  const user = req.user!;
+  let audited: boolean | undefined;
+  if (changed.includes("provenance")) {
+    // after the save, so it cannot report a change that did not land
+    audited = await recordAudit({
+      actor: user.id,
+      actorRole: user.role,
+      action: "assignment.provenance_changed",
+      targetType: "Assignment",
+      targetId: assignment.id,
+      course: course.id,
+      changes: {
+        before: { provenance: provenanceBefore },
+        after: { provenance: assignment.provenance },
+      },
+    });
+  }
+
+  log.info(
+    { assignmentId: assignment.id, changes: changed, by: user.id, audited },
+    "assignment updated",
+  );
+  res.json({ assignment, ...(audited === undefined ? {} : { audited }) });
 }
