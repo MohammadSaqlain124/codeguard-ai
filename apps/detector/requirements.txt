@@ -1,7 +1,24 @@
-fastapi
-uvicorn[standard]
-pydantic
-tree-sitter
-tree-sitter-python
-tree-sitter-java
-apted
+# Pinned, not floating, because DETECTOR_VERSION in app/main.py promises that
+# a stored DetectionResult stays explainable later. That promise only holds if
+# the same version number means the same code, and three of these decide what
+# the code actually computes:
+#
+#   tree-sitter, tree-sitter-python, tree-sitter-java
+#       a grammar change parses the same source into a different tree
+#   apted
+#       the tree edit distance itself
+#
+# A floating minor on any of those four changes scores without changing
+# DETECTOR_VERSION, which would make an old result quietly unexplainable.
+# These are the versions the October 2026 structural floor measurements were
+# taken with, so re-running that script against these pins reproduces them.
+#
+# fastapi, uvicorn and pydantic cannot move a score. They are pinned anyway,
+# so a rebuild months from now is the same image rather than a new one.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.5
+tree-sitter==0.26.0
+tree-sitter-python==0.25.0
+tree-sitter-java==0.23.5
+apted==1.0.3
