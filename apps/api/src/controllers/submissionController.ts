@@ -20,7 +20,11 @@ import {
 } from "../storage/minio.js";
 import { AppError } from "../utils/AppError.js";
 import { skipFor } from "../validation/common.js";
-import type { ListSubmissionsQuery, NominateBody } from "../validation/submissionSchemas.js";
+import type {
+  ListSubmissionsQuery,
+  NominateBody,
+  RerunBody,
+} from "../validation/submissionSchemas.js";
 
 
 const log = componentLogger("submission");
@@ -265,4 +269,71 @@ export async function withdrawNomination(req: Request, res: Response) {
       submission.language,
     ),
   });
+}
+/**
+ * Re-runs detection on one submission.
+ *
+ * The one thing this system could not do. A result stores its detectorVersion
+ * and configVersion precisely so it can be recomputed later, and until now
+ * nothing could ask for that: a failed analysis, a submission whose enqueue
+ * was lost to a Redis blink, or a score produced by a detector bug since
+ * fixed all stayed as they were short of editing the database.
+ *
+ * The old result is not destroyed. runDetection marks the current one
+ * isCurrent: false and writes a new revision, so the superseded score stays
+ * readable at its own revision number. That is why the reason is required.
+ */
+export async function rerunDetection(req: Request, res: Response) {
+  const { submission, course } = await loadSubmissionForManage(req);
+  const user = req.user!;
+  const { reason } = req.body as RerunBody;
+
+  // The only status that refuses. analyse() in the worker writes "analyzing"
+  // before it starts and "analyzed" when it finishes, so a rerun queued in
+  // between has its status overwritten by the very run it was meant to
+  // replace, and the new job then looks like it already happened.
+  if (submission.status === "analyzing") {
+    throw AppError.conflict(
+      "This submission is being analysed right now. Try again once that finishes.",
+    );
+  }
+
+  // "uploaded" is allowed on purpose, and is the case this endpoint exists
+  // for most of all: createSubmission leaves that status behind exactly when
+  // the enqueue failed, so the file is stored and no job was ever created.
+  const before = submission.status;
+
+  // Same order as createSubmission: the status only claims "queued" once the
+  // job is really on the queue. enqueueDetection swallows a Redis failure and
+  // returns false rather than throwing, so taking its word first is what
+  // stops a submission reporting work that nobody is going to do.
+  const queued = await enqueueDetection(submission.id, "rerun");
+  if (!queued) throw AppError.dependencyUnavailable("The detection queue");
+
+  submission.status = "queued";
+  // set() rather than assignment, because clearing an optional path is the one
+  // case where mongoose and typescript disagree
+  submission.set("failureReason", undefined);
+  await submission.save();
+
+  // After the save, so it cannot report something that did not happen, and
+  // reporting its own outcome rather than throwing: see recordAudit on why a
+  // failed audit must not undo work that has already been queued.
+  const audited = await recordAudit({
+    actor: user.id,
+    actorRole: user.role,
+    action: "detection.rerun_requested",
+    targetType: "Submission",
+    targetId: submission.id,
+    course: course.id,
+    changes: { before: { status: before }, after: { status: submission.status } },
+    reason,
+  });
+
+  log.info(
+    { submissionId: submission.id, previousStatus: before, by: user.id, audited },
+    "detection rerun requested",
+  );
+
+  res.json({ submission, audited });
 }

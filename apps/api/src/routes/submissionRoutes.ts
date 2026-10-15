@@ -12,6 +12,7 @@ import {
   getSubmissionDetails,
   listSubmissions,
   nominateSubmission,
+  rerunDetection,
   withdrawNomination,
 } from "../controllers/submissionController.js";
 import { requireActiveUser, requireAuth, requireRole } from "../middleware/auth.js";
@@ -27,6 +28,7 @@ import {
 import {
   listSubmissionsQuery,
   nominateBody,
+  rerunBody,
   submissionIdParams,
 } from "../validation/submissionSchemas.js";
 
@@ -121,4 +123,16 @@ submissionRouter.delete(
   validateParams(submissionIdParams),
   validateBody(nominateBody),
   withdrawNomination,
+);
+
+// Re-running supersedes a stored score with a new revision, which is a change
+// to the record a review may already have been written against. Same guards as
+// nomination and review for that reason.
+submissionRouter.post(
+  "/:submissionId/rerun",
+  requireActiveUser,
+  requireRole("faculty", "admin"),
+  validateParams(submissionIdParams),
+  validateBody(rerunBody),
+  rerunDetection,
 );
