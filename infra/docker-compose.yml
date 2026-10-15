@@ -166,6 +166,9 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     stop_signal: SIGTERM
+    # above uvicorn's own --timeout-graceful-shutdown of 30s, so the service
+    # ends its own requests rather than being SIGKILLed partway
+    stop_grace_period: 40s
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
