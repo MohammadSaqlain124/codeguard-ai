@@ -20,8 +20,14 @@ export const AUDIT_ACTIONS = [
   // detection lifecycle
   "detection.rerun_requested",
   // access control
+  "user.created",
   "user.role_changed",
   "user.deactivated",
+  // Reactivating is its own action rather than a user.deactivated entry with
+  // isActive going the other way. The list names what somebody decided, and
+  // "deactivated" recording a restoration would read as the opposite of what
+  // happened to anyone scanning it.
+  "user.reactivated",
 ] as const;
 
 export const AUDIT_TARGETS = [
