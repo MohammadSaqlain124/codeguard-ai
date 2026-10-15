@@ -1,5 +1,6 @@
 import { Router } from "express";
 
+import { getConfig, updateConfig } from "../controllers/configController.js";
 import {
   createCourse,
   enrolStudents,
@@ -10,6 +11,7 @@ import {
 } from "../controllers/courseController.js";
 import { requireActiveUser, requireAuth, requireRole } from "../middleware/auth.js";
 import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
+import { updateConfigSchema } from "../validation/configSchemas.js";
 import {
   courseIdParams,
   createCourseSchema,
@@ -57,6 +59,18 @@ courseRouter.post(
   validateParams(courseIdParams),
   validateBody(enrolmentSchema),
   removeStudents,
+);
+
+// The detection settings. Staff only on the read as well as the write, unlike
+// every other course read: the review threshold tells a student exactly how
+// much copying stays out of the queue.
+courseRouter.get("/:courseId/config", ...staff, validateParams(courseIdParams), getConfig);
+courseRouter.patch(
+  "/:courseId/config",
+  ...staff,
+  validateParams(courseIdParams),
+  validateBody(updateConfigSchema),
+  updateConfig,
 );
 
 // assignments within a course; requireAuth above already covers them
