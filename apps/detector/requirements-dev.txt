@@ -5,6 +5,15 @@
 # from it and the image must not carry test tooling.
 -r requirements.txt
 
-pytest
-httpx
-ruff
+# Pinned for the same reason the runtime list is, and ruff most of all. A new
+# ruff minor adds lint rules, and CI runs `ruff check .` over the whole
+# detector, so an unpinned one turns the build red overnight on code nobody
+# touched. That is close to what happened on 13 October.
+#
+# httpx is held at 0.28.x deliberately. starlette's TestClient warns that
+# httpx2 is the supported pairing now; moving is a decision to take on its
+# own, with the detector's tests green before and after, not a version bump
+# that arrives by surprise during a release.
+pytest==9.1.1
+httpx==0.28.1
+ruff==0.16.6
