@@ -7,14 +7,17 @@ import {
   me,
   refresh,
   register,
+  updateUser,
 } from "../controllers/authController.js";
 import { requireActiveUser, requireAuth, requireRole } from "../middleware/auth.js";
-import { validate } from "../middleware/validate.js";
+import { validate, validateBody, validateParams } from "../middleware/validate.js";
 import {
   createUserSchema,
   loginSchema,
   refreshSchema,
   registerSchema,
+  updateUserSchema,
+  userIdParams,
 } from "../validation/authSchemas.js";
 import { loginPerEmail, loginPerIp, refreshPerIp, registerPerIp } from "../middleware/rateLimit.js";
 
@@ -37,4 +40,17 @@ authRouter.post(
   requireRole("admin"),
   validate(createUserSchema),
   createUser,
+);
+
+// Disabling an account or changing a role is the most consequential thing an
+// admin does here, so it carries the same guards as creation: re-check the
+// account in the database before the role, and the role before the body.
+authRouter.patch(
+  "/users/:userId",
+  requireAuth,
+  requireActiveUser,
+  requireRole("admin"),
+  validateParams(userIdParams),
+  validateBody(updateUserSchema),
+  updateUser,
 );

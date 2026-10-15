@@ -2,7 +2,8 @@ import type { Request, Response } from "express";
 
 import { componentLogger } from "../config/logger.js";
 import { isRefreshTokenRevoked, revokeRefreshToken } from "../db/redis.js";
-import { AuditLogModel, UserModel } from "../models/index.js";
+import { UserModel } from "../models/index.js";
+import { recordAudit, type AuditAction } from "../services/audit.js";
 import { AppError } from "../utils/AppError.js";
 import {
   signAccessToken,
@@ -15,6 +16,8 @@ import type {
   LoginInput,
   RefreshInput,
   RegisterInput,
+  UpdateUserInput,
+  UserIdParams,
 } from "../validation/authSchemas.js";
 
 const log = componentLogger("auth");
@@ -57,18 +60,118 @@ export async function createUser(req: Request, res: Response) {
   const passwordHash = await hashPassword(password);
   const user = await UserModel.create({ email, passwordHash, name, role, rollNo });
 
-  // the state change first, then the audit entry — see File 019 on transactions
-  await AuditLogModel.create({
+  // The state change first, then the audit entry — see File 019 on
+  // transactions. Through recordAudit rather than AuditLogModel.create,
+  // which is what this did until now: the account has already been created
+  // at this point, so a failed audit write threw and turned a successful
+  // creation into a 500 the caller could not undo. That is the exact failure
+  // recordAudit was written to prevent, and this was the one place in the
+  // codebase still going around it.
+  //
+  // The action is user.created, not user.role_changed. Nothing changed: an
+  // account came into existence with a role. An entry saying a role changed,
+  // with before: null, reads to anyone auditing it as a privilege escalation
+  // that never happened.
+  const audited = await recordAudit({
     actor: actor.id,
     actorRole: actor.role,
-    action: "user.role_changed",
+    action: "user.created",
     targetType: "User",
-    targetId: user._id,
-    changes: { before: null, after: { role } },
+    targetId: user.id,
+    changes: { before: null, after: { role, isActive: user.isActive } },
     reason: `Account created with role ${role}`,
   });
 
-  res.status(201).json({ user });
+  log.info({ userId: user.id, role, by: actor.id, audited }, "user created");
+  res.status(201).json({ user, audited });
+}
+
+/**
+ * Changes somebody else's role or disables their account.
+ *
+ * isActive was enforced everywhere and settable nowhere: requireActiveUser
+ * checks it on every write, login refuses on it and refresh refuses on it,
+ * and nothing in the system could ever set it to false. A departed or
+ * compromised account could not be shut off.
+ *
+ * A deactivation takes effect on the next request that passes through
+ * requireActiveUser, which re-reads the account, rather than waiting for the
+ * access token to expire.
+ */
+export async function updateUser(req: Request, res: Response) {
+  const actor = req.user!;
+  const { userId } = req.params as unknown as UserIdParams;
+  const input = req.body as UpdateUserInput;
+
+  // An admin demoting themselves or switching their own account off is the
+  // one move that can lock the last administrator out, and there would be no
+  // endpoint left to undo it with. Cheaper to refuse than to recover from.
+  if (userId === actor.id) {
+    throw AppError.forbidden("Change another administrator's account, not your own");
+  }
+
+  const user = await UserModel.findById(userId);
+  if (!user) throw AppError.notFound("User");
+
+  const before = { role: user.role, isActive: user.isActive };
+
+  if (input.isActive !== undefined) user.isActive = input.isActive;
+
+  if (input.role !== undefined && input.role !== user.role) {
+    // createUserSchema states the invariant that students have a roll number
+    // and nobody else does. A role change is the only other thing that can
+    // break it, so it is held here too rather than left to drift.
+    if (input.role === "student") {
+      const next = input.rollNo ?? user.rollNo;
+      if (!next) {
+        throw AppError.validation("A roll number is required for students", [
+          { field: "rollNo", message: "Required when the new role is student" },
+        ]);
+      }
+      user.rollNo = next;
+    } else {
+      // Nothing an admin could supply instead, and leaving it would make a
+      // faculty member who still holds a roll number.
+      user.set("rollNo", undefined);
+    }
+    user.role = input.role;
+  }
+
+  const changed = user.modifiedPaths();
+  if (changed.length === 0) {
+    // asked for exactly what is already true; nothing to write or record
+    return res.json({ user, audited: [] });
+  }
+
+  await user.save();
+  const after = { role: user.role, isActive: user.isActive };
+
+  // One entry per decision, not per request. AUDIT_ACTIONS names what somebody
+  // decided, so an admin who demotes and disables in one call made two of
+  // them and a reviewer should see both.
+  const actions: AuditAction[] = [];
+  if (changed.includes("role")) actions.push("user.role_changed");
+  if (changed.includes("isActive")) {
+    actions.push(user.isActive ? "user.reactivated" : "user.deactivated");
+  }
+
+  // After the save, so none of these can report a change that did not land.
+  const audited: AuditAction[] = [];
+  for (const action of actions) {
+    const ok = await recordAudit({
+      actor: actor.id,
+      actorRole: actor.role,
+      action,
+      targetType: "User",
+      targetId: user.id,
+      changes: { before, after },
+      reason: input.reason,
+    });
+    if (ok) audited.push(action);
+  }
+
+  log.info({ userId: user.id, changed, by: actor.id, audited }, "user updated");
+  res.json({ user, audited });
 }
 
 export async function login(req: Request, res: Response) {
