@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { ROLES } from "../models/index.js";
+import { objectId } from "./common.js";
 
 /** bcrypt silently truncates past 72 bytes, so the boundary rejects it too. */
 const MAX_PASSWORD_BYTES = 72;
@@ -76,6 +77,42 @@ export const refreshSchema = z
   .strict();
 
 export type RegisterInput = z.infer<typeof registerSchema>;
+/**
+ * What an admin may change about somebody else's account.
+ *
+ * email, name and password are absent on purpose. Changing an email changes
+ * who can sign in and is a different decision from access control; a password
+ * reset needs the account holder, not an administrator typing a new one.
+ *
+ * rollNo is accepted only to satisfy the invariant createUserSchema states:
+ * students have one and nobody else does. Promoting a student to faculty does
+ * not need it, because the only correct action there is to remove the old one.
+ */
+export const updateUserSchema = z
+  .object({
+    role: z.enum(ROLES).optional(),
+    isActive: z.boolean().optional(),
+    rollNo: rollNo.optional(),
+    // Required, in both directions. Disabling somebody's account is at least
+    // as consequential as nominating their work, and the audit entry is the
+    // only place the why survives.
+    reason: z.string().trim().min(10).max(2000),
+  })
+  .strict()
+  .refine((v) => v.role !== undefined || v.isActive !== undefined, {
+    message: "Give a role, an account status, or both",
+  })
+  .refine((v) => v.rollNo === undefined || v.role === "student", {
+    path: ["rollNo"],
+    message: "Only students have a roll number",
+  });
+
+export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+
+export const userIdParams = z.object({ userId: objectId }).strict();
+
+export type UserIdParams = z.infer<typeof userIdParams>;
+
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
