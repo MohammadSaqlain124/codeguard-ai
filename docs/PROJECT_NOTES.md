@@ -9543,3 +9543,170 @@ consequence of that thinness rather than a strength.
 - The same-problem question is still unmeasured and still unmeasurable with
   these corpora.
 - Finding 3 remains unflagged.
+
+### File 098 — The per-language config, and the carry-over File 097 opened (Day 27, 14 Oct)
+
+File 097 ended with a carry-over: *"The per-language threshold question is new
+and is a schema change, not a tuning change. It should be decided before
+Chapter 5 defends a single `w1`."* This closes it.
+
+**What was built.** `DetectionConfig` gains an `overrides` array of
+`{ language, reviewThreshold?, w1?, w2?, w3? }`, and a resolver,
+`configFor(courseId, language)`, that layers a per-language override over the
+course row over `DEFAULT_DETECTION_CONFIG`. The pre-validate hook refuses a
+second override for a language, a partial weight triple, and a triple that does
+not sum to 1 within 1e-6.
+
+**NO DEFAULT CHANGED, and that is the finding rather than an omission.** What
+the October measurement established is that the *distributions* differ: Java
+crosses 0.5 at 17.3 per cent against Python's 9.4 on honest work by different
+authors. It established nothing about what Java's threshold ought to be,
+because there is no labelled plagiarism in either corpus to optimise against.
+So the schema became capable of expressing the difference and every value
+stayed where it was. Choosing a Java threshold here would have been exactly
+the kind of unmeasured number this project has already retracted five times.
+
+**A second call site that would have gone out of step.** `eligibilityFor` in
+`anchors.ts` read `reviewThreshold` from its own `DetectionConfigModel.findOne`,
+independent of `runDetection`. Left alone, a course with a Java override of
+0.65 would have judged its review queue by 0.65 and its baseline eligibility by
+0.50, on the same rps. Both now go through `configFor`. Found by grepping for
+other readers of the config before shipping, not by a test — there is no test
+that would have caught two consistent-looking numbers disagreeing.
+
+**Still not fixed, and worth stating because an examiner may ask.**
+`eligibilityFor` compares a *stored* rps against the *current* threshold. A
+faculty member who raises the threshold after scoring retroactively changes
+which past submissions are baseline-eligible. `configVersion` is recorded on
+every result and nothing reads it back. That predates this change and is left
+open deliberately rather than widened into it.
+
+**Weights are effective, not headline.** Worth repeating here because the
+report will quote the formula: with Layer 3 absent, RPS renormalises over the
+active layers, so `0.4·s + 0.3·b` divided by 0.7 gives effective weights of
+0.571 and 0.429. The headline 0.4 / 0.3 / 0.3 are never the applied numbers.
+
+### File 099 — The shutdown that was never broken (Day 27-28, 14-15 Oct)
+
+**The symptom.** `docker compose stop worker` took 45.2 seconds, exactly the
+configured `stop_grace_period`, and the container exited 137. No shutdown lines
+in the log at all. The worker had just been given a graceful shutdown handler
+with a force-exit timer derived from `DETECTOR_TIMEOUT_MS`, and neither the
+handler nor the timer appeared to have run.
+
+**RETRACTION, of a claim made during the debugging rather than in an earlier
+file.** The conclusion drawn at the time was that the shutdown timer had
+failed and that the commit adding it claimed something unsupportable. Both
+were wrong. The handler, the timer and the teardown were all correct from the
+first commit. What had failed was signal delivery.
+
+**The decisive evidence, in the order it should have been gathered.**
+
+| test                                      | result                        |
+|-------------------------------------------|-------------------------------|
+| `cat /proc/1/comm`                        | `node` — delivery path fine   |
+| `docker compose kill --signal SIGTERM`    | shutdown in 9ms, exit 0       |
+| `docker compose stop`                     | 45.2s, exit 137               |
+| `docker inspect --format {{.Config.StopSignal}}` | empty                  |
+| after `stop_signal: SIGTERM` in compose   | 0.2s, exit 0                  |
+
+**ROOT CAUSE. `.Config.StopSignal` was empty on all three application
+containers.** Neither the image nor compose declared it, and the engine's stop
+path then waited out the grace period and sent SIGKILL rather than SIGTERM.
+`docker compose kill --signal SIGTERM` worked throughout because it names the
+signal explicitly. One line per service fixed it.
+
+**Three wrong diagnoses, recorded because the pattern is the lesson.**
+1. *The shutdown works, it will exit almost immediately.* Asserted before any
+   test. It took 45 seconds.
+2. *The timer failed, the code is wrong.* The 45.2s and exit 137 were equally
+   consistent with "SIGTERM never arrived", and that hypothesis was available
+   from the moment `kill --signal` succeeded where `stop` did not.
+3. *The base image's entrypoint is swallowing the signal.* Plausible, recited
+   from memory of `docker-entrypoint.sh`, and refuted by one command.
+
+Each time the evidence *allowed* the chosen explanation rather than requiring
+it. The useful habit is to ask which observation would distinguish two
+hypotheses, and run that, instead of elaborating the one already believed.
+
+**A near-miss worth recording.** The first clean test ran `kill --signal
+SIGTERM` 26 milliseconds after the worker reported ready, before it had settled
+into its blocking Redis read. It passed, and it proved nothing about the
+blocked case. The sleep was in the wrong place. Repeating it after 30 seconds
+of idling gave the same 9ms result, which is what made the code defensible.
+
+**Consequence for the report.** Every container had been SIGKILLed on every
+`docker compose down` since it was built. For the api that meant requests cut
+mid-flight; for the worker it would have meant a submission stranded at
+`"analyzing"`, a state nothing recovers from, since `findAnchors` only
+considers submissions marked `"analyzed"`.
+
+### File 100 — Three promises the code could not keep (Day 28, 15 Oct)
+
+Three findings, all of the same shape: a comment or a field promising something
+the surrounding code did not actually deliver. None was a crash, which is why
+none had been noticed.
+
+**FINDING 1. `DETECTOR_VERSION` promised reproducibility that unpinned
+dependencies could not give.** `app/main.py` says of it: *"Every
+DetectionResult stores it, so an old result stays explainable later."*
+`requirements.txt` pinned nothing at all — `tree-sitter`, `tree-sitter-python`,
+`tree-sitter-java` and `apted` were all floating. A grammar release parses the
+same source into a different tree, which changes the edit distance, which
+changes the similarity, all under an unchanged `DETECTOR_VERSION`. The version
+string was load-bearing and the dependency list undermined it. Now pinned to
+the versions the October structural floor measurements were taken with, so that
+script reproduces its own numbers. Worth noting: `uvloop` is absent from the
+Windows venv and present in the Linux image, so the two environments genuinely
+differ — it is the event loop and cannot touch parsing, which is why only
+direct dependencies were pinned rather than pasting a Windows-shaped freeze
+into a Linux image.
+
+**FINDING 2. `configVersion` could not distinguish the defaults from a saved
+configuration.** `configFor` returned version 1 for a course with no config
+row, and a freshly saved row is also version 1. A stored result reading
+`configVersion: 1` therefore meant either "nobody configured this course" or
+"a faculty member saved their first settings", with no way to tell. The field
+exists to answer exactly that question. Defaults now record 0, stored rows
+still start at 1, and `DetectionResult.configVersion` moved from `min: 1` to
+`min: 0` to allow it.
+
+**FINDING 3. The detector could not be shut down without losing work.** Two
+causes, compounding. `analyze` is a sync `def`, so FastAPI runs it in anyio's
+threadpool, where a running analysis cannot be cancelled. And the Dockerfile
+ran plain `uvicorn`, which waits for in-flight requests with no limit. Docker's
+grace period was the only bound and it ends in SIGKILL. Now
+`--timeout-graceful-shutdown 30`, the number taken from `DETECTOR_TIMEOUT_MS`:
+the api abandons the call at 30 seconds, so an analysis still running past that
+has no caller left listening.
+
+**What was built on top.** The detection config gained an HTTP interface, which
+it had never had — the schema was configurable and nothing could configure it.
+`GET` and `PATCH` on `/api/courses/:courseId/config`, staff only on both. The
+read is staff-only unlike every other course read, because `reviewThreshold` is
+precisely the number that would tell a student how much copying stays out of
+the queue. A student is refused with 403 by the role guard, which leaks nothing
+because it is true of every course; a faculty member who passes that guard but
+does not own the course gets 404, because a 403 there would confirm the course
+exists.
+
+**Test-harness note.** The config body is validated in zod as well as in the
+model's pre-validate hook. The hook remains the guarantee, since a seed script
+can write a config without passing through a route; the schema is what turns a
+bad body into a 400 naming the field instead of a 500 from mongoose. Both
+rules were checked against real zod across 18 cases, including
+`0.1 + 0.2 + 0.7`, which is 0.9999999999999999 and needs the epsilon.
+
+**Suite cost, for later.** 129 tests over 7 files, 130 seconds. `config.test.ts`
+alone is 20 of those for 21 tests, because its fixture signs in four users per
+test and every sign-in pays a bcrypt hash. Correct but wasteful; creating the
+users once per file would recover most of it.
+
+**CARRY-OVER.**
+- Finding 3 from the layer analysis remains unflagged.
+- The Layer 1 / Layer 2 independence question is still open and still affects
+  the RPS formula itself.
+- The same-problem corpus remains unmeasurable with the current sources.
+- `eligibilityFor` still judges a stored rps against the live threshold.
+- `server.ts` exits on an uncaught exception without flushing pino, so it can
+  still lose the line explaining why it died. `worker.ts` now flushes first.
