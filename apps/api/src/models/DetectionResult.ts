@@ -169,7 +169,11 @@ const detectionResultSchema = new Schema(
       // w2 after baseline-confidence attenuation
       effectiveW2: { ...score, required: true },
     },
-    configVersion: { type: Number, required: true, min: 1 },
+    // 0 means the course had no config row and the defaults applied. Stored
+    // rows start at 1. Without that distinction a result recording version 1
+    // could mean either, and "which settings produced this score" is the
+    // question this field exists to answer.
+    configVersion: { type: Number, required: true, min: 0 },
     detectorVersion: { type: String, required: true, trim: true, maxlength: 40 },
 
     // surfaced, not averaged away

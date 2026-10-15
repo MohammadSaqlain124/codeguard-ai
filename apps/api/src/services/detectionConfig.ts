@@ -18,7 +18,7 @@ export type EffectiveConfig = {
   minBaselineConfidence: number;
   lowVariancePercentile: number;
   minAnchorsForBaseline: number;
-  /** the course row's version, or 1 when the course is on the defaults */
+  /** the stored row's version, or 0 when the course has no row at all */
   version: number;
   /** whether a per-language override contributed anything */
   languageOverride: boolean;
@@ -60,7 +60,9 @@ export async function configFor(courseId: string, language: string): Promise<Eff
     minBaselineConfidence: base.minBaselineConfidence,
     lowVariancePercentile: base.lowVariancePercentile,
     minAnchorsForBaseline: base.minAnchorsForBaseline,
-    version: row ? row.version : 1,
+    // 0 rather than 1, so a stored result says which of the two it was:
+    // the defaults, or the first config a faculty member saved
+    version: row ? row.version : 0,
     languageOverride: Boolean(override),
   };
 }

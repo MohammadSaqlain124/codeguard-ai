@@ -356,9 +356,9 @@ describe("detection config, resolved per language", () => {
     expect(config.w1).toBe(0.4);
     expect(config.reviewThreshold).toBe(0.5);
     expect(config.languageOverride).toBe(false);
-    // a course on the defaults still reports a version, so a stored result
-    // always records which settings produced it
-    expect(config.version).toBe(1);
+    // 0, not 1: a stored result must be able to say the defaults applied,
+    // rather than looking the same as the first config a faculty member saved
+    expect(config.version).toBe(0);
   });
 
   it("applies an override only to the language it names", async () => {
