@@ -27,3 +27,16 @@ export const nominateBody = z
   .strict();
 
 export type NominateBody = z.infer<typeof nominateBody>;
+
+// Re-running detection replaces a stored result with a new revision, so the
+// reason is required for the same cause a nomination's is: the old score stays
+// in the history and somebody later has to be able to tell why it was
+// superseded. Same shape as nominateBody rather than a reuse of it, because
+// these are different decisions and only coincidentally the same fields today.
+export const rerunBody = z
+  .object({
+    reason: z.string().trim().min(10).max(2000),
+  })
+  .strict();
+
+export type RerunBody = z.infer<typeof rerunBody>;
