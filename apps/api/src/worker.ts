@@ -195,7 +195,7 @@ async function start() {
 
 let shuttingDown = false;
 
-async function shutdown(signal: string) {
+async function shutdown(signal: string, code = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info(
@@ -230,11 +230,36 @@ async function shutdown(signal: string) {
 
   clearTimeout(force);
   log.info("shutdown complete");
-  process.exit(0);
+  process.exit(code);
 }
 
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+// A rejected promise nobody awaited is not a job failing. BullMQ wraps the
+// handler, so a throw inside a job arrives as the "failed" event above and is
+// retried. Reaching here means something outside job processing broke, which
+// leaves the process in a state nobody designed for. Finish the jobs in
+// flight and leave, non-zero so the exit is not read as a clean stop.
+process.on("unhandledRejection", (reason) => {
+  log.fatal({ reason }, "unhandled rejection");
+  void shutdown("unhandledRejection", 1);
+});
+
+// No graceful path here, deliberately, and unlike the rejection above. After
+// an uncaught exception the heap holds whatever a half finished operation left
+// behind, and the teardown would write that to mongo. The jobs in flight are
+// safer abandoned: their locks expire and the stalled check puts them back on
+// the queue, where a fresh process retries them against clean state.
+//
+// flush() first because process.exit() does not wait for pino's buffer, and
+// this is the one line that explains why the worker died. server.ts has the
+// same exit without the flush, so it can still lose its own.
+process.on("uncaughtException", (err) => {
+  log.fatal({ err }, "uncaught exception");
+  log.flush();
+  process.exit(1);
+});
 
 start().catch((err) => {
   log.error({ err }, "worker failed to start");
