@@ -14,6 +14,7 @@ try {
   await ensureBucket();
 } catch (err) {
   logger.fatal({ err }, "startup failed");
+  logger.flush();
   process.exit(1);
 }
 
@@ -32,6 +33,7 @@ function shutdown(signal: string) {
 
   const force = setTimeout(() => {
     logger.error("shutdown timed out, forcing exit");
+    logger.flush();
     process.exit(1);
   }, 10_000);
 
@@ -39,12 +41,14 @@ function shutdown(signal: string) {
     clearTimeout(force);
     if (err) {
       logger.fatal({err},"error closing server:");
+      logger.flush();
       process.exit(1);
     }
     await closeQueue();
     await disconnectRedis();
     await disconnectDb();
     logger.info("shutdown complete");
+    logger.flush();
     process.exit(0);
   });
 
@@ -60,7 +64,11 @@ process.on("unhandledRejection", (reason) => {
   shutdown("unhandledRejection");
 });
 
+// flush() first, because process.exit() does not wait for pino's buffer and
+// this is the one line that explains why the api died. Same reasoning as the
+// three exits above, and as the one in worker.ts.
 process.on("uncaughtException", (err) => {
   logger.fatal({ err }, "uncaught exception");
+  logger.flush();
   process.exit(1);
 });
