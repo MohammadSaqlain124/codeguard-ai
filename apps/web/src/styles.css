@@ -179,3 +179,38 @@ th {
   font-size: 0.8rem;
   white-space: nowrap;
 }
+
+/* The evidence page stacks several sections on one screen, so they need a
+   visible boundary. Everything below is used only there. */
+
+section {
+  margin-top: 28px;
+}
+
+h2 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+  margin: 0 0 8px;
+}
+
+/* The RPS itself. Large because it is the thing a reviewer looks for first,
+   and immediately above the arithmetic that produced it. */
+.headline {
+  font-size: 1.6rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Matches input, so the decision control does not look like the one part of
+   the form nobody styled. */
+select {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  background: var(--bg);
+}
