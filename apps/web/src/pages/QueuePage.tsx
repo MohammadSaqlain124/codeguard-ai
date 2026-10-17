@@ -16,6 +16,9 @@
  * 4. Nothing here says who copied from whom. Two rows can both show a
  *    similarity of 1.000 and the system cannot tell them apart. The screen
  *    ranks and stops.
+ * 5. The footer says which rows these are, not just how many exist. It used
+ *    to read "26 results" above a list of twenty, because the request took
+ *    the API's default limit and nothing asked for the rest.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -60,6 +63,7 @@ export function QueuePage() {
   const [rows, setRows] = useState<ResultRow[] | null>(null);
   const [total, setTotal] = useState(0);
   const [filter, setFilter] = useState<ReviewStatus | "all">("all");
+  const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
 
   // useCallback so the effect below has one stable dependency rather than
@@ -69,13 +73,17 @@ export function QueuePage() {
     setError(null);
     setRows(null);
     try {
-      const page = await api.listResults(assignmentId, filter === "all" ? undefined : filter);
-      setRows(page.items);
-      setTotal(page.total);
+      const body = await api.listResults(
+        assignmentId,
+        filter === "all" ? undefined : filter,
+        page,
+      );
+      setRows(body.items);
+      setTotal(body.total);
     } catch (err) {
       setError((err as Error).message);
     }
-  }, [assignmentId, filter]);
+  }, [assignmentId, filter, page]);
 
   useEffect(() => {
     void load();
@@ -97,6 +105,10 @@ export function QueuePage() {
     };
   }, [assignmentId]);
 
+  const pages = Math.max(1, Math.ceil(total / api.QUEUE_PAGE_SIZE));
+  const first = total === 0 ? 0 : (page - 1) * api.QUEUE_PAGE_SIZE + 1;
+  const last = first === 0 ? 0 : first + (rows?.length ?? 0) - 1;
+
   return (
     <main>
       <header className="bar">
@@ -116,7 +128,12 @@ export function QueuePage() {
           <button
             key={f.value}
             className={filter === f.value ? "chip on" : "chip"}
-            onClick={() => setFilter(f.value)}
+            onClick={() => {
+              // back to the first page, or filtering while deep in a long
+              // queue lands on a page that no longer exists and shows nothing
+              setPage(1);
+              setFilter(f.value);
+            }}
           >
             {f.label}
           </button>
@@ -172,9 +189,23 @@ export function QueuePage() {
           </table>
 
           <p className="muted">
-            {total} result{total === 1 ? "" : "s"}, highest first. Nothing here is a verdict:
+            Showing {first}&ndash;{last} of {total}, highest first. Nothing here is a verdict:
             the layers rank, and a person decides.
           </p>
+
+          {pages > 1 ? (
+            <div className="filters">
+              <button className="chip" disabled={page === 1} onClick={() => setPage(page - 1)}>
+                Previous
+              </button>
+              <span className="muted">
+                Page {page} of {pages}
+              </span>
+              <button className="chip" disabled={page === pages} onClick={() => setPage(page + 1)}>
+                Next
+              </button>
+            </div>
+          ) : null}
         </>
       ) : null}
     </main>
