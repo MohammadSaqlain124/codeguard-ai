@@ -223,10 +223,20 @@ export async function listResults(assignmentId: string, reviewStatus?: ReviewSta
   return request<Paged<ResultRow>>("GET", `/api/assignments/${assignmentId}/results${query}`);
 }
 
-export async function getResult(submissionId: string) {
+/**
+ * The evidence behind one score.
+ *
+ * `revision` reads a superseded result instead of the current one. Re-running
+ * detection does not overwrite the old score, it writes a new revision and
+ * marks the previous one isCurrent: false, so the number a review was written
+ * against stays readable afterwards. `revisions` in the response lists every
+ * one that exists.
+ */
+export async function getResult(submissionId: string, revision?: number) {
+  const query = revision === undefined ? "" : `?revision=${revision}`;
   return request<{ result: ResultDetail; revisions: number[] }>(
     "GET",
-    `/api/submissions/${submissionId}/result`,
+    `/api/submissions/${submissionId}/result${query}`,
   );
 }
 
