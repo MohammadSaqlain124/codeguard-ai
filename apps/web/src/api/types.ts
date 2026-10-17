@@ -63,7 +63,10 @@ export type ResultRow = {
     reason?: string;
     score?: number;
     exactDuplicateOf?: string;
-    matches?: { otherStudent?: Person | string; similarity: number; compared?: boolean }[];
+    // One type for both endpoints. Every field the queue drops is optional on
+    // StructuralMatch anyway, and giving the detail shape its own narrower
+    // match type made the intersection below resolve back to this one.
+    matches?: StructuralMatch[];
   };
   behavioral: {
     status: LayerStatus;
@@ -72,10 +75,41 @@ export type ResultRow = {
     lowVariance?: { flagged: boolean; cohortPercentile?: number };
     cohortHealth?: { flagged: boolean; flooredFeatures?: string[] };
   };
-  review?: { status: ReviewStatus; note?: string; reviewedBy?: Person | string; reviewedAt?: string };
+  review?: {
+    status: ReviewStatus;
+    note?: string;
+    reviewedBy?: Person | string;
+    reviewedAt?: string;
+    // What the student said back. A reviewer looking at a decision should see
+    // the answer to it on the same screen, not somewhere else.
+    studentExplanation?: string;
+    explainedAt?: string;
+  };
 };
 
 export type Paged<T> = { items: T[]; page: number; limit: number; total: number };
+
+/**
+ * One pair the detector looked at.
+ *
+ * cohortZScore is the field that stops a similarity being read on its own.
+ * 0.62 means nothing until you know whether 0.62 is ordinary for this
+ * assignment, and the z-score is that comparison.
+ */
+export type StructuralMatch = {
+  otherSubmission?: string;
+  otherStudent?: Person | string;
+  similarity: number;
+  cohortZScore?: number;
+  // which transformation level of the harness this resembles, when the
+  // detector could identify one
+  obfuscationLevel?: number;
+  // false means the pair was never actually scored, which is not the same as
+  // scored and found unrelated. Absent is read as compared, because results
+  // written before the field existed have no opinion either way.
+  compared?: boolean;
+  spans?: { aStart: number; aEnd: number; bStart: number; bEnd: number }[];
+};
 
 /** One feature's deviation from the student's own baseline. */
 export type FeatureDeviation = {
@@ -96,12 +130,6 @@ export type ResultDetail = ResultRow & {
   structural: ResultRow["structural"] & {
     candidatesConsidered?: number;
     cohortSampleSize?: number;
-    matches?: {
-      otherStudent?: Person | string;
-      similarity: number;
-      compared?: boolean;
-      spans?: { aStart: number; aEnd: number; bStart: number; bEnd: number }[];
-    }[];
   };
   behavioral: ResultRow["behavioral"] & {
     anchorCount?: number;
