@@ -114,6 +114,9 @@ button.link {
   display: flex;
   gap: 8px;
   margin: 16px 0;
+  /* the pager puts plain text between two chips, and without this the text
+     stretches to the chips' height and sits at the top of it */
+  align-items: center;
 }
 
 .chip {
