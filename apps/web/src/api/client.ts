@@ -218,9 +218,28 @@ export async function getAssignment(assignmentId: string) {
   return request<{ assignment: Assignment }>("GET", `/api/assignments/${assignmentId}`);
 }
 
-export async function listResults(assignmentId: string, reviewStatus?: ReviewStatus) {
-  const query = reviewStatus ? `?reviewStatus=${reviewStatus}` : "";
-  return request<Paged<ResultRow>>("GET", `/api/assignments/${assignmentId}/results${query}`);
+/**
+ * One page of a review queue.
+ *
+ * QUEUE_PAGE_SIZE is the API's own ceiling rather than a number picked here:
+ * common.ts caps `limit` at 100 and defaults it to 20. Asking for the default
+ * was why the queue said "26 results" and listed twenty, with no way to reach
+ * the other six. A class is smaller than 100, so in practice this is one page
+ * and the controls stay hidden; the paging exists for the case where it isn't.
+ */
+export const QUEUE_PAGE_SIZE = 100;
+
+export async function listResults(
+  assignmentId: string,
+  reviewStatus?: ReviewStatus,
+  page = 1,
+) {
+  const params = new URLSearchParams({ page: String(page), limit: String(QUEUE_PAGE_SIZE) });
+  if (reviewStatus) params.set("reviewStatus", reviewStatus);
+  return request<Paged<ResultRow>>(
+    "GET",
+    `/api/assignments/${assignmentId}/results?${params.toString()}`,
+  );
 }
 
 /**
