@@ -247,16 +247,30 @@ async function seed() {
     const attenuated = confidence < 0.4;
 
     const behavioral = hasBaseline ? round2(between(0.05, 0.85)) : undefined;
-    const aiScore = round2(between(0.02, 0.94));
 
     const w1 = 0.4;
     const w2 = 0.3;
     const w3 = 0.3;
     const effectiveW2 = attenuated || !hasBaseline ? round2(w2 * (confidence / 0.4)) : w2;
-    const rps = round2(w1 * structural + effectiveW2 * (behavioral ?? 0) + w3 * aiScore);
 
-    // the layers disagree when one is high and another is near zero
-    const disagreement = aiScore > 0.75 && behavioral !== undefined && behavioral < 0.2;
+    // Renormalised over the layers that ran, the same way runDetection does
+    // it. The earlier version here summed w1*structural + w2*behavioural +
+    // w3*ai, which is not the formula the system uses and, with Layer 2
+    // skipped, produced an rps that did not equal the only score there was.
+    // The evidence page shows this arithmetic, so seeded data that does not
+    // satisfy it reads as a bug in the detector rather than in the fixture.
+    //
+    // Not rounded, deliberately: the page recomputes the contributions from
+    // the stored weights, and a rounded total would not match the sum shown
+    // beneath it.
+    const l2ok = behavioral !== undefined;
+    const activeWeight = w1 + (l2ok ? effectiveW2 : 0);
+    const rps = (w1 * structural + (l2ok ? effectiveW2 * behavioral : 0)) / activeWeight;
+
+    // Two layers that both ran and landed on opposite sides of the review
+    // threshold, which is what runDetection records. Not a comparison against
+    // a Layer 3 score, because there is no Layer 3.
+    const disagreement = l2ok && structural >= 0.5 !== behavioral >= 0.5;
 
     await DetectionResultModel.create({
       submission: s.id,
@@ -297,16 +311,15 @@ async function seed() {
             baselineConfidence: confidence,
             anchorCount: Math.floor(between(0, 3)),
           },
-      aiContent: {
-        status: "ok",
-        score: aiScore,
-        baselineModelScore: round2(Math.max(0, aiScore - between(0.05, 0.25))),
-        modelName: "codebert-base-ft-v1",
-        durationMs: Math.floor(between(1500, 3000)),
-      },
+      // What runDetection actually writes. The earlier fixture recorded
+      // status "ok" with a score and a modelName, which claimed a working
+      // Layer 3 the project does not have and has never had.
+      aiContent: { status: "skipped", reason: "Layer 3 is not implemented yet" },
       rps,
       weights: { w1, w2, w3, effectiveW2 },
-      configVersion: 1,
+      // 0 because CS-501 has no DetectionConfig row, so these results were
+      // produced by the defaults. Only CS-101 gets a saved config above.
+      configVersion: 0,
       detectorVersion: "0.3.1-seed",
       signalDisagreement: disagreement,
       totalDurationMs: Math.floor(between(2000, 5500)),
