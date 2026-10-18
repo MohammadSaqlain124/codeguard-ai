@@ -361,7 +361,7 @@ function Provenance({ result, revisions }: { result: ResultDetail; revisions: nu
         <li>
           Settings{" "}
           {result.configVersion === 0
-            ? "the course defaults"
+            ? "the built-in defaults, because nothing is saved for this course"
             : `version ${result.configVersion}, saved for this course`}
         </li>
         <li>
@@ -380,7 +380,9 @@ function ReviewPanel({
   result: ResultDetail;
   onReviewed: (next: ResultDetail) => void;
 }) {
-  const [status, setStatus] = useState<ReviewStatus>("dismissed");
+  // Starts empty on purpose. A decision goes on a student's record, so the
+  // form must not arrive with one of them already chosen.
+  const [status, setStatus] = useState<ReviewStatus | "">("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -390,7 +392,7 @@ function ReviewPanel({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (tooShort || saving) return;
+    if (!status || tooShort || saving) return;
     setSaving(true);
     setError(null);
     try {
@@ -432,8 +434,9 @@ function ReviewPanel({
         <select
           id="decision"
           value={status}
-          onChange={(e) => setStatus(e.target.value as ReviewStatus)}
+          onChange={(e) => setStatus(e.target.value as ReviewStatus | "")}
         >
+          <option value="">Choose a decision</option>
           {DECISIONS.map((d) => (
             <option key={d.value} value={d.value}>
               {d.label}
@@ -454,7 +457,7 @@ function ReviewPanel({
 
         {error ? <p className="error">{error}</p> : null}
 
-        <button type="submit" disabled={tooShort || saving}>
+        <button type="submit" disabled={!status || tooShort || saving}>
           {saving ? "Recording…" : "Record"}
         </button>
       </form>
