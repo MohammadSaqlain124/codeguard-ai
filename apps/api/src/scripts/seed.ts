@@ -235,18 +235,138 @@ async function seed() {
   const byHash = new Map<string, Types.ObjectId>();
   let flagged = 0;
 
+  // candidates come from the same assignment, the way findCandidates scopes them
+  const byAssignment = new Map<string, typeof takehomeSubs>();
+  for (const s of takehomeSubs) {
+    const key = String(s.assignment);
+    byAssignment.set(key, [...(byAssignment.get(key) ?? []), s]);
+  }
+
+  // The baseline a student is measured against. Plausible values for real
+  // Python, so the per-feature table reads like something a tool measured.
+  const BASELINES: [string, number, number][] = [
+    ["avg_line_length", 34, 4],
+    ["blank_line_ratio", 0.12, 0.03],
+    ["comment_density", 0.09, 0.03],
+    ["avg_identifier_length", 6.2, 0.8],
+    ["underscore_identifier_ratio", 0.35, 0.09],
+    ["avg_function_lines", 11, 3],
+    ["functions_per_100_lines", 7.5, 1.8],
+    ["max_block_depth", 3.1, 0.6],
+    ["avg_params_per_function", 2.1, 0.5],
+    ["for_loop_ratio", 0.45, 0.12],
+  ];
+
+  // three uniforms summed is close enough to a bell curve, and is one line
+  const normal = () => rand() + rand() + rand() - 1.5;
+
+  type Pair = {
+    other: (typeof takehomeSubs)[number];
+    similarity: number;
+    compared: boolean;
+  };
+
+  // PASS 1. Every pair is scored first, because a cohort z-score needs the
+  // cohort's distribution and that does not exist until the pairs do.
+  const pairsFor = new Map<string, Pair[]>();
+  const twinOf = new Map<string, Types.ObjectId>();
+
   for (const s of takehomeSubs) {
     const key = `${s.assignment}:${sha256(s.source)}`;
     const twin = byHash.get(key);
     byHash.set(key, s.id);
+    if (twin) twinOf.set(String(s.id), twin);
 
-    const structural = twin ? 1 : round2(between(0.08, 0.72));
+    const peers = (byAssignment.get(String(s.assignment)) ?? []).filter(
+      (p) => !p.id.equals(s.id),
+    );
+    // four is enough to look like evidence without making the page a wall
+    const sample = peers.slice(0, 4);
+
+    const pairs: Pair[] = sample.map((p, i) => {
+      const isTwin = twin !== undefined && p.id.equals(twin);
+      return {
+        other: p,
+        similarity: isTwin ? 1 : round2(between(0.08, 0.72) * (1 - i * 0.1)),
+        // Finding 4. The October measurement put the share of pairs the
+        // detector refuses to score, because every unit pairing is too far
+        // apart in size, between 5.7 and 16.4 per cent.
+        compared: isTwin ? true : rand() > 0.1,
+      };
+    });
+
+    // the twin has to be in the list, or an exact duplicate shows a score of 1
+    // with nothing to point at
+    if (twin && !pairs.some((p) => p.other.id.equals(twin))) {
+      const twinSub = peers.find((p) => p.id.equals(twin));
+      if (twinSub) pairs.unshift({ other: twinSub, similarity: 1, compared: true });
+    }
+
+    pairsFor.set(String(s.id), pairs);
+  }
+
+  // The cohort's own distribution, per assignment, over the pairs that were
+  // actually scored. A similarity read without this is a bare number.
+  const cohort = new Map<string, { mean: number; sd: number }>();
+  for (const [key, subs] of byAssignment) {
+    const scored = subs.flatMap((s) =>
+      (pairsFor.get(String(s.id)) ?? []).filter((p) => p.compared).map((p) => p.similarity),
+    );
+    const mean = scored.reduce((a, b) => a + b, 0) / Math.max(1, scored.length);
+    const variance =
+      scored.reduce((total, v) => total + (v - mean) ** 2, 0) / Math.max(1, scored.length - 1);
+    cohort.set(key, { mean, sd: Math.sqrt(variance) || 0.01 });
+  }
+
+  // PASS 2. Write the results.
+  for (const s of takehomeSubs) {
+    const pairs = pairsFor.get(String(s.id)) ?? [];
+    const twin = twinOf.get(String(s.id));
+    const { mean, sd } = cohort.get(String(s.assignment)) ?? { mean: 0, sd: 0.01 };
+
+    const matches = pairs.map((p) => ({
+      otherSubmission: p.other.id,
+      otherStudent: p.other.student,
+      similarity: p.similarity,
+      cohortZScore: p.compared ? round2((p.similarity - mean) / sd) : 0,
+      compared: p.compared,
+      // MIN_SPAN_SIMILARITY in the detector is 0.7, so weaker pairs report none
+      spans:
+        p.compared && p.similarity >= 0.7
+          ? [{ aStart: 1, aEnd: 14, bStart: 1, bEnd: 14 }]
+          : [],
+    }));
+
+    // Derived from the matches, the way runDetection derives it: the best
+    // similarity among the pairs that were actually scored. A pair nobody
+    // scored reports 0, and letting that stand as the answer would report a
+    // measurement nobody made.
+    const scored = matches.filter((m) => m.compared);
+    const structural = scored.length > 0 ? Math.max(...scored.map((m) => m.similarity)) : 0;
+
     // most students have the lab anchor; a few do not, so Layer 2 skips
     const hasBaseline = rand() > 0.15;
     const confidence = hasBaseline ? round2(between(0.45, 0.9)) : round2(between(0.05, 0.35));
     const attenuated = confidence < 0.4;
 
-    const behavioral = hasBaseline ? round2(between(0.05, 0.85)) : undefined;
+    // Features first, then the score, because that is the direction the real
+    // layer works in: score = min(1, rms(z) / Z_SATURATION), Z_SATURATION = 3.
+    // Generating a score and a table separately is how they end up disagreeing.
+    const strength = between(0.3, 2.6);
+    const features = BASELINES.map(([feature, baseMean, baseSd]) => {
+      const zScore = round2(normal() * strength);
+      return {
+        feature,
+        value: round2(baseMean + zScore * baseSd),
+        baselineMean: baseMean,
+        baselineStdDev: baseSd,
+        zScore,
+      };
+    });
+    const rms = Math.sqrt(
+      features.reduce((total, f) => total + f.zScore ** 2, 0) / features.length,
+    );
+    const behavioral = hasBaseline ? round2(Math.min(1, rms / 3)) : undefined;
 
     const w1 = 0.4;
     const w2 = 0.3;
@@ -263,14 +383,18 @@ async function seed() {
     // Not rounded, deliberately: the page recomputes the contributions from
     // the stored weights, and a rounded total would not match the sum shown
     // beneath it.
+    const l1ok = scored.length > 0;
     const l2ok = behavioral !== undefined;
-    const activeWeight = w1 + (l2ok ? effectiveW2 : 0);
-    const rps = (w1 * structural + (l2ok ? effectiveW2 * behavioral : 0)) / activeWeight;
+    const activeWeight = (l1ok ? w1 : 0) + (l2ok ? effectiveW2 : 0);
+    const rps =
+      activeWeight > 0
+        ? ((l1ok ? w1 * structural : 0) + (l2ok ? effectiveW2 * behavioral : 0)) / activeWeight
+        : 0;
 
     // Two layers that both ran and landed on opposite sides of the review
     // threshold, which is what runDetection records. Not a comparison against
     // a Layer 3 score, because there is no Layer 3.
-    const disagreement = l2ok && structural >= 0.5 !== behavioral >= 0.5;
+    const disagreement = l1ok && l2ok && structural >= 0.5 !== behavioral >= 0.5;
 
     await DetectionResultModel.create({
       submission: s.id,
@@ -278,19 +402,26 @@ async function seed() {
       course: daa._id,
       student: s.student,
       language: "python",
-      structural: twin
+      structural: l1ok
         ? {
-            status: "ok",
-            score: 1,
-            durationMs: 12,
-            exactDuplicateOf: twin,
-            candidatesConsidered: 0,
-          }
-        : {
             status: "ok",
             score: structural,
             durationMs: Math.floor(between(800, 2400)),
-            candidatesConsidered: 29,
+            exactDuplicateOf: twin,
+            candidatesConsidered: matches.length,
+            cohortSampleSize: matches.length,
+            cohortComputedAt: new Date(),
+            matches,
+          }
+        : {
+            status: "skipped",
+            reason:
+              `${matches.length} candidates were considered and none could be scored, ` +
+              `every unit pairing being too far apart in size to compare`,
+            durationMs: Math.floor(between(800, 2400)),
+            candidatesConsidered: matches.length,
+            cohortSampleSize: matches.length,
+            matches,
           },
       behavioral: hasBaseline
         ? {
@@ -299,10 +430,15 @@ async function seed() {
             durationMs: Math.floor(between(40, 180)),
             baselineConfidence: confidence,
             anchorCount: Math.floor(between(3, 6)),
+            features,
             lowVariance: {
-              flagged: rand() < 0.08,
+              // flagged only when the percentile is actually low, which is
+              // what lowVariancePercentile means. The earlier fixture drew the
+              // flag and the percentile independently, so a flagged student
+              // could sit at the 81st percentile.
+              flagged: false,
               intraStudentVariance: round2(between(0.05, 0.9)),
-              cohortPercentile: Math.floor(between(1, 99)),
+              cohortPercentile: Math.floor(between(6, 99)),
             },
           }
         : {
