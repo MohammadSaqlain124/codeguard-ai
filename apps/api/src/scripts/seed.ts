@@ -18,7 +18,19 @@ import {
 
 import { hashPassword } from "../utils/password.js";
 
-const SEED_PASSWORD = "codeguard-dev-2026";
+/**
+ * Reads a value that has to come from infra/.env. The script runs with
+ * --env-file, so an empty result means the line is missing from that file.
+ * The name is safe to print, the value is not.
+ */
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is not set. Add it to infra/.env before seeding.`);
+  }
+  return value;
+}
+
 // deterministic PRNG (mulberry32) so every teammate seeds identical data
 function makeRng(seed: number) {
   return () => {
@@ -89,7 +101,14 @@ function variantFor(i: number, tag: string) {
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 async function seed() {
-  const PLACEHOLDER_HASH = await hashPassword(SEED_PASSWORD);
+  // This script clears every collection, so it refuses to run anywhere that
+  // calls itself production rather than trusting nobody will point it at
+  // something that matters.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("refusing to seed: NODE_ENV is production and this clears every collection");
+  }
+
+  const PLACEHOLDER_HASH = await hashPassword(requiredEnv("SEED_PASSWORD"));
   await connectDb();
   await initModels();
   await clearAllCollections();
@@ -508,7 +527,8 @@ async function seed() {
   });
   console.log(`audit entries: ${top.length + 1}`);
 
-  console.log(`\nlogin (password: ${SEED_PASSWORD}):`);
+  // the name, never the value: this output gets pasted into chats and issues
+  console.log("\nlogin (password: the value of SEED_PASSWORD in infra/.env):");
   console.log(`  admin    ${admin.email}`);
   console.log(`  faculty  ${sharma.email}`);
   console.log(`  student  ${students[0].email}`);
