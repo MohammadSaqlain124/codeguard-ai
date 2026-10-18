@@ -74,6 +74,14 @@ function ScoreBreakdown({ result }: { result: ResultDetail }) {
   const b = result.behavioral?.score ?? 0;
 
   const active = (l1ok ? w.w1 : 0) + (l2ok ? w.effectiveW2 : 0);
+  // The products are shown before the division, not after it. Dividing each
+  // row first and rounding the results gave a column that did not add up to
+  // the figure above it: 0.4/0.7 and 0.099/0.7 display as 0.571 and 0.141,
+  // which sum to 0.712, while the true total rounds to 0.713. Rounding each
+  // part and then adding is not the same as adding and then rounding, and on
+  // a page whose whole argument is that the number is the sum of its parts
+  // that is the one arithmetic error that must not appear.
+  const weighted = (l1ok ? w.w1 * s : 0) + (l2ok ? w.effectiveW2 * b : 0);
 
   return (
     <section>
@@ -101,7 +109,7 @@ function ScoreBreakdown({ result }: { result: ResultDetail }) {
                 <th>Layer</th>
                 <th className="num">Weight</th>
                 <th className="num">Score</th>
-                <th className="num">Contribution</th>
+                <th className="num">Weight &times; score</th>
               </tr>
             </thead>
             <tbody>
@@ -111,7 +119,7 @@ function ScoreBreakdown({ result }: { result: ResultDetail }) {
                   {l1ok ? num(w.w1) : <span className="muted">excluded</span>}
                 </td>
                 <td className="num">{l1ok ? num(s) : "—"}</td>
-                <td className="num">{l1ok ? num((w.w1 * s) / active) : "—"}</td>
+                <td className="num">{l1ok ? num(w.w1 * s) : "—"}</td>
               </tr>
               <tr>
                 <td>
@@ -124,9 +132,7 @@ function ScoreBreakdown({ result }: { result: ResultDetail }) {
                   {l2ok ? num(w.effectiveW2) : <span className="muted">excluded</span>}
                 </td>
                 <td className="num">{l2ok ? num(b) : "—"}</td>
-                <td className="num">
-                  {l2ok ? num((w.effectiveW2 * b) / active) : "—"}
-                </td>
+                <td className="num">{l2ok ? num(w.effectiveW2 * b) : "—"}</td>
               </tr>
               <tr>
                 <td>3 — AI content</td>
@@ -136,11 +142,19 @@ function ScoreBreakdown({ result }: { result: ResultDetail }) {
                 <td className="num">—</td>
                 <td className="num">—</td>
               </tr>
+              <tr>
+                <td colSpan={3} className="num muted">
+                  Total, divided by {num(active)}, the weight of the layers that ran
+                </td>
+                <td className="num strong">{num(weighted)}</td>
+              </tr>
             </tbody>
           </table>
           <p className="muted">
-            Divided by {num(active)}, the weight of the layers that ran. A layer that is
-            excluded here contributes nothing rather than contributing zero.
+            {num(weighted)} &divide; {num(active)} = {num(result.rps)}. A layer excluded above
+            contributes nothing rather than contributing zero, which is why the divisor is
+            not 1. Everything here is shown to three decimals, so a column may be a
+            thousandth out even when the stored figures are exact.
           </p>
         </>
       )}
