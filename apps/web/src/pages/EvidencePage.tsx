@@ -51,6 +51,18 @@ function num(value: number | undefined, places = 3): string {
   return typeof value === "number" ? value.toFixed(places) : "—";
 }
 
+/**
+ * How many decimals a feature row needs for its z to be checkable by hand.
+ * The z is (value - mean) / spread, so a rounded value moves the z by the
+ * rounding error divided by the spread. A spread of 4.00 can live with two
+ * decimals; a spread of 0.03 needs four, or the arithmetic on screen does
+ * not come out to the z printed next to it.
+ */
+function placesFor(spread: number | undefined): number {
+  if (typeof spread !== "number" || spread <= 0) return 2;
+  return Math.min(4, Math.max(2, Math.ceil(-Math.log10(0.005 * spread))));
+}
+
 function when(iso: string | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -326,15 +338,18 @@ function BehaviouralLayer({ result }: { result: ResultDetail }) {
                 </tr>
               </thead>
               <tbody>
-                {features.map((f) => (
-                  <tr key={f.feature}>
-                    <td>{f.feature}</td>
-                    <td className="num">{num(f.value, 2)}</td>
-                    <td className="num">{num(f.baselineMean, 2)}</td>
-                    <td className="num">{num(f.baselineStdDev, 2)}</td>
-                    <td className="num strong">{num(f.zScore, 2)}</td>
-                  </tr>
-                ))}
+                {features.map((f) => {
+                  const p = placesFor(f.baselineStdDev);
+                  return (
+                    <tr key={f.feature}>
+                      <td>{f.feature}</td>
+                      <td className="num">{num(f.value, p)}</td>
+                      <td className="num">{num(f.baselineMean, p)}</td>
+                      <td className="num">{num(f.baselineStdDev, p)}</td>
+                      <td className="num strong">{num(f.zScore, 2)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
