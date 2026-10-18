@@ -9710,3 +9710,178 @@ users once per file would recover most of it.
 - `eligibilityFor` still judges a stored rps against the live threshold.
 - `server.ts` exits on an uncaught exception without flushing pino, so it can
   still lose the line explaining why it died. `worker.ts` now flushes first.
+
+### File 101 — Auditing the audit log (Day 28, 15 Oct)
+
+**The method, which is the part worth reusing.** `AUDIT_ACTIONS` is the list of
+state changes this system claims to record. That makes it a checklist: every
+entry in it should have exactly one place in the code that emits it, and any
+entry without an emitter is either a feature nobody built or a state change
+nobody is recording. Grepping the controllers for each of the twelve actions
+took a minute and found four problems, none of which any test could have
+caught, because a test asserts what the code does and this asks what the code
+claims.
+
+**GAP 1, the serious one. `assignment.provenance_changed` was reserved and
+never written.** `updateAssignment` can change provenance while no submissions
+exist, and recorded it in a log line only. Provenance decides whether an
+assignment's work can anchor a student's behavioural baseline, so moving a
+take-home to invigilated converts ordinary homework into evidence of how that
+student writes. That is the one trust-affecting edit on the route and it left
+no audit entry. Fixed.
+
+**GAP 2. `detection.rerun_requested` had no endpoint at all.** Nothing in the
+codebase called `enqueueDetection(id, "rerun")`. The queue has supported the
+reason since File 038 — a distinct job id, not retained after completion so the
+same submission can be re-run an hour later — and the audit action was
+reserved, and there was no route. A result stores its `detectorVersion` and
+`configVersion` precisely so it can be recomputed, and nothing could ask for
+that: a failed analysis, a submission whose enqueue was lost to a Redis blink,
+or a score produced by a since-fixed detector bug all stayed as they were short
+of editing the database. Now `POST /api/submissions/:submissionId/rerun`.
+
+Two decisions in it are worth defending. Only `analyzing` is refused, because
+the worker writes that status before it starts and `analyzed` when it finishes,
+so a rerun queued in between has its status overwritten by the very run it was
+meant to replace. And `uploaded` is deliberately allowed: that status is
+exactly what `createSubmission` leaves behind when the enqueue failed, which is
+the case the endpoint exists for most of all. The first draft refused it as
+"never analysed" and reading `createSubmission` is what corrected that.
+
+**GAP 3. `user.deactivated` had no endpoint either.** `isActive` is checked by
+`requireActiveUser` on every write, by login and by refresh, and nothing in the
+system could ever set it to false. A departed or compromised account could not
+be shut off. Now `PATCH /api/auth/users/:userId`, admin only, which also
+changes a role.
+
+**GAP 4. `user.role_changed` was firing on account creation.** `createUser`
+wrote it with `before: null` when an account came into existence with a role.
+Nothing changed, and an entry saying a role changed with no previous value
+reads to anyone auditing it as a privilege escalation that never happened. It
+is `user.created` now, which required adding that action, and `user.reactivated`
+alongside it so that restoring an account is not recorded as a deactivation
+running backwards.
+
+**A smaller finding inside GAP 4.** `createUser` called `AuditLogModel.create`
+directly rather than going through `recordAudit`. File 019 explains why that
+helper never throws: the state change has already happened when the audit is
+written, so throwing turns a completed action into a 500 the caller cannot
+undo. `createUser` was the one place in the codebase still doing the thing the
+helper exists to prevent — a failed audit write would have made a successfully
+created account look like a server error.
+
+**Decisions taken in the new endpoint.**
+- An admin cannot change their own role or disable their own account. It is the
+  one move that can lock the last administrator out, with no endpoint left to
+  undo it, and refusing is cheaper than a recovery procedure.
+- The roll-number invariant is held on a role change. `createUserSchema` states
+  that students have one and nobody else does; a role change is the only other
+  thing that can break it. Promoting a student clears it, because nothing an
+  admin could supply would be right; demoting to student requires one.
+- One audit entry per decision rather than per request, so an admin who demotes
+  and disables somebody in one call leaves two entries and a reviewer sees both.
+
+**Outcome.** Every action in `AUDIT_ACTIONS` now has exactly one emitter. That
+is a claim the viva can ask about and the code can answer.
+
+### File 102 — The screen that found four bugs (Day 30, 17 Oct)
+
+The evidence page was built, and rendering real data through it found four
+defects that 155 passing tests had not. Three of the four pre-dated the page
+entirely. That is the finding this file exists for, and it is worth stating
+plainly before the details: **a test suite asserts what somebody thought to
+ask. A screen showing real data asks everything at once.**
+
+**What the page does.** It shows the RPS as the arithmetic that produced it —
+a table of layer, weight, score and contribution, divided by the weight of the
+layers that ran — rather than as a figure. That matters because the headline
+0.4 / 0.3 / 0.3 are never the applied weights: with Layer 3 absent the score
+renormalises, and `effectiveW2` differs again when a thin baseline attenuates
+it. Every similarity is shown with its cohort z-score, because a similarity
+read alone is a bare number presented as though it meant something. Pairs the
+detector never scored say so rather than showing zero. Everything that weakens
+the number — layers disagreeing, a cohort not separating, a thin baseline,
+Finding 3's low-variance penalty — renders above the number, not below it.
+
+**BUG 1. `id` was absent from every response the API has ever sent.** The
+`serialize` plugin calls `schema.set("toJSON", { transform })`, and that
+replaces the options rather than merging into them, so `virtuals: true` was
+never set and Mongoose's `id` virtual never reached the output. All eight
+models, every endpoint, since the plugin was written.
+
+The visible failure was oblique: the courses page sat on "Loading
+assignments…" forever. `setOpenCourse(course.id)` stored `undefined`, so the
+fetch effect returned early at `if (!openCourse) return` and no request was
+ever made, while `openCourse === course.id` evaluated `undefined === undefined`
+as true and rendered the sublist anyway. No error, no request, no end. It would
+also have expanded every course at once on a second course, which one course
+hid.
+
+**Why it survived.** The tests read ids as `x.id ?? x._id`. That fallback
+exists only because `id` was missing — it is the symptom, written to make a
+test pass, and it hid the cause for weeks. The lesson is narrow and
+transferable: an unexplained workaround in a test is a question, not a
+convention. `tests/serialize.test.ts` now asserts the contract directly.
+
+**BUG 2. The demo fixture claimed a Layer 3 that does not exist.** `seed.ts`
+wrote `aiContent: { status: "ok", score, modelName: "codebert-base-ft-v1" }`
+and folded `w3 * aiScore` into the RPS as a flat weighted sum with no
+renormalisation. Layer 3 was dropped from the project; `runDetection` writes it
+as skipped. So the fixture contradicted the system, the notes and the spec at
+once, and an examiner opening the evidence page on seeded data would have seen
+an arithmetic table that did not sum to its own headline.
+
+The giveaway was visible in the queue without opening anything: a row with
+Layer 2 skipped showed Layer 1 at 0.640 and an RPS of 0.530. With one layer
+active the renormalised score must equal that layer's score exactly. Seeded
+results also recorded `configVersion: 1` for a course with no config row, which
+after File 100 means "a faculty member saved settings" rather than "the
+defaults applied".
+
+**BUG 3. The review queue silently dropped rows.** It requested the API's
+default `limit` of 20 while the footer counted every result, so "26 results"
+sat above a list of twenty with no way to reach the other six. The page size is
+now the schema's own maximum of 100 rather than a number chosen for the
+occasion, so a realistic class is one page and paging exists for when it is
+not.
+
+**BUG 4, still open. `signalDisagreement` fires on noise.** With the fixture
+corrected, ten of twenty-six rows carry the flag. `detection.ts` describes it
+as "two confident and opposite findings", and for roughly half of those rows
+that claim is false:
+
+| student      | Layer 1 | Layer 2 | flagged | distance from 0.5 |
+|--------------|---------|---------|---------|-------------------|
+| Ishita Verma | 0.500   | 0.510   | no      | 0.00 / 0.01       |
+| Devansh Das  | 0.470   | 0.520   | yes     | 0.03 / 0.02       |
+| Trisha Nair  | 0.550   | 0.420   | yes     | 0.05 / 0.08       |
+| Harsh Singh  | 0.350   | 0.500   | yes     | 0.15 / 0.00       |
+
+Ishita's layers sit 0.01 apart and agree, and are unflagged. Devansh's sit 0.05
+apart and are flagged as a disagreement. Harsh Singh is flagged with one layer
+exactly on the threshold. The flag is decided by which side of an arbitrary
+line each score lands on, not by whether the layers actually disagree, and the
+genuine cases — 1.000 against 0.280, 0.710 against 0.140 — are drowning in the
+false ones.
+
+**Not fixed, deliberately.** The obvious repair is to require both layers to
+sit some margin away from the threshold, and that margin is an unmeasured
+number. This project has retracted five of those. It needs either a decision
+that can be defended or a measurement of how often the flag fires on honest
+work, and the second would be a real contribution rather than a patch.
+
+**Verification changed too.** Frontend code had been going out typechecked
+against nothing, which is how a `body: unknown` reached a terminal on the 15th.
+There is now a harness carrying the web app's exact `tsconfig.app.json` with
+React 19.2.0, react-router-dom 7.18.4 and TypeScript 7.0.2, and the habit of
+injecting a deliberate error first to prove the file under test is really in
+the compilation before trusting a clean result.
+
+**CARRY-OVER, revised.**
+- `signalDisagreement` needs a margin, decided or measured.
+- Finding 3 remains unflagged.
+- The Layer 1 / Layer 2 independence question is still open.
+- `eligibilityFor` still judges a stored rps against the live threshold.
+- `seed.ts` calls `clearAllCollections()` with no production guard of its own,
+  relying entirely on the check inside that helper.
+- The seed password is a literal in a committed file, and the script prints it.
