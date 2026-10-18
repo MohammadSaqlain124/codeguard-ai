@@ -33,6 +33,7 @@ const rand = makeRng(20262027);
 const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)];
 const between = (lo: number, hi: number) => lo + rand() * (hi - lo);
 const round2 = (n: number) => Math.round(n * 100) / 100;
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
 const FIRST = [
   "Krishna", "Vanshika", "Trisha", "Shubham", "Priya", "Rohan", "Ananya", "Karan",
@@ -357,7 +358,13 @@ async function seed() {
       const zScore = round2(normal() * strength);
       return {
         feature,
-        value: round2(baseMean + zScore * baseSd),
+        // Four decimals, not two. The z is drawn first and the value derived
+        // from it, so rounding the value to two throws the precision away:
+        // 0.35 - 0.36 * 0.09 rounds to 0.32, which reads back as -0.33, not
+        // the -0.36 stored beside it. The evidence page prints these three
+        // numbers next to the z and a reader has to be able to get the z
+        // from them.
+        value: round4(baseMean + zScore * baseSd),
         baselineMean: baseMean,
         baselineStdDev: baseSd,
         zScore,
