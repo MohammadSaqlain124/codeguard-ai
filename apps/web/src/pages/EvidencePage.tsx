@@ -179,10 +179,21 @@ function Caveats({ result }: { result: ResultDetail }) {
   const items: string[] = [];
 
   if (result.signalDisagreement) {
+    // The old wording called this "two confident and opposite findings". The
+    // flag is a side-of-the-line test, so it fires just as readily on 0.470
+    // against 0.520, where neither layer is confident of anything. State the
+    // two scores and let the reader judge the gap instead of asserting it.
+    const s = result.structural.score;
+    const b = result.behavioral.score;
+    const scores =
+      typeof s === "number" && typeof b === "number"
+        ? `: structural ${num(s)}, behavioural ${num(b)}`
+        : "";
     items.push(
-      "The two layers landed on opposite sides of the review threshold. That is " +
-        "not a middling case, it is two confident and opposite findings, and the " +
-        "average hides it.",
+      `The two layers landed on opposite sides of the review threshold${scores}. ` +
+        "The average sits between them rather than summarising them. How far each " +
+        "one is from the threshold is what says whether this is a real split or two " +
+        "scores that happen to straddle it.",
     );
   }
   if (result.behavioral?.cohortHealth?.flagged) {
