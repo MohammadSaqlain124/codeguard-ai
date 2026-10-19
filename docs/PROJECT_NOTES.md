@@ -9885,3 +9885,122 @@ the compilation before trusting a clean result.
 - `seed.ts` calls `clearAllCollections()` with no production guard of its own,
   relying entirely on the check inside that helper.
 - The seed password is a literal in a committed file, and the script prints it.
+
+### File 103 — The page's own argument broke, and I misdiagnosed it once (Day 31, 18 Oct)
+
+File 102 claimed that a screen showing real data asks everything at once, where a
+test suite only asks what somebody thought to ask. Day 31 was that claim tested
+against itself: the same page, read harder, gave up five more defects. None came
+from the 155 tests. All five came from looking at rendered numbers.
+
+The sharpest of them was in the page's own argument.
+
+**BUG 1. The arithmetic table did not add up.** The evidence page exists to say
+"this number is the sum of these parts". It showed a contribution column of
+0.571 and 0.141 under a headline of 0.713, and 0.571 + 0.141 is 0.712. Every
+stored figure was correct. The display divided each row by the active weight
+*before* rounding it, and rounding each part and then adding is not the same
+operation as adding and then rounding.
+
+On a page whose entire thesis is that the number is the sum of its parts, that
+is the one arithmetic error that cannot appear. The table now shows weight times
+score, then a total, then a single division: 0.400 + 0.099 = 0.499, and 0.499
+divided by 0.700 is 0.713. One rounding step instead of three. Checked against
+four real rows, the old display was wrong on two of them and the new display on
+none. Vanshika Sharma's row happened to land correctly under the old code, which
+is why the screenshot taken on the 17th looked fine and hid this for a day.
+
+**BUG 2, and a wrong diagnosis of it first.** The Layer 2 feature table printed
+value, mean and spread beside a z derived from them, and on two of ten rows the
+three printed numbers did not produce the printed z: `underscore_identifier_ratio`
+showed 0.32, 0.35 and 0.09 next to a z of -0.36, when those three give -0.33.
+
+**My first answer was wrong, and worth recording as wrong.** I said the fix was
+to print more decimals, and called it a display problem. It was not. The stored
+value *is* 0.32, and (0.32 - 0.35) / 0.09 is -0.3333 regardless of how many
+decimals it is printed to. Rendering 0.3200 would have changed nothing while
+looking like a fix.
+
+The real cause was upstream in `seed.ts`, which draws the z first and derives the
+value from it: `round2(0.35 + -0.36 * 0.09)` is `round2(0.3176)`, which is 0.32.
+The precision the z needed was destroyed at write time, before the page ever saw
+the number. The seed now stores four decimals, and the page shows each row to as
+many decimals as its own spread requires, because a rounding error moves the z by
+that error divided by the spread. A spread of 4.00 still prints two decimals; a
+spread of 0.03 prints four. All ten rows now reproduce.
+
+Both halves were needed. Either alone fixes nothing. The lesson is the one this
+log keeps relearning from a different direction: when a derived number disagrees
+with its inputs, the inputs are the suspect, not the formatting.
+
+**BUG 3. The review form opened on a verdict.** `useState<ReviewStatus>("dismissed")`,
+and the Record button was enabled on note length alone. A reviewer could type a
+reason and record a dismissal without ever opening the dropdown, on a form whose
+own label reads "This goes on the student's record and into the audit log". The
+form now starts empty and Record stays disabled until a decision is chosen.
+
+This one is worth separating from the others. The first two were arithmetic a
+careful reader would catch. This was a default that would have produced wrong
+*records*, silently, in the direction of exoneration, and nothing downstream
+would ever have flagged it.
+
+**BUG 4. Provenance claimed the opposite of what it meant.** `configVersion === 0`
+means the built-in defaults applied *because no row is saved for the course* —
+that is what File 100 established. The page printed "the course defaults", which
+asserts a course-level configuration exists. Now reads "the built-in defaults,
+because nothing is saved for this course".
+
+**BUG 5. The disagreement caveat asserted confidence it has no basis for.** It
+read "that is not a middling case, it is two confident and opposite findings".
+But `signalDisagreement` is a side-of-the-line test, and it fires identically on
+Arjun Das at 1.000 against 0.330 and on Devansh Das at 0.470 against 0.520, where
+neither layer is confident of anything. The caveat now prints both scores and
+says the distance from the threshold is what decides whether the split is real.
+
+That is a partial fix and is recorded as one. It stops the page overclaiming; it
+does not stop the flag firing on boundary noise.
+
+**The seed password left the repository.** `SEED_PASSWORD` was a literal in a
+committed file in a public repository, and the script printed it on every run,
+which is how it reached a terminal, a chat transcript and this project's own
+rule about secrets at the same time. It now comes from `infra/.env` and the
+banner names the variable instead of showing the value. `seed()` also refuses to
+run when `NODE_ENV` is production, since its first action is to clear every
+collection — the carry-over File 102 left open.
+
+**That guard is untested, and is recorded as untested.** Whether `NODE_ENV=production`
+can actually reach it depends on how Node resolves a conflict between the real
+environment and `--env-file`, which was not established. A guard that cannot fire
+is worse than no guard, because it reads as protection.
+
+**Commits.** `0744e1e` seed evidence fixture · `a5147eb` products and one division ·
+`36a8d52` decision required before recording · `c3215e6` per-row feature precision ·
+`ccd696b` seed precision · `4044c3a` seed password from the environment ·
+`9af7f13` both scores instead of asserted confidence.
+
+**CARRY-OVER, revised.**
+- Closed: the seed's production guard, and the seed password as a committed literal.
+- `signalDisagreement` still fires on boundary artefacts. The banner no longer
+  overclaims, but the flag is unchanged.
+- **New, and the next thing to build:** `reviewThreshold` is not stored on
+  `DetectionResult`. Only `weights` and `configVersion` are. The page already
+  tells the reader that the weights shown are the ones stored on the result
+  rather than the current configuration, and the threshold deserves exactly the
+  same treatment and does not get it. One field closes two items: the caveat can
+  then show each layer's real distance from the line it was judged against, and
+  `eligibilityFor` stops comparing a stored rps to a threshold that may have
+  moved since.
+- The section headed "READ THIS BEFORE THE NUMBER" renders *after* the number and
+  the whole arithmetic table. The code comment on that component says "everything
+  that makes the number above less trustworthy", so the code knows it sits below
+  while the heading claims otherwise. Either it moves or it is renamed.
+- Finding 3 remains unflagged.
+- The Layer 1 / Layer 2 independence question is still open.
+- The notebooks are eighteen files behind this log.
+
+**The count that matters.** Nine defects have now been found by rendering real
+data through a screen and reading the numbers on it, four in File 102 and five
+here. Not one of the nine was found by the suite. That is not an argument against
+tests, which catch regressions in what they already cover; it is an argument that
+every one of these nine was a thing nobody had thought to assert, and that no
+amount of writing more of the same kind of test would have reached them.
