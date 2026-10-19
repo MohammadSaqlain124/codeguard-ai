@@ -1,7 +1,8 @@
 # Report plan
 
 Written 07 October 2026, Day 23, with 88 files committed and no report started.
-This is a working document: edit it rather than treating it as fixed.
+Revised 19 October 2026, Day 32, at 103 files. This is a working document: edit
+it rather than treating it as fixed.
 
 It is deliberately format-independent. Nothing here depends on whether the
 report is written in Word or LaTeX, so the writing can be planned before that
@@ -9,7 +10,43 @@ is settled.
 
 ---
 
+## Status, 19 October 2026
+
+What this plan asked to be decided has been decided, and in two places the
+answer was overtaken by work that happened afterwards. The original reasoning
+is left below unedited, because it is the reasoning that produced the choices.
+
+| question | answer | where |
+|---|---|---|
+| Word or LaTeX | LaTeX | File 092 |
+| chapter list | the nine below; Invertis prescribes none | File 092 |
+| demo: A, B or C | B was chosen and built, then A was built anyway | Files 095, 102, 103 |
+
+**The demo answer is the one worth reading twice.** Option B shipped as
+`apps/api/src/scripts/demo.ts` on 08 October. The web interface this plan said
+did not exist was then built regardless, between 14 and 18 October: login,
+courses, review queue and evidence page, in `apps/web`. So the viva has both a
+terminal walkthrough and a normal demo, and this plan's central worry — that a
+UI would eat the report's time — has partly come true in that the report is
+still the least advanced part of the project.
+
+**What changed in the chapters:** Chapter 7's "missing measurement" is no longer
+missing (File 097 measured Layer 1 across 15 Python repositories), and Chapter 6's
+test counts have moved. Both are corrected in place below. Chapter 2 remains
+untouched and is still the largest gap in the report.
+
+**What the evidence page added to Chapters 5 and 7.** Rendering real data
+through a screen found nine defects that the test suite had not, four on Day 30
+and five on Day 31, and three of the first four pre-dated the page. That is a
+testing-methodology finding rather than a frontend anecdote, and it belongs in
+Chapter 6 beside the mutation testing.
+
+---
+
 ## The thing to decide first, before any chapter is written
+
+> **RESOLVED 08 October, and partly overtaken.** Option B was chosen and built;
+> a web interface was then built as well. The section is kept for the reasoning.
 
 **There is no user interface.** `apps/` contains `api` and `detector` and
 nothing else. Every capability the system has is reachable only over HTTP.
@@ -116,8 +153,11 @@ design.
 
 **Claims:** the system is verified, and how.
 
-- **Have:** 63 API tests and 121 detector tests. The CI gate (typecheck, ruff,
-  pytest, `audit:prod`). **The mutation testing is the standout item**: 19
+- **Have:** 155 API tests as of 18 October, up from 63 when this was written.
+  The detector figure of 121 dates from File 083 and has not been re-counted;
+  confirm it before it goes in the report rather than quoting this line. The CI
+  gate (typecheck, ruff, pytest, `audit:prod`). **The mutation testing is the
+  standout item**: 19
   deliberate mutations across the detector suite, all caught, and two that were
   *not* caught first time, which found a dead code path and a missing sort
   test. Very few undergraduate reports contain anything like it.
@@ -143,10 +183,19 @@ design.
   no author signal in Python.
 - **Need:** charts rather than pasted terminal output, and a decision on how
   much of the retraction history to include (see the next section).
-- **Missing measurement:** Layer 1 has never been measured the way Layer 2 has.
-  There is no precision or recall figure for AST similarity on known-copied
-  pairs, because no labelled corpus exists. **State this as a limitation**;
-  manufacturing one now would be worse than admitting it.
+- **Layer 1, measured since this was written (File 097).** 15 Python
+  repositories, 1,989 candidate files, 466 single-author, 204 selected across 8
+  repositories and 27 authors, 100 pairs per category at seed 0 under production
+  comparison settings. Note that only 8 of the 15 repositories produced any
+  qualifying author, which is a sampling fact the chapter should state.
+- **Still missing, and still a limitation.** There is no precision or recall
+  figure for AST similarity on *known-copied* pairs, because no labelled corpus
+  exists. File 097 measured the distribution on honest work by different
+  authors, which is not the same claim. **State this as a limitation**;
+  manufacturing a labelled corpus now would be worse than admitting it.
+- **A retraction belongs here.** File 096 claimed Layer 1 similarity has a floor
+  near 0.5; File 097 retracted it. The argument assumed two trees of the same
+  shape differing only in labels, and real unrelated code differs in shape too.
 
 ### 8. Conclusion and future work
 
@@ -190,8 +239,7 @@ Both are now permanent features of a committed script.
 
 ## Suggested order of work
 
-1. **Decide the demo question** (A, B or C above). It affects nothing else in
-   the plan but it affects the calendar.
+1. ~~**Decide the demo question**~~ — done, 08 October. B built, then A built.
 2. **Literature survey** (Chapter 2). Longest lead time, and Chapters 1 and 3
    cite it.
 3. **Diagrams** (Chapter 4). They will surface design questions worth fixing
@@ -201,6 +249,13 @@ Both are now permanent features of a committed script.
    settled.
 6. **References and appendices.**
 
-The two answers still needed from Sam, neither of which blocks items 2 or 3:
-whether the report is Word or LaTeX, and whether Invertis prescribes a chapter
-list that overrides the one above.
+Both answers this plan was waiting on arrived on 08 October: the report is
+written in LaTeX, and Invertis prescribes no chapter list, so the nine above
+stand.
+
+**What actually blocks the report now, in order:** Chapter 2 is unwritten and
+nothing in the repository substitutes for it; no diagram of any kind exists; and
+4 of 13 references are verified. Items 2 and 3 of the order above have not
+started, while items 4 and 5 have been accumulating material daily. Files 096 to
+103 of `PROJECT_NOTES.md` are already most of Chapters 4 and 5 in draft form and
+need selecting and rewriting rather than researching.
