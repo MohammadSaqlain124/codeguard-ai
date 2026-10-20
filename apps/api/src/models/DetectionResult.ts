@@ -169,6 +169,16 @@ const detectionResultSchema = new Schema(
       // w2 after baseline-confidence attenuation
       effectiveW2: { ...score, required: true },
     },
+    // The threshold these scores were judged against, kept for the same reason
+    // the weights are: a result has to stay readable after the configuration
+    // moves on. It is what signalDisagreement below was decided by, and
+    // without it that flag can only be compared against whatever the setting
+    // happens to be now.
+    //
+    // Not required, and that is the honest shape rather than a concession.
+    // Results computed before this field existed have no threshold to report,
+    // and writing today's value onto them would be inventing provenance.
+    reviewThreshold: { ...score },
     // 0 means the course had no config row and the defaults applied. Stored
     // rows start at 1. Without that distinction a result recording version 1
     // could mean either, and "which settings produced this score" is the
