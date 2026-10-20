@@ -398,6 +398,11 @@ async function seed() {
     const w2 = 0.3;
     const w3 = 0.3;
     const effectiveW2 = attenuated || !hasBaseline ? round2(w2 * (confidence / 0.4)) : w2;
+    // Named rather than written twice. It decides the disagreement flag below
+    // and it is stored on the result, and those two had better be the same
+    // number or the evidence page will show a distance that does not match
+    // the flag beside it.
+    const reviewThreshold = 0.5;
 
     // Renormalised over the layers that ran, the same way runDetection does
     // it. The earlier version here summed w1*structural + w2*behavioural +
@@ -420,7 +425,8 @@ async function seed() {
     // Two layers that both ran and landed on opposite sides of the review
     // threshold, which is what runDetection records. Not a comparison against
     // a Layer 3 score, because there is no Layer 3.
-    const disagreement = l1ok && l2ok && structural >= 0.5 !== behavioral >= 0.5;
+    const disagreement =
+      l1ok && l2ok && structural >= reviewThreshold !== behavioral >= reviewThreshold;
 
     await DetectionResultModel.create({
       submission: s.id,
@@ -479,6 +485,7 @@ async function seed() {
       aiContent: { status: "skipped", reason: "Layer 3 is not implemented yet" },
       rps,
       weights: { w1, w2, w3, effectiveW2 },
+      reviewThreshold,
       // 0 because CS-501 has no DetectionConfig row, so these results were
       // produced by the defaults. Only CS-101 gets a saved config above.
       configVersion: 0,
