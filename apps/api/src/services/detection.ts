@@ -237,6 +237,8 @@ export async function runDetection(submission: SubmissionDoc) {
 
     rps,
     weights: { w1: config.w1, w2: config.w2, w3: config.w3, effectiveW2 },
+    // the threshold signalDisagreement below was decided against
+    reviewThreshold: config.reviewThreshold,
     configVersion,
     detectorVersion: analysis.detectorVersion,
     signalDisagreement,
