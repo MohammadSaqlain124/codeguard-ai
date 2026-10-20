@@ -185,16 +185,33 @@ function Caveats({ result }: { result: ResultDetail }) {
     // two scores and let the reader judge the gap instead of asserting it.
     const s = result.structural.score;
     const b = result.behavioral.score;
-    const scores =
-      typeof s === "number" && typeof b === "number"
-        ? `: structural ${num(s)}, behavioural ${num(b)}`
-        : "";
-    items.push(
-      `The two layers landed on opposite sides of the review threshold${scores}. ` +
-        "The average sits between them rather than summarising them. How far each " +
-        "one is from the threshold is what says whether this is a real split or two " +
-        "scores that happen to straddle it.",
-    );
+    const t = result.reviewThreshold;
+
+    if (typeof s === "number" && typeof b === "number" && typeof t === "number") {
+      // The distances, not just the scores. Both of these are the same flag:
+      // 1.000 against 0.330, and 0.510 against 0.490. Only the distance from
+      // the line separates them, and no verdict is offered on which this is,
+      // because the margin that would decide it has never been measured.
+      const side = (v: number) => (v >= t ? "above" : "below");
+      items.push(
+        `The two layers landed on opposite sides of the review threshold ${num(t)}. ` +
+          `Structural ${num(s)} is ${num(Math.abs(s - t))} ${side(s)} it; ` +
+          `behavioural ${num(b)} is ${num(Math.abs(b - t))} ${side(b)} it. ` +
+          "Two scores that straddle the line narrowly are not the same finding " +
+          "as two that are far from it, and this flag does not tell them apart.",
+      );
+    } else {
+      const scores =
+        typeof s === "number" && typeof b === "number"
+          ? `: structural ${num(s)}, behavioural ${num(b)}`
+          : "";
+      items.push(
+        `The two layers landed on opposite sides of the review threshold${scores}. ` +
+          "The threshold itself is not recorded on this result, so the distances " +
+          "cannot be shown here, and the setting in force today would be a guess " +
+          "rather than what this result was judged against.",
+      );
+    }
   }
   if (result.behavioral?.cohortHealth?.flagged) {
     const floored = result.behavioral.cohortHealth.flooredFeatures ?? [];
@@ -389,6 +406,12 @@ function Provenance({ result, revisions }: { result: ResultDetail; revisions: nu
           {result.configVersion === 0
             ? "the built-in defaults, because nothing is saved for this course"
             : `version ${result.configVersion}, saved for this course`}
+        </li>
+        <li>
+          Review threshold{" "}
+          {typeof result.reviewThreshold === "number"
+            ? num(result.reviewThreshold)
+            : "not recorded on this result"}
         </li>
         <li>
           Revision {result.revision} of {revisions.length}
