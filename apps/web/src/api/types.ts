@@ -123,6 +123,10 @@ export type FeatureDeviation = {
 /** The detail endpoint returns everything the queue row drops. */
 export type ResultDetail = ResultRow & {
   weights: { w1: number; w2: number; w3: number; effectiveW2: number };
+  // Absent on results computed before the field existed. The page says so
+  // rather than falling back to the current setting, which would be a guess
+  // presented as provenance.
+  reviewThreshold?: number;
   configVersion: number;
   detectorVersion: string;
   language: Language;
