@@ -1,40 +1,151 @@
 /* Hand written rather than a framework, so there is nothing to explain in a
-   viva that was not written here, and no build step beyond Vite's own. */
+   viva that was not written here, and no build step beyond Vite's own.
+
+   The palette is dark because this interface is built around depth: layers
+   that sit at different distances and move at different rates. Depth needs
+   something to recede into, and white has nowhere to go. */
 
 :root {
-  --ink: #1b1b1f;
-  --muted: #6a6a76;
-  --line: #dcdce4;
-  --bg: #ffffff;
-  --flag: #f3f3f7;
-  --error: #9b1c1c;
-  --accent: #2a4bd7;
+  /* three background planes, furthest first */
+  --void: #07080f;
+  --deep: #0c0f1c;
+  --panel: rgba(22, 26, 44, 0.58);
+  --panel-edge: rgba(150, 170, 255, 0.14);
+
+  --ink: #e8eaf4;
+  --muted: #8f96b4;
+  --line: rgba(150, 170, 255, 0.16);
+  --bg: var(--void);
+
+  --accent: #7aa2ff;
+  --accent-deep: #3b5bdb;
+  --on-accent: #070a16;
+  --flag: rgba(122, 162, 255, 0.11);
+  --error: #ff8080;
+
+  /* written by SpatialBackground on every pointer move, read by the panels
+     below. Keeping the maths in one place means a panel only has to say how
+     far it leans, not how to work it out. */
+  --tilt-x: 0;
+  --tilt-y: 0;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
 body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--ink);
-  font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  min-height: 100%;
 }
 
+body {
+  margin: 0;
+  background: var(--void);
+  color: var(--ink);
+  font: 15px/1.6 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  /* the fixed layers below paint outside the flow, so the page itself must
+     not paint over them */
+  background-attachment: fixed;
+}
+
+/* ---------------------------------------------------------- depth layers */
+
+/* Both of these are mounted once, by SpatialBackground, and never scroll.
+   pointer-events: none matters: without it the canvas would swallow every
+   click on the page behind it. */
+.layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.starfield {
+  /* the canvas sits above the aurora so the near stars read as nearer */
+  z-index: 1;
+}
+
+/* Three coloured clouds on the furthest plane. Each is a radial gradient
+   larger than the screen, so the soft edge is always off screen and the eye
+   never finds the boundary. */
+.aurora i {
+  position: absolute;
+  display: block;
+  width: 80vmax;
+  height: 80vmax;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.5;
+  will-change: transform;
+}
+
+.aurora i:nth-child(1) {
+  background: radial-gradient(circle, rgba(59, 91, 219, 0.5), transparent 62%);
+  top: -34vmax;
+  left: -22vmax;
+  animation: drift-a 34s ease-in-out infinite;
+}
+
+.aurora i:nth-child(2) {
+  background: radial-gradient(circle, rgba(126, 58, 182, 0.42), transparent 62%);
+  bottom: -40vmax;
+  right: -24vmax;
+  animation: drift-b 46s ease-in-out infinite;
+}
+
+.aurora i:nth-child(3) {
+  background: radial-gradient(circle, rgba(22, 125, 150, 0.34), transparent 62%);
+  top: 24vmax;
+  right: 6vmax;
+  animation: drift-c 58s ease-in-out infinite;
+}
+
+@keyframes drift-a {
+  50% {
+    transform: translate3d(9vmax, 6vmax, 0) scale(1.14);
+  }
+}
+
+@keyframes drift-b {
+  50% {
+    transform: translate3d(-11vmax, -5vmax, 0) scale(1.09);
+  }
+}
+
+@keyframes drift-c {
+  50% {
+    transform: translate3d(-7vmax, 9vmax, 0) scale(0.9);
+  }
+}
+
+/* The evidence page asks a reader to check arithmetic by hand. Nothing
+   behind that table is allowed to move, so the quiet class stops the clouds
+   and SpatialBackground stops the canvas. Colour and depth stay. */
+body.quiet .aurora i {
+  animation: none;
+}
+
+/* ------------------------------------------------------------- the page */
+
 main {
+  position: relative;
+  z-index: 2;
   max-width: 1000px;
   margin: 0 auto;
-  padding: 24px 16px 64px;
+  padding: 32px 16px 96px;
 }
 
 main.narrow {
-  max-width: 380px;
+  max-width: 400px;
+  /* the sign in card belongs in the middle of the void, not at the top */
+  margin-top: 8vh;
 }
 
 h1 {
-  font-size: 1.35rem;
+  font-size: 1.5rem;
   margin: 0;
+  letter-spacing: -0.01em;
 }
 
 .bar {
@@ -42,7 +153,7 @@ h1 {
   align-items: baseline;
   gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 4px;
+  margin-bottom: 20px;
 }
 
 .bar h1 {
@@ -63,7 +174,85 @@ h1 {
 
 a {
   color: var(--accent);
+  text-decoration-color: rgba(122, 162, 255, 0.35);
 }
+
+a:hover {
+  text-decoration-color: currentColor;
+}
+
+/* ------------------------------------------------- panels, the near plane */
+
+/* Everything the reader acts on sits on glass: a translucent sheet lifted
+   off the background, leaning very slightly toward the pointer. The lean is
+   two degrees at most, because a panel that visibly rotates stops being a
+   surface and starts being an effect. */
+section,
+main.narrow form {
+  position: relative;
+  margin-top: 24px;
+  padding: 20px 22px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 14px;
+  background: var(--panel);
+  backdrop-filter: blur(14px) saturate(120%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 18px 50px -24px rgba(0, 0, 0, 0.9);
+  transform: perspective(900px) rotateY(calc(var(--tilt-x) * 1.6deg))
+    rotateX(calc(var(--tilt-y) * -1.6deg));
+  transform-style: preserve-3d;
+  transition: transform 220ms ease-out;
+}
+
+/* The idle float. Staggered so the panels do not breathe in unison, which
+   reads as a single moving block rather than separate objects. */
+body:not(.quiet) section {
+  animation: float 9s ease-in-out infinite;
+}
+
+body:not(.quiet) section:nth-of-type(2n) {
+  animation-duration: 11s;
+  animation-delay: -3s;
+}
+
+body:not(.quiet) section:nth-of-type(3n) {
+  animation-duration: 13s;
+  animation-delay: -6s;
+}
+
+@keyframes float {
+  50% {
+    translate: 0 -6px;
+  }
+}
+
+/* Sections arrive as they are scrolled to. The starting state is only
+   applied when the browser supports the trigger, so a browser without it
+   shows the content rather than hiding it forever. */
+@supports (animation-timeline: view()) {
+  body:not(.quiet) section {
+    opacity: 0;
+    animation:
+      float 9s ease-in-out infinite,
+      rise linear both;
+    animation-timeline: auto, view();
+    animation-range: normal, entry 0% cover 28%;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    translate: 0 28px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+/* ------------------------------------------------------------- controls */
 
 form {
   display: flex;
@@ -73,30 +262,63 @@ form {
 }
 
 label {
-  margin-top: 8px;
+  margin-top: 10px;
   font-size: 0.85rem;
   color: var(--muted);
 }
 
-input {
-  padding: 8px 10px;
+input,
+select {
+  padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 8px;
   font: inherit;
+  color: var(--ink);
+  background: rgba(9, 12, 24, 0.6);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(122, 162, 255, 0.18);
+}
+
+input[type="file"] {
+  padding: 8px 10px;
+  color: var(--muted);
 }
 
 button {
   font: inherit;
-  padding: 8px 14px;
-  margin-top: 16px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--flag);
+  padding: 10px 18px;
+  margin-top: 18px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 999px;
+  color: var(--ink);
+  background: linear-gradient(180deg, rgba(122, 162, 255, 0.22), rgba(59, 91, 219, 0.16));
   cursor: pointer;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  box-shadow: 0 10px 24px -12px rgba(122, 162, 255, 0.7);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 button:disabled {
-  opacity: 0.6;
+  opacity: 0.45;
   cursor: default;
 }
 
@@ -108,33 +330,44 @@ button.link {
   color: var(--accent);
   cursor: pointer;
   text-align: left;
+  border-radius: 0;
+}
+
+button.link:hover:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+  text-decoration: underline;
 }
 
 .filters {
   display: flex;
   gap: 8px;
   margin: 16px 0;
-  /* the pager puts plain text between two chips, and without this the text
-     stretches to the chips' height and sits at the top of it */
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .chip {
   margin: 0;
-  padding: 4px 12px;
+  padding: 5px 14px;
   border-radius: 999px;
   font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .chip.on {
-  background: var(--ink);
-  color: #fff;
-  border-color: var(--ink);
+  background: linear-gradient(180deg, var(--accent), var(--accent-deep));
+  color: var(--on-accent);
+  border-color: var(--accent);
+  font-weight: 600;
 }
+
+/* --------------------------------------------------------------- content */
 
 ul.plain {
   list-style: none;
   padding: 0;
+  margin: 0;
 }
 
 ul.plain li {
@@ -156,15 +389,23 @@ table {
 th,
 td {
   text-align: left;
-  padding: 8px 10px;
+  padding: 9px 10px;
   border-bottom: 1px solid var(--line);
   vertical-align: top;
 }
 
+tbody tr {
+  transition: background 140ms ease;
+}
+
+tbody tr:hover {
+  background: rgba(122, 162, 255, 0.06);
+}
+
 th {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   color: var(--muted);
 }
 
@@ -176,44 +417,59 @@ th {
 .flag {
   display: inline-block;
   background: var(--flag);
-  border-radius: 4px;
-  padding: 1px 7px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  padding: 2px 8px;
   margin: 0 4px 3px 0;
   font-size: 0.8rem;
   white-space: nowrap;
 }
 
-/* The evidence page stacks several sections on one screen, so they need a
-   visible boundary. Everything below is used only there. */
-
 section {
-  margin-top: 28px;
+  margin-top: 24px;
 }
 
 h2 {
-  font-size: 1rem;
+  font-size: 0.95rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   color: var(--muted);
   border-bottom: 1px solid var(--line);
-  padding-bottom: 4px;
-  margin: 0 0 8px;
+  padding-bottom: 6px;
+  margin: 0 0 12px;
 }
 
 /* The RPS itself. Large because it is the thing a reviewer looks for first,
    and immediately above the arithmetic that produced it. */
 .headline {
-  font-size: 1.6rem;
+  font-size: 2rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, #ffffff, #9db6ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
-/* Matches input, so the decision control does not look like the one part of
-   the form nobody styled. */
-select {
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  font: inherit;
-  background: var(--bg);
+/* ------------------------------------------------------------ restraint */
+
+/* Someone who has asked their system for less movement gets none of it. The
+   layers stay, because colour and depth are not motion, but nothing drifts,
+   floats, rises or leans. */
+@media (prefers-reduced-motion: reduce) {
+  .aurora i,
+  body:not(.quiet) section {
+    animation: none !important;
+  }
+
+  section,
+  main.narrow form {
+    transform: none;
+    transition: none;
+    opacity: 1;
+  }
+
+  button:hover:not(:disabled) {
+    transform: none;
+  }
 }
