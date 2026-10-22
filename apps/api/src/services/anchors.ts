@@ -135,10 +135,24 @@ export async function eligibilityFor(submissionId: string): Promise<Eligibility>
   // eligibility by another, on the same rps.
   const config = await configFor(String(assignment.course), assignment.language);
 
-  if (result.rps >= config.reviewThreshold) {
+  // Judge the stored score against the threshold it was actually judged under,
+  // not whatever is configured today. The evidence page shows the stored one,
+  // so a result a reviewer has just read as "not flagged" must not be refused
+  // here as flagged. Lowering a course threshold would otherwise reclassify
+  // past work for anchoring purposes with nobody told.
+  //
+  // Results computed before the result carried its own threshold have only the
+  // live value to go on. That is a fallback rather than the same answer, so the
+  // reason says which number was applied instead of presenting both alike.
+  const judgedAt =
+    typeof result.reviewThreshold === "number" ? result.reviewThreshold : undefined;
+  const threshold = judgedAt ?? config.reviewThreshold;
+  const whose = judgedAt === undefined ? ", the setting in force now, because this result recorded none" : "";
+
+  if (result.rps >= threshold) {
     return {
       eligible: false,
-      reason: `Layer 1 flagged it, rps ${result.rps.toFixed(4)} against a threshold of ${config.reviewThreshold}`,
+      reason: `Layer 1 flagged it, rps ${result.rps.toFixed(4)} against a threshold of ${threshold}${whose}`,
     };
   }
 
