@@ -79,7 +79,18 @@ export function CoursesPage() {
                 {!assignments ? <li className="muted">Loading assignments…</li> : null}
                 {assignments?.map((a) => (
                   <li key={a.id}>
-                    <Link to={`/assignments/${a.id}/queue`}>{a.title}</Link>
+                    {/* A student reaching the queue is refused by RequireRole,
+                        so every assignment on this page used to be a dead end
+                        for them. Send each role where it is allowed to go. */}
+                    <Link
+                      to={
+                        user?.role === "student"
+                          ? `/assignments/${a.id}/submit`
+                          : `/assignments/${a.id}/queue`
+                      }
+                    >
+                      {a.title}
+                    </Link>
                     <span className="muted">
                       {" "}
                       {a.language} · {a.provenance}
