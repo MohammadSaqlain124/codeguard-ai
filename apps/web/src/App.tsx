@@ -12,6 +12,7 @@ import { CoursesPage } from "./pages/CoursesPage";
 import { EvidencePage } from "./pages/EvidencePage";
 import { LoginPage } from "./pages/LoginPage";
 import { QueuePage } from "./pages/QueuePage";
+import { SubmitPage } from "./pages/SubmitPage";
 
 export function App() {
   return (
@@ -23,6 +24,16 @@ export function App() {
         element={
           <RequireRole roles={["student", "faculty", "admin"]}>
             <CoursesPage />
+          </RequireRole>
+        }
+      />
+
+      {/* students only: faculty and admin do not submit work */}
+      <Route
+        path="/assignments/:assignmentId/submit"
+        element={
+          <RequireRole roles={["student"]}>
+            <SubmitPage />
           </RequireRole>
         }
       />
