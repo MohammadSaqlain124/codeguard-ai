@@ -8,6 +8,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { RequireRole } from "./auth/RequireRole";
+import { SpatialBackground } from "./components/SpatialBackground";
 import { CoursesPage } from "./pages/CoursesPage";
 import { EvidencePage } from "./pages/EvidencePage";
 import { LoginPage } from "./pages/LoginPage";
@@ -16,47 +17,53 @@ import { SubmitPage } from "./pages/SubmitPage";
 
 export function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
+    <>
+      {/* mounted here rather than per page, so it survives navigation and the
+          stars do not restart every time a route changes */}
+      <SpatialBackground />
 
-      <Route
-        path="/"
-        element={
-          <RequireRole roles={["student", "faculty", "admin"]}>
-            <CoursesPage />
-          </RequireRole>
-        }
-      />
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
 
-      {/* students only: faculty and admin do not submit work */}
-      <Route
-        path="/assignments/:assignmentId/submit"
-        element={
-          <RequireRole roles={["student"]}>
-            <SubmitPage />
-          </RequireRole>
-        }
-      />
+        <Route
+          path="/"
+          element={
+            <RequireRole roles={["student", "faculty", "admin"]}>
+              <CoursesPage />
+            </RequireRole>
+          }
+        />
 
-      <Route
-        path="/assignments/:assignmentId/queue"
-        element={
-          <RequireRole roles={["faculty", "admin"]}>
-            <QueuePage />
-          </RequireRole>
-        }
-      />
+        {/* students only: faculty and admin do not submit work */}
+        <Route
+          path="/assignments/:assignmentId/submit"
+          element={
+            <RequireRole roles={["student"]}>
+              <SubmitPage />
+            </RequireRole>
+          }
+        />
 
-      <Route
-        path="/submissions/:submissionId/evidence"
-        element={
-          <RequireRole roles={["faculty", "admin"]}>
-            <EvidencePage />
-          </RequireRole>
-        }
-      />
+        <Route
+          path="/assignments/:assignmentId/queue"
+          element={
+            <RequireRole roles={["faculty", "admin"]}>
+              <QueuePage />
+            </RequireRole>
+          }
+        />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route
+          path="/submissions/:submissionId/evidence"
+          element={
+            <RequireRole roles={["faculty", "admin"]}>
+              <EvidencePage />
+            </RequireRole>
+          }
+        />
+
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   );
 }
