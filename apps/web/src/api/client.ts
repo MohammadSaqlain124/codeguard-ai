@@ -16,6 +16,7 @@ import type {
   Assignment,
   Course,
   Paged,
+  Role,
   ResultDetail,
   ResultRow,
   ReviewStatus,
@@ -308,4 +309,38 @@ export async function register(input: {
   });
   if (body.tokens) saveTokens(body.tokens);
   return body.user;
+}
+
+
+/* ------------------------------------------------------------- accounts */
+
+/** Admin only. Names every account in the institution, so the API guards it. */
+export async function listUsers(
+  params: { role?: Role; active?: boolean; q?: string; page?: number } = {},
+) {
+  const qs = new URLSearchParams();
+  if (params.role) qs.set("role", params.role);
+  if (params.active !== undefined) qs.set("active", String(params.active));
+  if (params.q) qs.set("q", params.q);
+  qs.set("page", String(params.page ?? 1));
+  return request<Paged<User>>("GET", `/api/auth/users?${qs.toString()}`);
+}
+
+/** The one route where choosing a role is the point. Admin only. */
+export async function createUser(input: {
+  email: string;
+  password: string;
+  name: string;
+  role: Role;
+  rollNo?: string;
+}) {
+  return request<{ user: User }>("POST", "/api/auth/users", { json: input });
+}
+
+/** A reason is required by the schema, in both directions. */
+export async function updateUser(
+  userId: string,
+  changes: { role?: Role; isActive?: boolean; rollNo?: string; reason: string },
+) {
+  return request<{ user: User }>("PATCH", `/api/auth/users/${userId}`, { json: changes });
 }
