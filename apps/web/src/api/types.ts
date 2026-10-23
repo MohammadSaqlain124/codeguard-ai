@@ -143,3 +143,23 @@ export type ResultDetail = ResultRow & {
     cohortMeanShift?: number;
   };
 };
+
+/**
+ * A submission as listSubmissions returns it. Every field here is written by
+ * createSubmission, so none of it is a guess. `student` is populated with
+ * name and rollNo only, and a student listing their own work sees only
+ * themselves whatever they ask for.
+ */
+export type Submission = {
+  id: string;
+  attempt: number;
+  status: string;
+  language: Language;
+  originalFilename: string;
+  sizeBytes: number;
+  lineCount: number;
+  submittedAt: string;
+  isLate: boolean;
+  provenance: Provenance;
+  student?: Person | string;
+};

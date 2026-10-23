@@ -13,7 +13,7 @@ import type { Assignment, Course } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
 
 export function CoursesPage() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const [courses, setCourses] = useState<Course[] | null>(null);
   const [openCourse, setOpenCourse] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
@@ -55,12 +55,6 @@ export function CoursesPage() {
     <main>
       <header className="bar">
         <h1>Courses</h1>
-        <span className="muted">
-          {user?.name} · {user?.role}
-        </span>
-        <button className="link" onClick={() => void signOut()}>
-          Sign out
-        </button>
       </header>
 
       {error ? <p className="error">{error}</p> : null}

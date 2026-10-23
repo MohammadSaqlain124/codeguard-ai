@@ -11,7 +11,6 @@ import { Link, useParams } from "react-router-dom";
 
 import * as api from "../api/client";
 import type { Assignment } from "../api/types";
-import { useAuth } from "../auth/AuthProvider";
 
 // both read out of apps/api/src/middleware/upload.ts rather than guessed
 const MAX_BYTES = 256 * 1024;
@@ -25,7 +24,6 @@ function when(iso: string | undefined) {
 
 export function SubmitPage() {
   const { assignmentId } = useParams();
-  const { user, signOut } = useAuth();
 
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -73,16 +71,10 @@ export function SubmitPage() {
     <main>
       <header className="bar">
         <h1>Submit work</h1>
-        <span className="muted">
-          {user?.name} · {user?.role}
-        </span>
-        <button className="link" onClick={() => void signOut()}>
-          Sign out
-        </button>
       </header>
 
       <p>
-        <Link to="/">Back to courses</Link>
+        <Link to="/">Back to your dashboard</Link>
       </p>
 
       {error ? <p className="error">{error}</p> : null}

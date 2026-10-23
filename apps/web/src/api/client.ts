@@ -12,7 +12,16 @@
  * try to refresh, because the second would send a token the first has already
  * spent. `refreshOnce` makes every caller wait on the same promise.
  */
-import type { Assignment, Course, Paged, ResultDetail, ResultRow, ReviewStatus, User } from "./types";
+import type {
+  Assignment,
+  Course,
+  Paged,
+  ResultDetail,
+  ResultRow,
+  ReviewStatus,
+  Submission,
+  User,
+} from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:4000";
 
@@ -275,4 +284,13 @@ export async function uploadSubmission(assignmentId: string, source: string | Bl
     `/api/assignments/${assignmentId}/submissions`,
     { file: { source, name } },
   );
+}
+
+/**
+ * One page of an assignment's submissions. The API decides what the caller
+ * is allowed to see: a student gets only their own attempts, whoever they
+ * ask about.
+ */
+export async function listSubmissions(assignmentId: string) {
+  return request<Paged<Submission>>("GET", `/api/assignments/${assignmentId}/submissions`);
 }
