@@ -294,3 +294,18 @@ export async function uploadSubmission(assignmentId: string, source: string | Bl
 export async function listSubmissions(assignmentId: string) {
   return request<Paged<Submission>>("GET", `/api/assignments/${assignmentId}/submissions`);
 }
+
+/** Public self-registration. The API creates a student; role is not a field. */
+export async function register(input: {
+  email: string;
+  password: string;
+  name: string;
+  rollNo: string;
+}): Promise<User> {
+  const body = await request<{ user: User; tokens?: Tokens }>("POST", "/api/auth/register", {
+    json: input,
+    noRefresh: true,
+  });
+  if (body.tokens) saveTokens(body.tokens);
+  return body.user;
+}
