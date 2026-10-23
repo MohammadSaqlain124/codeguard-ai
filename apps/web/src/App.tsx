@@ -15,6 +15,7 @@ import { useAuth } from "./auth/AuthProvider";
 import { RequireRole } from "./auth/RequireRole";
 import { AppShell } from "./components/AppShell";
 import { SpatialBackground } from "./components/SpatialBackground";
+import { AdminPeople } from "./pages/AdminPeople";
 import { CoursesPage } from "./pages/CoursesPage";
 import { EvidencePage } from "./pages/EvidencePage";
 import { FacultyHome } from "./pages/FacultyHome";
@@ -52,6 +53,16 @@ export function App() {
         >
           <Route path="/" element={<Home />} />
           <Route path="/courses" element={<CoursesPage />} />
+
+          {/* the only screen where a role is chosen */}
+          <Route
+            path="/people"
+            element={
+              <RequireRole roles={["admin"]}>
+                <AdminPeople />
+              </RequireRole>
+            }
+          />
 
           {/* students only: faculty and admin do not submit work */}
           <Route
