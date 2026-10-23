@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import {
   createUser,
+  listUsers,
   login,
   logout,
   me,
@@ -10,9 +11,10 @@ import {
   updateUser,
 } from "../controllers/authController.js";
 import { requireActiveUser, requireAuth, requireRole } from "../middleware/auth.js";
-import { validate, validateBody, validateParams } from "../middleware/validate.js";
+import { validate, validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import {
   createUserSchema,
+  listUsersQuery,
   loginSchema,
   refreshSchema,
   registerSchema,
@@ -31,6 +33,17 @@ authRouter.post("/logout", validate(refreshSchema), logout);
 
 // signed in
 authRouter.get("/me", requireAuth, me);
+
+// Same guards as creation. An account list names every student in the
+// institution, so it is not a read that any signed-in user may make.
+authRouter.get(
+  "/users",
+  requireAuth,
+  requireActiveUser,
+  requireRole("admin"),
+  validateQuery(listUsersQuery),
+  listUsers,
+);
 
 // admin only. authorise before validating, so an outsider learns nothing about the schema
 authRouter.post(
