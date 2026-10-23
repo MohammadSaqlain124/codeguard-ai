@@ -11,8 +11,10 @@ import {
   verifyRefreshToken,
 } from "../utils/jwt.js";
 import { fakeVerify, hashPassword, verifyPassword } from "../utils/password.js";
+import { skipFor } from "../validation/common.js";
 import type {
   CreateUserInput,
+  ListUsersQuery,
   LoginInput,
   RefreshInput,
   RegisterInput,
@@ -249,4 +251,36 @@ export async function me(req: Request, res: Response) {
   const user = await UserModel.findById(req.user!.id);
   if (!user) throw AppError.unauthenticated();
   res.json({ user });
+}
+
+
+/** Anything a user types that ends up inside a RegExp has to be escaped. */
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The admin's list of accounts.
+ *
+ * passwordHash never reaches the response because the serialize plugin hides
+ * it on the User schema, which is the same guarantee tests/serialize.test.ts
+ * pins. This route does not re-strip it, so if that plugin is ever changed
+ * the test fails before this leaks.
+ */
+export async function listUsers(req: Request, res: Response) {
+  const { page, limit, role, active, q } = req.query as unknown as ListUsersQuery;
+
+  const term = q ? new RegExp(escapeRegex(q), "i") : undefined;
+  const filter = {
+    ...(role ? { role } : {}),
+    ...(active !== undefined ? { isActive: active } : {}),
+    ...(term ? { $or: [{ name: term }, { email: term }, { rollNo: term }] } : {}),
+  };
+
+  const [items, total] = await Promise.all([
+    UserModel.find(filter).sort({ role: 1, name: 1 }).skip(skipFor(page, limit)).limit(limit),
+    UserModel.countDocuments(filter),
+  ]);
+
+  res.json({ items, page, limit, total });
 }
