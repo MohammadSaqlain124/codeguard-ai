@@ -23,13 +23,31 @@ type Star = {
   depth: number;
   drift: number;
   phase: number;
+  /* which of the three theme colours this one is drawn in */
+  tint: number;
 };
 
+/* Faint, because the page behind these is light. On a dark background a
+   particle can carry most of its own brightness; on a light one anything
+   strong enough to see clearly is also strong enough to compete with the
+   text, so these stay low and earn their presence by moving. */
 const DEPTHS = [
-  { parallax: 6, speed: 0.004, alpha: 0.35, size: 0.7 },
-  { parallax: 16, speed: 0.009, alpha: 0.6, size: 1.1 },
-  { parallax: 34, speed: 0.016, alpha: 0.9, size: 1.7 },
+  { parallax: 6, speed: 0.004, alpha: 0.16, size: 1.1 },
+  { parallax: 16, speed: 0.009, alpha: 0.26, size: 1.7 },
+  { parallax: 34, speed: 0.016, alpha: 0.38, size: 2.4 },
 ];
+
+/**
+ * The three colours come from the stylesheet rather than from here, so the
+ * palette has exactly one definition and changing it does not mean editing
+ * a component.
+ */
+function readPalette(): string[] {
+  const style = getComputedStyle(document.documentElement);
+  return ["--primary", "--accent", "--secondary"].map(
+    (name) => style.getPropertyValue(name).trim() || "#3b4fd8",
+  );
+}
 
 function makeStars(count: number): Star[] {
   const stars: Star[] = [];
@@ -42,6 +60,9 @@ function makeStars(count: number): Star[] {
       depth,
       drift: (Math.random() - 0.5) * 0.00006,
       phase: Math.random() * Math.PI * 2,
+      // weighted toward the primary, so the field reads as one colour with
+      // two accents rather than as three equal populations
+      tint: i % 5 === 1 ? 1 : i % 5 === 3 ? 2 : 0,
     });
   }
   return stars;
@@ -54,12 +75,17 @@ export function SpatialBackground() {
   // the evidence screen is the one place that stays still
   const quiet = location.pathname.endsWith("/evidence");
 
+  // Sign in brings its own background, and a better one. Two competing
+  // fields on the same screen read as dust on a photograph.
+  const bare = location.pathname === "/login";
+
   useEffect(() => {
     document.body.classList.toggle("quiet", quiet);
     return () => document.body.classList.remove("quiet");
   }, [quiet]);
 
   useEffect(() => {
+    if (bare) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -71,6 +97,7 @@ export function SpatialBackground() {
     let width = 0;
     let height = 0;
     let stars: Star[] = [];
+    let palette = readPalette();
 
     // where the pointer is, as -1 to 1 from the centre of the screen
     let aimX = 0;
@@ -91,6 +118,9 @@ export function SpatialBackground() {
       canvas!.style.width = `${width}px`;
       canvas!.style.height = `${height}px`;
       ctx!.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+      // re-read in case the theme changed between renders
+      palette = readPalette();
 
       // density by area, so a laptop and a phone look equally populated
       const count = Math.max(60, Math.min(240, Math.round((width * height) / 9000)));
@@ -126,7 +156,7 @@ export function SpatialBackground() {
         ctx!.globalAlpha = plane.alpha * twinkle;
         ctx!.beginPath();
         ctx!.arc(x, wrapped, star.r, 0, Math.PI * 2);
-        ctx!.fillStyle = star.depth === 2 ? "#cfe0ff" : "#8ea4d8";
+        ctx!.fillStyle = palette[star.tint];
         ctx!.fill();
       }
 
@@ -180,7 +210,9 @@ export function SpatialBackground() {
       window.removeEventListener("scroll", onScroll);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [quiet]);
+  }, [quiet, bare]);
+
+  if (bare) return null;
 
   return (
     <>
