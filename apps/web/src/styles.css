@@ -1418,3 +1418,38 @@ tr.needs td:first-child {
   color: #fff;
   background: linear-gradient(180deg, var(--aubergine-2), var(--aubergine));
 }
+
+/* -------------------------------------------------------------- people */
+
+.people-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0 16px;
+  margin-top: 0;
+}
+
+.people-form label {
+  margin-top: 6px;
+}
+
+.people-form input,
+.people-form select {
+  width: 100%;
+}
+
+.people-form-go {
+  display: flex;
+  align-items: flex-end;
+}
+
+.people-form-go button {
+  width: 100%;
+  margin-top: 18px;
+}
+
+.people-search {
+  flex: 1;
+  min-width: 190px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
