@@ -787,9 +787,28 @@ h2 {
   --py: 0;
   position: relative;
   min-height: 100vh;
-  overflow: hidden;
+  /* clip sideways only. overflow:hidden here cut the bottom off the page on
+     any screen shorter than the content and gave no way to scroll to it. */
+  overflow-x: clip;
   perspective: 1400px;
   background: var(--ice);
+}
+
+/* While a field has focus the planes stop answering the pointer. A card that
+   keeps leaning moves the input out from under the cursor you are aiming
+   with, which is what made the form feel unreliable to type into. */
+.signin.settled .duo,
+.signin.settled .geo,
+.signin.settled .pitch,
+.signin.settled .signin-card-wrap {
+  --px: 0;
+  --py: 0;
+  transform: none;
+  translate: none;
+}
+
+.signin.settled .geo {
+  transform: translateY(-50%);
 }
 
 /* furthest: a soft mass of the two brand colours */
@@ -1274,4 +1293,128 @@ tr.needs td:first-child {
 .sect-head .hint {
   font-size: 0.76rem;
   color: var(--muted);
+}
+
+/* ---------------------------------------------------------- characters */
+
+.avatars {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px;
+  margin-top: 24px;
+}
+
+.figure {
+  width: 104px;
+  height: auto;
+  transition: transform 260ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.figure.teacher {
+  width: 112px;
+  margin-left: -10px;
+}
+
+.avatars-note {
+  flex-basis: 100%;
+  margin: 6px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------ account switch */
+
+.auth-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.auth-tabs button {
+  flex: 1;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--ice);
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+
+.auth-tabs button[aria-pressed="true"] {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(180deg, var(--aubergine-2), var(--aubergine));
+}
+
+.auth-tabs button:hover:not(:disabled) {
+  transform: none;
+  filter: none;
+  box-shadow: none;
+}
+
+.auth-alt {
+  margin: 14px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.auth-alt button.link {
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+/* .signin-card button sets the filled style, and it out-specifies a single
+   class, so these two have to be scoped the same way or they come out solid
+   aubergine. */
+.signin-card .sso {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.signin-card .sso:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: none;
+  transform: none;
+}
+
+.signin-card .auth-alt button.link {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--aubergine-3);
+  box-shadow: none;
+}
+
+.signin-card .auth-tabs button {
+  color: var(--muted);
+  background: var(--ice);
+  box-shadow: none;
+}
+
+.signin-card .auth-tabs button[aria-pressed="true"] {
+  color: #fff;
+  background: linear-gradient(180deg, var(--aubergine-2), var(--aubergine));
 }
