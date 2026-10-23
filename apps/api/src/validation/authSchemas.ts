@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { ROLES } from "../models/index.js";
-import { objectId } from "./common.js";
+import { objectId, pagination, queryBoolean } from "./common.js";
 
 /** bcrypt silently truncates past 72 bytes, so the boundary rejects it too. */
 const MAX_PASSWORD_BYTES = 72;
@@ -116,3 +116,19 @@ export type UserIdParams = z.infer<typeof userIdParams>;
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
+
+/**
+ * Who an admin is looking at. `q` matches name, email or roll number; it is
+ * escaped before it reaches a regex, because an unescaped name is both a
+ * wrong search and a way to hand the database a pattern that never finishes.
+ */
+export const listUsersQuery = z
+  .object({
+    ...pagination,
+    role: z.enum(ROLES).optional(),
+    active: queryBoolean.optional(),
+    q: z.string().trim().min(1).max(120).optional(),
+  })
+  .strict();
+
+export type ListUsersQuery = z.infer<typeof listUsersQuery>;
