@@ -1,21 +1,19 @@
 /**
- * Sign in.
+ * Sign in, and public registration.
  *
- * The only screen in the app with no data to lay out, which makes it the one
- * place a piece of editorial design belongs: a statement of what the system
- * is for, the three layers named, and the form itself as one object on a
- * plane in front of the rest.
- *
- * The depth is real rather than drawn. The card, the ring diagram and the
- * colour mass each sit at a different distance and answer the pointer by a
- * different amount, which is what makes the scene read as space instead of
- * as a picture of space.
+ * Two things worth knowing before reading the markup. The planes stop
+ * answering the pointer while a field has focus, because a card that keeps
+ * leaning moves the input away from the cursor aiming at it. And the
+ * characters shut their eyes while a password is being typed, which is a
+ * joke that happens to be the only correct behaviour available.
  */
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import * as api from "../api/client";
 import { ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
+import { Avatars } from "../components/Avatars";
 
 const LAYERS = [
   ["01", "Structural", "Compares syntax trees, so renaming variables changes nothing."],
@@ -23,19 +21,22 @@ const LAYERS = [
   ["03", "Provenance", "Every score keeps the settings that produced it."],
 ];
 
+type Mode = "signin" | "signup";
+
 export function LoginPage() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
   const stage = useRef<HTMLDivElement | null>(null);
 
+  const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [rollNo, setRollNo] = useState("");
+  const [hidingEyes, setHidingEyes] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Pointer drives three custom properties; the stylesheet decides what each
-  // plane does with them. Keeping the maths here and the depth there means a
-  // layer can be re-tuned without touching this file.
   useEffect(() => {
     const el = stage.current;
     if (!el) return;
@@ -54,7 +55,6 @@ export function LoginPage() {
     function onMove(event: PointerEvent) {
       x = (event.clientX / window.innerWidth) * 2 - 1;
       y = (event.clientY / window.innerHeight) * 2 - 1;
-      // one write per frame rather than one per event
       if (!frame) frame = requestAnimationFrame(apply);
     }
 
@@ -65,11 +65,32 @@ export function LoginPage() {
     };
   }, []);
 
+  function settle(on: boolean) {
+    stage.current?.classList.toggle("settled", on);
+  }
+
+  function switchMode(next: Mode) {
+    setMode(next);
+    setError(null);
+    setPassword("");
+  }
+
+  function useAnotherAccount() {
+    api.clearTokens();
+    setMode("signin");
+    setEmail("");
+    setPassword("");
+    setError(null);
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     setBusy(true);
     try {
+      if (mode === "signup") {
+        await api.register({ email, password, name, rollNo });
+      }
       await signIn(email, password);
       navigate("/", { replace: true });
     } catch (err) {
@@ -104,12 +125,7 @@ export function LoginPage() {
       </svg>
 
       <div className="colrules" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
+        <span /><span /><span /><span /><span /><span />
       </div>
 
       <header className="signin-top">
@@ -133,47 +149,129 @@ export function LoginPage() {
             and shows every step of the reasoning. It never decides that
             somebody cheated.
           </p>
+          <Avatars closed={hidingEyes} />
         </div>
 
-        {/* The tab lives on the wrapper, not the card. backdrop-filter makes
-            the card a containing block, which clips any child positioned
-            outside its box, and that is what ate this label twice. */}
         <div className="signin-card-wrap">
-          <span className="tab">Sign in</span>
+          <span className="tab">{mode === "signin" ? "Sign in" : "New account"}</span>
           <form className="signin-card" onSubmit={submit}>
-          <h2>Welcome back</h2>
-          <p className="sub">Use your university account.</p>
+            <div className="auth-tabs">
+              <button
+                type="button"
+                aria-pressed={mode === "signin"}
+                onClick={() => switchMode("signin")}
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                aria-pressed={mode === "signup"}
+                onClick={() => switchMode("signup")}
+              >
+                Create account
+              </button>
+            </div>
 
-          <label htmlFor="email">Email</label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            autoComplete="username"
-            required
-            onChange={(e) => setEmail(e.target.value)}
-          />
+            <h2>{mode === "signin" ? "Welcome back" : "Join your course"}</h2>
+            <p className="sub">
+              {mode === "signin"
+                ? "Use your university account."
+                : "Registration creates a student account. Staff accounts are made by an admin."}
+            </p>
 
-          <label htmlFor="password">Password</label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            autoComplete="current-password"
-            required
-            onChange={(e) => setPassword(e.target.value)}
-          />
+            {mode === "signup" ? (
+              <>
+                <label htmlFor="name">Full name</label>
+                <input
+                  id="name"
+                  value={name}
+                  autoComplete="name"
+                  required
+                  onFocus={() => settle(true)}
+                  onBlur={() => settle(false)}
+                  onChange={(e) => setName(e.target.value)}
+                />
 
-          {error ? <p className="error">{error}</p> : null}
+                <label htmlFor="rollNo">Roll number</label>
+                <input
+                  id="rollNo"
+                  value={rollNo}
+                  placeholder="BCS2023126"
+                  required
+                  onFocus={() => settle(true)}
+                  onBlur={() => settle(false)}
+                  onChange={(e) => setRollNo(e.target.value)}
+                />
+              </>
+            ) : null}
 
-          <button type="submit" disabled={busy}>
-            {busy ? "Signing in…" : "Sign in"}
-          </button>
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              autoComplete="username"
+              required
+              onFocus={() => settle(true)}
+              onBlur={() => settle(false)}
+              onChange={(e) => setEmail(e.target.value)}
+            />
 
-          <p className="note">
-            Faculty see the review queue. Students see their own submissions and
-            nothing else.
-          </p>
+            <label htmlFor="password">
+              Password{mode === "signup" ? " · at least 8 characters" : ""}
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              autoComplete={mode === "signin" ? "current-password" : "new-password"}
+              required
+              onFocus={() => {
+                settle(true);
+                setHidingEyes(true);
+              }}
+              onBlur={() => {
+                settle(false);
+                setHidingEyes(false);
+              }}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+
+            {error ? <p className="error">{error}</p> : null}
+
+            <button type="submit" disabled={busy}>
+              {busy
+                ? mode === "signin"
+                  ? "Signing in…"
+                  : "Creating…"
+                : mode === "signin"
+                  ? "Sign in"
+                  : "Create account and sign in"}
+            </button>
+
+            {/* Shown, and shown as unavailable. The API has no OAuth route, so
+                a working-looking Google button would be a control that lies. */}
+            <button className="sso" type="button" disabled title="No OAuth provider is configured on this deployment">
+              Continue with Google · not configured
+            </button>
+
+            <p className="auth-alt">
+              {mode === "signin" ? (
+                <>
+                  Signed in as somebody else on this machine?{" "}
+                  <button className="link" type="button" onClick={useAnotherAccount}>
+                    Use a different account
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already enrolled?{" "}
+                  <button className="link" type="button" onClick={() => switchMode("signin")}>
+                    Sign in instead
+                  </button>
+                </>
+              )}
+            </p>
           </form>
         </div>
       </div>
