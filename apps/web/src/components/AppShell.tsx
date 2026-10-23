@@ -17,6 +17,12 @@ const FACULTY: Item[] = [
   { to: "/courses", label: "Courses" },
 ];
 
+const ADMIN: Item[] = [
+  { to: "/", label: "Dashboard", end: true },
+  { to: "/courses", label: "Courses" },
+  { to: "/people", label: "People" },
+];
+
 const STUDENT: Item[] = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/courses", label: "My courses" },
@@ -30,7 +36,8 @@ function initials(name: string | undefined) {
 
 export function AppShell() {
   const { user, signOut } = useAuth();
-  const items = user?.role === "student" ? STUDENT : FACULTY;
+  const items =
+    user?.role === "student" ? STUDENT : user?.role === "admin" ? ADMIN : FACULTY;
 
   return (
     <>
