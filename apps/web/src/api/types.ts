@@ -26,6 +26,8 @@ export type Course = {
   title: string;
   academicYear: string;
   isArchived?: boolean;
+  /** courseView always attaches this; the roster itself is staff-only */
+  studentCount?: number;
 };
 
 export type Language = "python" | "java";
