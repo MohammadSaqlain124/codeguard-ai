@@ -1453,3 +1453,26 @@ tr.needs td:first-child {
   padding: 6px 12px;
   font-size: 0.85rem;
 }
+
+/* a course card used as a button has to lose the button chrome */
+button.course-card {
+  margin: 0;
+  text-align: left;
+  color: inherit;
+  border-radius: 13px;
+  box-shadow: var(--shadow-1);
+}
+
+button.course-card:hover:not(:disabled) {
+  filter: none;
+}
+
+button.course-card.on {
+  border-color: var(--marigold);
+  box-shadow: 0 0 0 1px var(--marigold), var(--shadow-1);
+}
+
+/* a label outside a form is still a label, not an inline caption */
+section > label {
+  display: block;
+}
