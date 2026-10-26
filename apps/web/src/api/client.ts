@@ -15,6 +15,7 @@
 import type {
   Assignment,
   Course,
+  Language,
   Paged,
   Role,
   ResultDetail,
@@ -351,4 +352,55 @@ export async function updateUser(
   changes: { role?: Role; isActive?: boolean; rollNo?: string; reason: string },
 ) {
   return request<{ user: User }>("PATCH", `/api/auth/users/${userId}`, { json: changes });
+}
+
+
+/* -------------------------------------------------------------- courses */
+
+export async function getCourse(courseId: string) {
+  return request<{ course: Course }>("GET", `/api/courses/${courseId}`);
+}
+
+/** An admin must name the faculty owner; a faculty member owns what they make. */
+export async function createCourse(input: {
+  code: string;
+  title: string;
+  academicYear: string;
+  faculty?: string;
+}) {
+  return request<{ course: Course }>("POST", "/api/courses", { json: input });
+}
+
+/** Roll numbers, not ids. The reply says what actually happened to each. */
+export async function enrolStudents(courseId: string, rollNos: string[]) {
+  return request<{ added: number; alreadyEnrolled: number; notFound: string[] }>(
+    "POST",
+    `/api/courses/${courseId}/students`,
+    { json: { rollNos } },
+  );
+}
+
+export async function removeStudents(courseId: string, rollNos: string[]) {
+  return request<{ removed: number; notEnrolled: number; notFound: string[] }>(
+    "POST",
+    `/api/courses/${courseId}/students/remove`,
+    { json: { rollNos } },
+  );
+}
+
+export async function createAssignment(
+  courseId: string,
+  input: {
+    title: string;
+    language: Language;
+    provenance: "invigilated" | "takehome";
+    dueAt: string;
+    maxSubmissions?: number;
+    acceptsLate?: boolean;
+    isPublished?: boolean;
+  },
+) {
+  return request<{ assignment: Assignment }>("POST", `/api/courses/${courseId}/assignments`, {
+    json: input,
+  });
 }
