@@ -18,6 +18,7 @@ import { SpatialBackground } from "./components/SpatialBackground";
 import { AdminPeople } from "./pages/AdminPeople";
 import { CoursesPage } from "./pages/CoursesPage";
 import { ManagePage } from "./pages/ManagePage";
+import { MyResultPage } from "./pages/MyResultPage";
 import { EvidencePage } from "./pages/EvidencePage";
 import { FacultyHome } from "./pages/FacultyHome";
 import { LoginPage } from "./pages/LoginPage";
@@ -81,6 +82,18 @@ export function App() {
             element={
               <RequireRole roles={["student"]}>
                 <SubmitPage />
+              </RequireRole>
+            }
+          />
+
+          {/* A student's own outcome. Students only, because the endpoint
+              behind it finds the submission by the caller's own id and would
+              answer a teacher with a 404 anyway. */}
+          <Route
+            path="/submissions/:submissionId/mine"
+            element={
+              <RequireRole roles={["student"]}>
+                <MyResultPage />
               </RequireRole>
             }
           />
