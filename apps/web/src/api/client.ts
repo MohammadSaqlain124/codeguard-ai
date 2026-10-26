@@ -173,11 +173,19 @@ export async function request<T>(method: string, path: string, options: Options 
   }
 
   if (!res.ok) {
-    const shape = parsed as { message?: string; code?: string } | undefined;
+    // errorHandler.ts answers { error: { code, message, requestId } }. Reading
+    // parsed.message instead of parsed.error.message meant every message the
+    // API sent was discarded and every failure in this app, from a wrong
+    // password to a duplicate email, showed the same unusable fallback. The
+    // flat shape is still accepted in case anything ever answers that way.
+    const body = parsed as
+      | { error?: { message?: string; code?: string }; message?: string; code?: string }
+      | undefined;
+    const detail = body?.error ?? body;
     throw new ApiError(
       res.status,
-      shape?.message ?? `${method} ${path} failed with ${res.status}`,
-      shape?.code,
+      detail?.message ?? `${method} ${path} failed with ${res.status}`,
+      detail?.code,
     );
   }
 
