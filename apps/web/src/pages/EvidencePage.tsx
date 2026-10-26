@@ -29,6 +29,7 @@ import { Link, useParams } from "react-router-dom";
 
 import * as api from "../api/client";
 import type { Person, ResultDetail, ReviewStatus, StructuralMatch } from "../api/types";
+import { FingerprintRadar } from "../components/FingerprintRadar";
 
 /** The four states a reviewer can move a result into. "pending" is not one. */
 const DECISIONS: { value: ReviewStatus; label: string }[] = [
@@ -349,9 +350,15 @@ function BehaviouralLayer({ result }: { result: ResultDetail }) {
         <>
           <p className="muted">
             Score {num(l.score)} from a baseline of {l.anchorCount ?? 0} anchor(s), confidence{" "}
-            {num(l.baselineConfidence)}. Measured against how this student usually writes, not
-            against anybody else.
+            {num(l.baselineConfidence)}. The comparison is against how this student usually
+            writes; the units are how much students in this cohort differ from one another.
           </p>
+
+          <FingerprintRadar
+            features={features}
+            score={l.score}
+            floored={l.cohortHealth?.flooredFeatures ?? []}
+          />
           {features.length === 0 ? (
             <p className="muted">No per-feature detail recorded.</p>
           ) : (
@@ -361,7 +368,10 @@ function BehaviouralLayer({ result }: { result: ResultDetail }) {
                   <th>Feature</th>
                   <th className="num">This file</th>
                   <th className="num">Their usual</th>
-                  <th className="num">Their spread</th>
+                  {/* The denominator is the cohort's spread, floored, not
+                      this student's own. Calling it "their spread" invited a
+                      reviewer to read the z as purely self-referential. */}
+                  <th className="num">Cohort spread</th>
                   <th className="num">z</th>
                 </tr>
               </thead>
