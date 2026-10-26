@@ -1557,3 +1557,108 @@ a.pill:hover {
 .answer-form-go {
   margin-top: 12px;
 }
+
+/* -------------------------------------------- behavioural fingerprint radar */
+
+.radar {
+  margin: 16px 0 4px;
+  padding: 14px 16px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.radar svg {
+  display: block;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  height: auto;
+  overflow: visible;
+}
+
+.radar-ring {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+/* the only ring that carries a meaning, so the only one drawn to be noticed */
+.radar-sat {
+  stroke: var(--marigold);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.radar-spoke {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+/* A feature whose denominator came from the floor rather than the cohort.
+   Deliberately NOT marigold: the saturation ring is already dashed marigold,
+   and two different meanings in one visual language is how a reader learns
+   the wrong rule. This is the aubergine family and a finer dot. */
+.radar-floored {
+  stroke: var(--aubergine-3);
+  stroke-width: 1.5;
+  stroke-dasharray: 1 3;
+  stroke-linecap: round;
+}
+
+.radar-shape {
+  fill: var(--aubergine-soft);
+  stroke: var(--aubergine-3);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.radar-dot.up {
+  fill: var(--marigold);
+}
+
+.radar-dot.down {
+  fill: var(--aubergine);
+}
+
+.radar-label {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+
+.radar-z {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.radar-z.up {
+  fill: #8a570a;
+}
+
+.radar-z.down {
+  fill: var(--aubergine-2);
+}
+
+.radar figcaption {
+  margin-top: 8px;
+  font-size: 0.84rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.radar figcaption p {
+  margin: 0 0 6px;
+}
+
+.radar figcaption p:last-child {
+  margin-bottom: 0;
+}
+
+.radar-sums {
+  color: var(--ink);
+}
+
+.radar-warn {
+  font-size: 0.8rem;
+}
