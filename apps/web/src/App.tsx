@@ -17,6 +17,7 @@ import { AppShell } from "./components/AppShell";
 import { SpatialBackground } from "./components/SpatialBackground";
 import { AdminPeople } from "./pages/AdminPeople";
 import { CoursesPage } from "./pages/CoursesPage";
+import { ManagePage } from "./pages/ManagePage";
 import { EvidencePage } from "./pages/EvidencePage";
 import { FacultyHome } from "./pages/FacultyHome";
 import { LoginPage } from "./pages/LoginPage";
@@ -53,6 +54,16 @@ export function App() {
         >
           <Route path="/" element={<Home />} />
           <Route path="/courses" element={<CoursesPage />} />
+
+          {/* staff only: creating courses and enrolling students */}
+          <Route
+            path="/manage"
+            element={
+              <RequireRole roles={["faculty", "admin"]}>
+                <ManagePage />
+              </RequireRole>
+            }
+          />
 
           {/* the only screen where a role is chosen */}
           <Route
