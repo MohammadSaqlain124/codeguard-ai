@@ -1476,3 +1476,84 @@ button.course-card.on {
 section > label {
   display: block;
 }
+
+/* ---------------------------------------------- a student's own outcome */
+
+/* The status pill doubles as the link to the outcome page, so it has to lose
+   the underline a link would otherwise carry. */
+a.pill {
+  text-decoration: none;
+}
+
+a.pill:hover {
+  filter: brightness(0.96);
+}
+
+.outcome {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--clear);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+/* A recorded decision earns the marigold edge. Nothing on this page is red:
+   a flag is a question being asked, not a finding of guilt, and the colour
+   should not answer it before a person has. */
+.outcome.flagged {
+  border-left-color: var(--marigold);
+}
+
+.outcome p {
+  margin: 0 0 8px;
+}
+
+.outcome p:last-child {
+  margin-bottom: 0;
+}
+
+.outcome .note {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border-left: 2px solid var(--aubergine-3);
+  background: var(--aubergine-soft);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.92rem;
+}
+
+/* One column, because a 2000 character box in a 190px grid cell is unusable */
+.answer-form {
+  display: block;
+  max-width: 640px;
+}
+
+.answer-form textarea {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  resize: vertical;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.answer-form textarea:focus {
+  outline: none;
+  border-color: var(--aubergine-3);
+  box-shadow: 0 0 0 3px var(--aubergine-soft);
+}
+
+.answer-form .hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.answer-form-go {
+  margin-top: 12px;
+}
