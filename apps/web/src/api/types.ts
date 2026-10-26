@@ -165,3 +165,22 @@ export type Submission = {
   provenance: Provenance;
   student?: Person | string;
 };
+
+/**
+ * What a student is allowed to see about their own submission.
+ *
+ * Deliberately no score: getMyResult selects only the review fields, so a
+ * ranking cannot reach this screen even by mistake. A student who can see
+ * their own RPS will tune against it, and the ranking stops measuring what
+ * it claims to.
+ */
+export type StudentView = {
+  submission: { id: string; status: string };
+  review: null | {
+    status: ReviewStatus;
+    note?: string;
+    reviewedAt?: string;
+    studentExplanation?: string;
+    explainedAt?: string;
+  };
+};
