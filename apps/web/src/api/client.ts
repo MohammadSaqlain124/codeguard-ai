@@ -18,6 +18,7 @@ import type {
   Language,
   Paged,
   Role,
+  StudentView,
   ResultDetail,
   ResultRow,
   ReviewStatus,
@@ -402,5 +403,19 @@ export async function createAssignment(
 ) {
   return request<{ assignment: Assignment }>("POST", `/api/courses/${courseId}/assignments`, {
     json: input,
+  });
+}
+
+
+/* -------------------------------------------------- a student's own view */
+
+export async function getMyResult(submissionId: string) {
+  return request<StudentView>("GET", `/api/submissions/${submissionId}/student-view`);
+}
+
+/** Refused while the review is pending; the API says so in its own words. */
+export async function explainResult(submissionId: string, explanation: string) {
+  return request<unknown>("PATCH", `/api/submissions/${submissionId}/explanation`, {
+    json: { explanation },
   });
 }
