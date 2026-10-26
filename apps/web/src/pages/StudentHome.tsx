@@ -152,7 +152,14 @@ export function StudentHome() {
                     <td className="num">{mine.length}</td>
                     <td>
                       {latest ? (
-                        <span className="pill clear">{latest.status}</span>
+                        // the outcome page is reachable only once there is
+                        // something to have an outcome about
+                        <Link
+                          className="pill clear"
+                          to={`/submissions/${latest.id}/mine`}
+                        >
+                          {latest.status}
+                        </Link>
                       ) : (
                         <span className="pill look">nothing yet</span>
                       )}
