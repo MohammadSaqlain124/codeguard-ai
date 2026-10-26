@@ -15,11 +15,13 @@ type Item = { to: string; label: string; end?: boolean };
 const FACULTY: Item[] = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/courses", label: "Courses" },
+  { to: "/manage", label: "Manage" },
 ];
 
 const ADMIN: Item[] = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/courses", label: "Courses" },
+  { to: "/manage", label: "Manage" },
   { to: "/people", label: "People" },
 ];
 
