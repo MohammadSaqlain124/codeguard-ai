@@ -10004,3 +10004,198 @@ here. Not one of the nine was found by the suite. That is not an argument agains
 tests, which catch regressions in what they already cover; it is an argument that
 every one of these nine was a thing nobody had thought to assert, and that no
 amount of writing more of the same kind of test would have reached them.
+
+---
+
+### File 104 — The summary drifted from the source (Days 33-37, 20-27 Oct)
+
+Seven days, most of them spent building the frontend that did not exist on the
+20th. The frontend work is the volume. It is not the finding.
+
+The finding is that `docs/PROJECT_STATUS.md`, written on 22 October as the
+single summary of the whole project, states two things about Layer 2 that the
+code does not do. One of them is labelled there as "the design claim the report
+defends". Both were found by reading `services/behavioural.ts` on the way to
+building something else.
+
+**And the first draft of this entry got the lesson wrong.** It said the project
+had been telling itself two false things. It had not. `§6 Viva Cram Sheet` in the
+reference notebook already carried both answers correctly, and with measured
+numbers this log did not have: row 68 gives the F ratios and the 78.8% to 87.9%
+identification change, row 69 explains the cohort denominator as "a student's own
+spread from three or four anchors is too unstable to divide by: AUC 0.766 against
+the cohort's 0.909".
+
+So the project knew. The document a reader would open first had drifted from the
+document a reader would be examined from, and from the code both describe. That
+is a smaller finding than "the project is wrong about itself" and a more useful
+one, because it names a mechanism: a derived summary written once, from memory,
+and never re-checked against its sources.
+
+**CLAIM 1. "Ten features."** The status document lists ten stylometric features
+and presents them as the layer's inputs. `behavioural.ts` line 18:
+
+```ts
+export const SCORED_FEATURES = [
+  "blank_line_ratio", "avg_line_length", "max_block_depth", "comment_density",
+] as const;
+```
+
+Four. The loop that builds `deviations` iterates `SCORED_FEATURES`, so six of
+the ten never reach a z-score. The file's own comment explains why, and the
+reason is good: the four measured an F ratio above 1 on real multi-author code,
+and including all ten dropped author identification from 87.9% to 78.8%. All ten
+are still stored on the baseline, so the choice is reversible.
+
+So the code is right, the notebook is right, and the summary is wrong. That is
+the worse way round than it sounds, because the summary is the document written
+to be read quickly.
+
+**CLAIM 2. "Measured against the student's own past work, never against the
+cohort."** This is the sentence the status document calls the design claim the
+report defends. `behavioural.ts` line 389:
+
+```ts
+const zScore = (value - mean) / stdDev;
+```
+
+where `mean` is the student's own, trust-weighted across their anchors, and
+`stdDev` is:
+
+```ts
+const cohortSpread = calibration.spread[feature] ?? 0;
+const stdDev = Math.max(cohortSpread, VARIANCE_FLOOR[feature]);
+```
+
+The numerator is the student. **The denominator is the cohort.** A z-score here
+means "how far this submission sits from this student's usual, measured in units
+of how much students in this class differ from one another". Both halves are
+load-bearing, and the claim drops one of them.
+
+The honest version is not weaker, it is more specific, and it survives the
+obvious follow-up question. "Never against the cohort" does not: an examiner who
+opens `behavioural.ts` finds `calibration.spread` in the denominator and the
+defence collapses on the spot. Worse, the project already has mitigation 5
+precisely *because* the cohort denominator can fail — the saturation flag exists
+to catch a cohort whose spread has collapsed. A layer that never looked at the
+cohort would need no such mitigation. The claim contradicted a feature the
+project is proud of, and a cram-sheet row that had the measurement.
+
+Both sentences were also on the evidence screen, which is where they were
+actually caught. The Layer 2 panel read "Measured against how this student
+usually writes, not against anybody else", and the feature table's column header
+read "Their spread" over a column of cohort spreads. Both now say what the code
+does.
+
+**The error envelope the web client threw away.** `errorHandler.ts` answers
+`{ error: { code, message, requestId } }`. `apps/web/src/api/client.ts` read
+`parsed.message`, which on that shape is `undefined`. Every message the API sent
+was discarded, and every failure in the whole application — a wrong password, a
+duplicate email, a roll number in the wrong format, a closed assignment — fell
+back to the same unusable string. The API's careful error vocabulary had never
+once reached a user. One line, and it had been wrong since the client was
+written.
+
+**CI was red for three days for a reason that was my fault.** The badge showed
+2 of 3 on a commit that typechecked locally. The cause was not the code: two
+batches of commits, thirteen in total, were handed over across two late-night
+messages and never run. `StudentHome.tsx` in the checkout referenced
+`listSubmissions` and a `Submission` type that were in commits sitting in nobody's
+history. Handing over thirteen commands and not confirming any of them ran is
+not a build problem, it is a handover problem, and it belongs here rather than
+in a commit message.
+
+**The print stylesheet, and two things CSS cannot be read for.** The evidence
+page now prints. Both defects in it were invisible in the stylesheet and obvious
+in the generated PDF:
+
+- A grey wash over every page. The assumption was `section` backgrounds;
+  computed styles proved `section` was already transparent and the source was
+  `.content { background: rgba(236,239,246,0.72) }`, whose padding had been reset
+  for print and whose background had not.
+- `break-inside: avoid` on `section` cost a full sheet. Page 2 was two-thirds
+  empty, because a tall section that will not fit jumps whole to the next page
+  and leaves a hole. A section spanning a page break is ordinary in a document;
+  a table row cut in half or a chart orphaned from its caption is not. Narrowing
+  the rule to `figure, tr, .radar, .outcome, .printhead` took it from four pages
+  to three.
+
+**The fingerprint radar, and what it is allowed to say.** Slide 19 promises a
+radar chart and there now is one, with four axes rather than ten for the reason
+above. Three constraints were put on it deliberately. The radius is the
+magnitude of z, not z, because a radar axis cannot run negative without putting
+zero mid-radius, and a chart where "nothing unusual happened" draws a fat blob
+invents alarm; direction is printed next to each label instead. The polygon is
+not clipped at the saturation ring, because clipping turns "three times past the
+line" into "exactly at the line". And the saturation constant is not copied into
+the frontend: since `score = min(1, rms(z)/Z)`, the chart recovers `Z` as
+`rms(z)/score` whenever the score has not saturated, and says so in its caption
+when it cannot.
+
+That last one is the project's own standard applied to a picture. The chart
+reproduces the layer score from figures printed beside it, or it admits it is
+assuming.
+
+**Where I was wrong, again.**
+
+- I called `eligibilityFor` "the clearest remaining backend bug" and "a one-line
+  fix". It was neither. The rps does not depend on the threshold; the real defect
+  was a contradiction between what the page said and what the nomination refused.
+  The status document still carries my original framing and is corrected in this
+  pass.
+- I told Sam the Viva Cram Sheet was empty. It had 89 rows. I had read a
+  leftover placeholder paragraph and not checked the tables under it.
+- A seventh silent stale write through the file bridge, reporting success and
+  leaving the old file in place. Caught by read-back, as the previous six were.
+  Every write in this period was verified by reading it back and comparing a
+  hash, and that habit has now paid for itself seven times.
+- A "0 errors" typecheck that was actually `TS5058: path does not exist`. The
+  habit of injecting a deliberate error first, to prove the file under test is
+  really in the compilation, is what caught it. Without it a config-not-found
+  would have been read as a clean pass.
+
+**Commits.** Frontend build across 20-26 Oct, then: student result view (6 files)
+· fingerprint radar and the cohort-spread correction (3 files) · print and PDF
+export (3 files).
+
+**CARRY-OVER, revised.**
+
+- Closed: `reviewThreshold` is stored on `DetectionResult` (20 Oct), which closed
+  the item File 103 opened. `eligibilityFor` judged against the stored threshold
+  (22 Oct). The student result view, course management, enrolment and admin
+  account creation all now have screens.
+- **Still open, and now evidenced.** File 103 recorded that "READ THIS BEFORE THE
+  NUMBER" renders *after* the number. It still does, and the printed PDF is proof
+  on paper: page 1 carries the score and the full arithmetic table, then the
+  caveats. The heading is a promise the page does not keep. Either `Caveats`
+  moves above `ScoreBreakdown` or the heading is renamed. This is one line.
+- `signalDisagreement` still fires on boundary artefacts, and the margin that
+  would fix it is still an unmeasured number.
+- **The 278 tests still have not run since the schema change of 20 October.**
+  Seven days now. `detection.ts` moved on the 20th and `anchors.ts` on the 22nd,
+  and no test file has been touched since the 17th. The exposure is real but
+  narrower than it looks: the suite asserts status codes and database state
+  rather than message strings, so the reason strings rewritten in `anchors.ts`
+  are not a risk, and the four fields `detection.test.ts` asserts on a stored
+  result are all still written.
+- Finding 3 remains unflagged. Layer 1 / Layer 2 independence is still open.
+- The File Book is now twenty entries behind, still blocked on the same
+  convention question from File 087.
+
+**The count that matters, continued.** The tally stood at nine defects found by
+rendering real data and reading it. Two more were found this period by generating
+a PDF and looking at it, which is the same method applied to paper.
+
+The two claims at the top of this file were found by neither, and not by a test
+either. They were found by reading the source in order to describe it accurately
+to somebody else. A test asserts what the code does. A screen shows what the code
+produced. Neither can notice that a *document* describes a different system.
+
+The correction to this entry was found differently again: by checking the claim
+against the project's own other documents before declaring the project wrong.
+That check cost one search and changed the finding from "the project is confused"
+to "one derived document drifted". The rule it suggests is narrow and worth
+keeping: **before recording that the project believes something false, find out
+whether any part of the project already believes the true thing.** The expensive
+version of this mistake is not a wrong note in a log, it is standing in a viva
+correcting a claim nobody had actually made.
