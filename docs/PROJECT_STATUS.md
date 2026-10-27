@@ -1,7 +1,11 @@
 # CodeGuard AI — project status
 
-Written 22 October 2026, Day 34, at 103 numbered files in `docs/PROJECT_NOTES.md`.
-Every figure here was read out of the repository on that date, not recalled.
+Written 22 October 2026, Day 34. **Revised 27 October 2026, Day 37**, at 104
+numbered files in `docs/PROJECT_NOTES.md`. Every figure here was read out of the
+repository on one of those dates, not recalled.
+
+The 27 October revision corrects two statements about Layer 2 in section 3 that
+described a system this project does not have. See File 104.
 
 ---
 
@@ -24,7 +28,7 @@ from detection layers that each answer a different question.
 |---|---|---|---|
 | API | `apps/api` | Node 22 / TypeScript | auth, storage, orchestration, review workflow, Layer 2 |
 | Detector | `apps/detector` | Python / FastAPI | parsing, normalisation, Layer 1 structural comparison |
-| Web | `apps/web` | React 19 / Vite | faculty review queue and evidence screen |
+| Web | `apps/web` | React 19 / Vite | sign in, two role dashboards, courses, upload, review queue, evidence, course management, admin accounts |
 
 Infrastructure, all in `infra/docker-compose.yml`: **MongoDB 7** (data),
 **Redis 7** (BullMQ job queue), **MinIO** (submitted source files), plus the
@@ -66,15 +70,42 @@ Lives in the API.
 | `services/behavioural.ts` | z-scores the submission against that baseline; the layer's scoring logic |
 | `services/recalibrate.ts` | refreshes cohort statistics when an assignment's population changes |
 
-Ten features: `avg_line_length`, `blank_line_ratio`, `comment_density`,
-`avg_identifier_length`, `underscore_identifier_ratio`, `avg_function_lines`,
-`functions_per_100_lines`, `max_block_depth`, `avg_params_per_function`,
-`for_loop_ratio`.
+The detector extracts **ten** features: `avg_line_length`, `blank_line_ratio`,
+`comment_density`, `avg_identifier_length`, `underscore_identifier_ratio`,
+`avg_function_lines`, `functions_per_100_lines`, `max_block_depth`,
+`avg_params_per_function`, `for_loop_ratio`. All ten are stored on the baseline.
+
+**Four of them are scored.** `SCORED_FEATURES` in `services/behavioural.ts` is
+`blank_line_ratio`, `avg_line_length`, `max_block_depth`, `comment_density` — the
+four that measured an F ratio above 1 on real multi-author code, meaning they
+vary less within one author than between authors. The other six measured 0.14 to
+0.56, and including them dropped author identification from **87.9% to 78.8%**.
+The choice is reversible because all ten stay stored.
 
 Score = `min(1, rootMeanSquare(zScores) / Z_SATURATION)` with `Z_SATURATION = 3`.
 
-**Measured against the student's own past work, never against the cohort.**
-That is the design claim the report defends.
+**The comparison is against the student's own past work. The units are the
+cohort's.** In `behavioural.ts` the z-score is `(value - mean) / stdDev`, where
+`mean` is the student's own, trust-weighted across their anchors, and `stdDev` is
+`Math.max(cohortSpread, VARIANCE_FLOOR[feature])` — the cohort's spread, floored.
+A z-score here means *how far this submission sits from this student's usual,
+measured in units of how much students in this class differ from one another.*
+
+The cohort denominator is a measured choice, not a convenience: a student's own
+spread, taken from three or four anchors, is too unstable to divide by. **AUC
+0.766 using the student's own spread, against 0.909 using the cohort's.** A
+student's mean is personal; the spread is closer to a property of the feature.
+
+Both halves are load-bearing, and that is the design claim the report defends.
+An earlier version of this document said "never against the cohort", which is
+false and does not survive an examiner opening the file. It also contradicted
+mitigation 5 below, which exists precisely because the cohort denominator can
+collapse.
+
+**The reference notebook had both of these right the whole time** — §6 Viva Cram
+Sheet rows 68 and 69, with the measurements above. This document drifted from it.
+Where the two disagree, the notebook and the code win, and this document is the
+one to correct.
 
 ### Layer 3 — AI-generated content
 
@@ -122,11 +153,15 @@ are a genuine contribution of the project rather than boilerplate:
 
 ---
 
-## 5. The API surface — 31 routes
+## 5. The API surface — 32 routes
 
-**Auth and users** (`routes/authRoutes.ts`) — 7
+**Auth and users** (`routes/authRoutes.ts`) — 8
 `POST /register` · `POST /login` · `POST /refresh` · `POST /logout` ·
-`GET /me` · `POST /users` · `PATCH /users/:userId`
+`GET /me` · `GET /users` · `POST /users` · `PATCH /users/:userId`
+
+`POST /register` is public and hardcodes `role: "student"`. `POST /users` is
+admin-only, and choosing a role is the point of it. `GET /users` was added
+26 October: admin-only, paged, filtered by role, active state and a search term.
 
 **Courses and configuration** (`routes/courseRoutes.ts`) — 8
 `GET /` · `GET /:courseId` · `POST /` · `PATCH /:courseId` ·
@@ -187,21 +222,56 @@ are a genuine contribution of the project rather than boilerplate:
 
 ---
 
-## 8. The web interface — 4 pages
+## 8. The web interface — 10 pages, 5 components
 
-| page | what it does |
+| page | role | what it does |
+|---|---|---|
+| `pages/LoginPage.tsx` | public | sign in, sign up, switch account |
+| `pages/StudentHome.tsx` | student | dashboard: what is submitted, what is still open |
+| `pages/SubmitPage.tsx` | student | upload a file to an assignment |
+| `pages/MyResultPage.tsx` | student | own submission status, any recorded decision, and the reply to it |
+| `pages/FacultyHome.tsx` | staff | dashboard: what is waiting to be reviewed |
+| `pages/CoursesPage.tsx` | all | courses and their assignments |
+| `pages/ManagePage.tsx` | staff | create a course, enrol by roll number, create an assignment |
+| `pages/QueuePage.tsx` | staff | the ranked review queue, filtered by review status, paged |
+| `pages/EvidencePage.tsx` | staff | the evidence screen — the project's whole argument on one page |
+| `pages/AdminPeople.tsx` | admin | create accounts, choose roles, deactivate with a recorded reason |
+
+| component | what it does |
 |---|---|
-| `pages/LoginPage.tsx` | sign in |
-| `pages/CoursesPage.tsx` | courses and their assignments |
-| `pages/QueuePage.tsx` | the ranked review queue, filtered by review status, paged |
-| `pages/EvidencePage.tsx` | the evidence screen — the project's whole argument on one page |
+| `components/AppShell.tsx` | the frame: top bar, role-aware sidebar, outlet |
+| `components/SpatialBackground.tsx` | the parallax field, still on the evidence page by design |
+| `components/Avatars.tsx` | the student and teacher figures on sign in |
+| `components/FingerprintRadar.tsx` | Layer 2's four scored features as a radar |
+| `components/PrintHeader.tsx` | the identity block that exists only on paper |
+
+**What a student is deliberately not shown.** `GET /submissions/:id/student-view`
+returns the submission status and, only once a decision exists, the review. It
+returns **no score of any kind**. A student who can read their own RPS can write
+the next submission to lower it, and a ranking you can tune against stops
+measuring what it claims to. `MyResultPage` says this on the page rather than
+leaving the absence to be read as a bug.
 
 The evidence page shows the RPS **as the arithmetic that produced it**: each
 layer's weight, score and product, their total, and one division. Every
 similarity carries its cohort z-score. Every feature shows the value, the
-student's usual, their spread and the z, each to the precision needed to check
-the z by hand. Everything that weakens the number renders with it, not beneath
-it.
+student's usual, the cohort spread and the z, each to the precision needed to
+check the z by hand.
+
+Since 26 October it also carries a **fingerprint radar** and **prints**. The
+radar plots the four scored features, with the radius as the magnitude of z over
+the saturation point and the direction printed beside each label; it recovers the
+saturation constant as `rms(z) / score` rather than copying the backend's
+constant, so it cannot silently stop matching the score. Printing goes through
+the browser's own dialog, which is also how it becomes a PDF, so there is no
+second renderer that can drift from the page. The printed sheet carries its own
+identity block and its own caveats, because paper detached from the screen has no
+URL and no sidebar.
+
+**One known defect, carried from File 103.** The section headed "Read this before
+the number" renders *after* the number and its arithmetic table. The printed PDF
+makes it plain on page 1. Either `Caveats` moves above `ScoreBreakdown` or the
+heading is renamed.
 
 ---
 
@@ -252,10 +322,11 @@ These are the parts that distinguish the project from a working CRUD app.
    code path and a missing sort test. Very few undergraduate projects contain
    anything like this.
 
-4. **Five retracted claims, recorded rather than hidden.** The engineering log
+4. **Seven retracted claims, recorded rather than hidden.** The engineering log
    is a validation record: it shows which figures were wrong, how that was
    found, and what changed. The draws mechanism exists *because* a single
-   sample proved unreliable.
+   sample proved unreliable. Two of the seven are corrections to *this document*
+   made on 27 October, where it had drifted from the code and from the notebook.
 
 5. **An evidence screen that found nine defects the test suite did not** — four
    on 17 October, five on 18 October — including an arithmetic column that did
@@ -265,6 +336,12 @@ These are the parts that distinguish the project from a working CRUD app.
 6. **The audit log audited against its own vocabulary**, which found four gaps
    no test could have caught, because a test asserts what the code does and
    this asked what the code claims.
+
+   The same method, applied to this document on 27 October, found that the
+   stated feature count and the stated comparison basis for Layer 2 were both
+   wrong — while the reference notebook had both right, with measurements. A
+   test asserts what the code does; a screen shows what it produced. Neither can
+   notice that one derived document has drifted from the sources it summarises.
 
 7. **A CI gate and pre-push hooks** — typecheck, ruff, pytest, production
    dependency audit.
@@ -277,25 +354,44 @@ These are the parts that distinguish the project from a working CRUD app.
 
 ### Backend — small, and mostly correctness rather than missing features
 
-- **`eligibilityFor` compares a stored score to a live threshold.**
-  `services/anchors.ts` line 138 reads `result.rps >= config.reviewThreshold`,
-  where `result.rps` was computed under whatever threshold applied then. Since
-  20 October the result carries its own `reviewThreshold`, so this is now a
-  one-line fix. **This is the clearest remaining backend bug.**
+- ~~**`eligibilityFor` compares a stored score to a live threshold.**~~ **Fixed
+  22 October.** Eligibility is now judged against the threshold stored on the
+  result, falling back to the current setting only when the result recorded none,
+  and saying which it used. The earlier description of this as "the clearest
+  remaining backend bug" and "a one-line fix" was wrong on both counts and is
+  retracted in File 104: the rps does not depend on the threshold, and the real
+  defect was a contradiction between what the page said and what the nomination
+  refused.
 - **`signalDisagreement` fires on boundary artefacts.** It is a side-of-the-line
   test, so it fires identically on 1.000 against 0.330 and on 0.470 against
   0.520. The page no longer overclaims, but the flag is unchanged. Fixing it
   needs a margin, and that margin is an unmeasured number.
-- **The test suite has not run since the schema change of 20 October.** That
-  change went in on a typecheck alone.
+- **The test suite has not run since the schema change of 20 October** — seven
+  days as of this revision. That change went in on a typecheck alone. The
+  exposure is narrower than it looks and was scoped on 26 October: no test file
+  has been touched since 17 October, while `detection.ts` moved on the 20th and
+  `anchors.ts` on the 22nd, but the suite asserts status codes and database state
+  rather than message strings, so the reason strings rewritten in `anchors.ts`
+  are not at risk, and the four fields `detection.test.ts` asserts on a stored
+  result are all still written. **Running it is the next thing to do.**
+  `tests/helpers.ts` loads `../../infra/.env` by a path relative to the working
+  directory, so the suite must be run from `apps/api` or every file fails on the
+  database guard. See `docs/TESTING.md`.
 - **Finding 3 is still unflagged**, and the Layer 1 / Layer 2 independence
   question is still open.
 
-### Frontend — the APIs exist, the screens do not
+### Frontend — built 20-26 October, one screen still missing
 
-- Student: submit a file, see my own result, answer a flagged result.
-- Admin: courses, enrolment, and the detection configuration editor. The
-  configuration endpoints have existed since 15 October with no UI at all.
+Done: sign in and sign up, two role-aware dashboards, course and assignment
+management, enrolment by roll number, admin account creation with roles,
+file upload, the student's own result view with a reply form, the fingerprint
+radar, and print to PDF.
+
+- **The detection configuration editor has no UI.** `GET`/`PATCH
+  /courses/:courseId/config` have existed since 15 October and are still
+  reachable only by hand. This is the last endpoint group with no screen.
+- Queue and evidence inherited the new palette but have not been photographed
+  since it changed.
 
 ### Report — this is the real risk, not the code
 
@@ -312,17 +408,25 @@ These are the parts that distinguish the project from a working CRUD app.
 
 ### Documentation
 
-- The **File Book** is 18 entries behind, blocked on a convention question: the
+- The **File Book** is 20 entries behind, blocked on a convention question: the
   engineering log stopped carrying a per-file `Files:` line at File 087 when
   entries became one per working session.
-- The **Reference Notebook** is current to Day 32, including a **106-row viva
-  cram sheet** — one question and one defensible answer each.
+- The **Reference Notebook** is current to **Day 37**, including a **116-row
+  viva cram sheet** — one question and one defensible answer each.
+- **`docs/TESTING.md`** was added on 27 October: how to run both suites, the two
+  ways of running them that look right and are not, and what state the suite is
+  in.
 
 ---
 
 ## 12. For the viva
 
 `docs/notebook/CodeGuard_AI_Reference_Notebook.docx`, section **§6 Viva Cram
-Sheet**, holds 106 question-and-answer pairs covering every defensible decision
+Sheet**, holds 116 question-and-answer pairs covering every defensible decision
 in the project. It is the single most useful document to read before being
 questioned on this work.
+
+**Where it and this document disagree, it wins.** On 27 October this document was
+found to contradict it on two Layer 2 statements, and the notebook was right both
+times, with measurements. This file is a summary; the notebook and the code are
+sources.
