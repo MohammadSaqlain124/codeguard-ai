@@ -10199,3 +10199,105 @@ keeping: **before recording that the project believes something false, find out
 whether any part of the project already believes the true thing.** The expensive
 version of this mistake is not a wrong note in a log, it is standing in a viva
 correcting a claim nobody had actually made.
+
+---
+
+### File 105 — The gate was never shut (Day 38, 28 Oct)
+
+**CI does not run the API test suite, and never has.** The workflow has three
+jobs: API typecheck, Detector lint and tests, Web typecheck. The first runs
+`npm ci`, `npm run typecheck`, `npm run audit:prod`. None of the three runs
+vitest.
+
+So of 278 tests, the gate covers 123. The 155 that exercise the API — auth,
+courses, submissions, results, the config resolver, Layer 2, the rerun path —
+have never been in it. Every green badge on this repository since the gate was
+added has meant "the types check and the detector passes", and it has been read
+as "the tests pass". A green badge that means less than it appears to is worse
+than no badge, because it is trusted.
+
+This was found while chasing a red badge, which is its own small lesson: the
+failure was interesting, the thing it revealed was more interesting.
+
+**The red badge itself was not a code defect.** `npm run audit:prod` had started
+failing on every push since 26 October, docs commits included. Two high-severity
+advisories had been published against production dependencies:
+
+- `multer` 2.4.0 — denial of service via a pending asynchronous `fileFilter`
+  after request teardown.
+- `body-parser` 2.3.0 — denial of service via trailing bytes after a compressed
+  request body.
+
+Both sit directly in the path a student uploads code through, so neither is
+academic for this project. `npm audit fix --omit=dev` moved four packages and
+nothing else; the broad form would have dragged in thirty-seven, including
+vitest, which would have meant bumping the test runner on the same commit as the
+first test run in eight days.
+
+**The caveats now render before the number.** File 103 recorded that the section
+headed "Read this before the number" rendered after the number and its whole
+arithmetic table. File 104 confirmed it was still true and printed the PDF as
+proof. It has now been fixed, which is a two-line change that stood open for
+three weeks because it was never worth a session of its own. The component's own
+doc comment said "everything that makes the number above less trustworthy",
+which is how the code admitted the bug in writing while the heading denied it.
+
+**The page was asserting an equation it had never checked.** The line under the
+breakdown read:
+
+```tsx
+{num(weighted)} ÷ {num(active)} = {num(result.rps)}
+```
+
+The left side is recomputed on the page from the stored layer scores. The right
+side is the stored rps. Nothing compared them. Given a result whose stored score
+no longer follows from its own layers — an older detector, a migration, a bad
+write — this page would state a false equation to the one reader in the system
+who has been explicitly invited to check it by hand.
+
+It now recomputes, compares with a tolerance of 0.002 (every figure here prints
+to three decimals, so a thousandth either way is legitimate), and where they
+disagree it refuses to print the equation at all. It says which two numbers
+disagree, that the page cannot tell which is wrong, and that neither should be
+treated as evidence until the analysis is re-run.
+
+**How it was found is the part worth keeping.** Not by a test, and not by
+reading the code. The fixture built to photograph the page had an rps of 0.8124
+against layer scores implying 0.7129, because the number was typed rather than
+derived. The page dutifully printed `0.499 ÷ 0.700 = 0.812`. The defect was
+visible only because a wrong fixture met a page that does not check itself —
+and a wrong fixture is exactly what a wrong database row looks like from the
+page's side. File 093 made the same point about the seed: a fixture that
+contradicts itself is a free test of whether the screen notices.
+
+**The review queue identified students by name alone.** `rollOf` now prints the
+roll number under the name. The fixture that exposed this contained both Arjun
+Das and Devansh Das, which was not deliberate. A cohort of two hundred will
+hold repeated surnames and sometimes repeated full names, every row on that page
+is a decision about one particular person, and acting on the wrong student is
+the most expensive mistake this system can make.
+
+**Commits.** `chore(api)` patch body-parser and multer advisories ·
+caveats above the number and the mismatch guard · roll numbers in the queue ·
+queue roll styles · this file.
+
+**CARRY-OVER, revised.**
+
+- Closed: the caveats order, open since File 103.
+- **New, and the most important item in this log.** CI does not run the 155 API
+  tests. Adding them needs service containers for Mongo, Redis and MinIO in the
+  workflow, which is a real change to `ci.yml` rather than a line. Until it is
+  done, the badge should be read as a typecheck.
+- **The 278 tests still have not run since 20 October** — eight days. This was
+  the night's intended work and did not happen, because the CI investigation
+  turned out to matter more.
+- `signalDisagreement` still fires on boundary artefacts.
+- Finding 3 remains unflagged. Layer 1 / Layer 2 independence is still open.
+- The File Book is twenty-one entries behind.
+
+**The count that matters, continued.** Eleven defects found by rendering real
+data and reading it, plus two from printing it to paper. Tonight added two more
+of the first kind. The method has now found more defects in this project than
+every other method combined, and it has never once been the method a test could
+have replaced: a test asserts a value, and every one of these was a thing nobody
+had thought to assert.
