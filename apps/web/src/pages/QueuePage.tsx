@@ -33,6 +33,19 @@ function nameOf(who: Person | string | undefined): string {
   return who.name ?? who.rollNo ?? who.id ?? "unknown";
 }
 
+/**
+ * The roll number, when the row carries one.
+ *
+ * A name on its own is not an identifier. A cohort of two hundred will hold
+ * repeated surnames and sometimes repeated full names, and every row on this
+ * page is a decision about one particular person. Acting on the wrong student
+ * is the most expensive mistake this system can cause, and it is the one
+ * mistake a column of text can prevent.
+ */
+function rollOf(who: Person | string | undefined): string | undefined {
+  return typeof who === "object" ? who?.rollNo : undefined;
+}
+
 /** A layer score, or a dash when the layer did not run. */
 function score(value: number | undefined, status: string): string {
   if (status !== "ok" || typeof value !== "number") return "—";
@@ -163,7 +176,12 @@ export function QueuePage() {
                 const flags = flagsFor(row);
                 return (
                   <tr key={row.id}>
-                    <td>{nameOf(row.student)}</td>
+                    <td>
+                      {nameOf(row.student)}
+                      {rollOf(row.student) ? (
+                        <div className="muted roll">{rollOf(row.student)}</div>
+                      ) : null}
+                    </td>
                     <td className="num strong">{row.rps.toFixed(3)}</td>
                     <td className="num">{score(row.structural?.score, row.structural?.status)}</td>
                     <td className="num">{score(row.behavioral?.score, row.behavioral?.status)}</td>
