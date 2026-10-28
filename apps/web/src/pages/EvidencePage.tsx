@@ -30,6 +30,7 @@ import { Link, useParams } from "react-router-dom";
 import * as api from "../api/client";
 import type { Person, ResultDetail, ReviewStatus, StructuralMatch } from "../api/types";
 import { FingerprintRadar } from "../components/FingerprintRadar";
+import { PrintHeader } from "../components/PrintHeader";
 
 /** The four states a reviewer can move a result into. "pending" is not one. */
 const DECISIONS: { value: ReviewStatus; label: string }[] = [
@@ -95,6 +96,18 @@ function ScoreBreakdown({ result }: { result: ResultDetail }) {
   // a page whose whole argument is that the number is the sum of its parts
   // that is the one arithmetic error that must not appear.
   const weighted = (l1ok ? w.w1 * s : 0) + (l2ok ? w.effectiveW2 * b : 0);
+
+  // The line below used to read "{weighted} / {active} = {rps}", where the two
+  // sides come from different places: the left is recomputed here from the
+  // stored layer scores, the right is the stored rps itself. Nothing checked
+  // that they agree. A result written by an older detector, or migrated, could
+  // make this page state a false equation to the one reader who has been
+  // invited to check it by hand, and that would cost more trust than the
+  // number is worth. The tolerance is 0.002 because every figure here is shown
+  // to three decimals, so a genuine result can legitimately be a thousandth
+  // out either way.
+  const recomputed = active > 0 ? weighted / active : 0;
+  const agrees = Math.abs(recomputed - result.rps) <= 0.002;
 
   return (
     <section>
@@ -163,19 +176,38 @@ function ScoreBreakdown({ result }: { result: ResultDetail }) {
               </tr>
             </tbody>
           </table>
-          <p className="muted">
-            {num(weighted)} &divide; {num(active)} = {num(result.rps)}. A layer excluded above
-            contributes nothing rather than contributing zero, which is why the divisor is
-            not 1. Everything here is shown to three decimals, so a column may be a
-            thousandth out even when the stored figures are exact.
-          </p>
+          {agrees ? (
+            <p className="muted">
+              {num(weighted)} &divide; {num(active)} = {num(result.rps)}. A layer excluded above
+              contributes nothing rather than contributing zero, which is why the divisor is
+              not 1. Everything here is shown to three decimals, so a column may be a
+              thousandth out even when the stored figures are exact.
+            </p>
+          ) : (
+            <p className="error">
+              These do not agree. {num(weighted)} &divide; {num(active)} is{" "}
+              {num(recomputed)}, but the score stored on this result is{" "}
+              {num(result.rps)}. One of them is wrong and this page cannot tell you
+              which, so treat neither as evidence and re-run the analysis for this
+              submission. A stored score that no longer follows from its own layers
+              usually means the result predates a change in how it was computed.
+            </p>
+          )}
         </>
       )}
     </section>
   );
 }
 
-/** Everything that makes the number above less trustworthy. */
+/**
+ * Everything that makes the number below less trustworthy.
+ *
+ * This renders above ScoreBreakdown, which is what the heading has always
+ * promised and what the page did not do until now. A caveat printed after the
+ * arithmetic is a footnote, and a reader who has already taken the number has
+ * no reason to go back for it. Renders nothing at all when there is nothing
+ * to say, so a clean result still opens on its score.
+ */
 function Caveats({ result }: { result: ResultDetail }) {
   const items: string[] = [];
 
@@ -575,9 +607,20 @@ export function EvidencePage() {
 
   return (
     <main>
+      <PrintHeader result={result} studentName={nameOf(result.student)} />
+
       <header className="bar">
         <h1>{nameOf(result.student)}</h1>
-        <Link to="/">Back to courses</Link>
+        <div className="bar-go">
+          {/* The browser's own dialog, which is also how you get a PDF: every
+              desktop browser offers "Save as PDF" as a printer. Generating a
+              PDF server-side would mean a second renderer that can drift
+              from this page, and the page is the evidence. */}
+          <button className="link" onClick={() => window.print()}>
+            Print or save as PDF
+          </button>
+          <Link to="/">Back to courses</Link>
+        </div>
       </header>
 
       {revisions.length > 1 ? (
@@ -601,8 +644,10 @@ export function EvidencePage() {
         </p>
       ) : null}
 
-      <ScoreBreakdown result={result} />
+      {/* Caveats first. The heading says "Read this before the number", and
+          for three weeks it rendered after it. */}
       <Caveats result={result} />
+      <ScoreBreakdown result={result} />
       <StructuralLayer result={result} />
       <BehaviouralLayer result={result} />
       <Provenance result={result} revisions={revisions} />
