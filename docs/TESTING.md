@@ -6,6 +6,11 @@ not recalled.
 
 **278 tests: 155 in the API (vitest), 123 in the detector (pytest).**
 
+**CI does not run the API suite.** The workflow has three jobs — API typecheck,
+Detector lint and tests, Web typecheck — and none of them runs vitest. The gate
+covers 123 of the 278. Running the API suite is a manual step until service
+containers are added to `ci.yml`. See File 105.
+
 ---
 
 ## The short version
@@ -105,20 +110,33 @@ happens to share the word.
 ## The detector suite
 
 ```
-cd E:\Projects\CodeGuard_AI
+cd E:\Projects\CodeGuard_AI\apps\detector
 .\.venv\Scripts\Activate.ps1
-cd apps\detector
 pytest -q
 ```
 
+**The virtual environment lives in `apps/detector/.venv`, not at the repository
+root.** Activating from the root fails with "not recognized as the name of a
+cmdlet", which looks alarming and means only that the path is wrong.
+
 Needs no Docker and no database. It is pure Python and the fastest useful signal
 in the project.
+
+Two deprecation warnings are expected and are not failures. One is starlette
+telling us `httpx` with its test client is deprecated in favour of `httpx2`; the
+detector pins `httpx 0.28.1`, so a future starlette upgrade will need that
+addressed. The other is raised inside starlette itself and is not ours.
 
 ---
 
 ## State as of this document
 
-**The suite has not run since the schema change of 20 October.** That change
+**Detector suite: 123 passed, 28 October, in 2.7 seconds.** The whole Layer 1
+tier — parsing, normalisation, tree edit distance, the prefilter, unit matching,
+the style features and both HTTP endpoints — is green. Whatever the API suite
+turns up, it is not there.
+
+**API suite: still not run since the schema change of 20 October.** That change
 went in on a typecheck alone, and so did everything after it.
 
 Scoped on 26 October by reading the tests against the source rather than running
