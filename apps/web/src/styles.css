@@ -1662,3 +1662,211 @@ a.pill:hover {
 .radar-warn {
   font-size: 0.8rem;
 }
+
+/* ---------------------------------------------------- the printed case file */
+
+/* The print header is paper-only. It duplicates things the screen carries in
+   its chrome, so showing it on screen would just be noise. */
+.printhead {
+  display: none;
+}
+
+.bar-go {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+@page {
+  size: A4;
+  margin: 14mm 12mm;
+}
+
+@media print {
+  /* Anything that exists to navigate, filter or decide is not evidence.
+     The recorded decision still prints; the form that records one does not. */
+  .topbar,
+  .side,
+  .layer,
+  .bar,
+  .bar-go,
+  .filters,
+  form,
+  button {
+    display: none !important;
+  }
+
+  .printhead {
+    display: block;
+  }
+
+  html,
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  .shell {
+    display: block;
+    min-height: 0;
+  }
+
+  .content {
+    padding: 0;
+    max-width: none;
+    /* The screen tints this panel to lift it off the background. On paper
+       there is no background to lift off, and the tint prints as a grey
+       wash over every page. */
+    background: transparent;
+  }
+
+  main {
+    max-width: none;
+    padding: 0;
+  }
+
+  /* Browsers drop background colours when printing to save ink. Here the
+     colour is carrying meaning, not decoration: the saturation ring, the
+     direction of a deviation, which rows are flagged. Every one of those is
+     also written out in words or numbers, so the sheet still reads in plain
+     greyscale, but it reads better with them kept. */
+  .radar,
+  .rps-badge,
+  .pill,
+  .flag,
+  .stat {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* A heading stranded at the foot of a page, or a table row split across
+     two, makes a case file harder to read than it needs to be. */
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* Deliberately NOT `section`. Keeping whole sections together sounds
+     tidier and costs a third of every page in whitespace, because one tall
+     section that will not fit jumps to the next sheet and leaves a hole. A
+     section running over a page break is ordinary in any document. A table
+     row cut in half, or a chart with its caption orphaned, is not. */
+  figure,
+  tr,
+  .radar,
+  .outcome,
+  .printhead {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  section {
+    margin-top: 14px;
+  }
+
+  /* flatten the screen's panels: shadows and tints cost ink and say nothing */
+  section,
+  .radar,
+  .outcome {
+    box-shadow: none;
+    background: transparent;
+    border-radius: 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    border-bottom: 1px solid #ccc;
+  }
+
+  /* An external link is unusable on paper unless its address is written out.
+     Internal links are left alone, because "(/courses)" after every one of
+     them is noise, not provenance. */
+  a[href^="http"]::after {
+    content: " [" attr(href) "]";
+    font-size: 0.78em;
+    word-break: break-all;
+  }
+
+  body {
+    font-size: 10.5pt;
+    line-height: 1.45;
+  }
+}
+
+/* ------------------------------------------------ print header internals */
+
+.printhead-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 2px solid var(--aubergine);
+  padding-bottom: 4px;
+}
+
+.printhead-mark {
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--aubergine);
+}
+
+.printhead-when {
+  font-size: 0.78rem;
+  color: #444;
+}
+
+.printhead-who {
+  margin: 10px 0 2px;
+  font-size: 1.5rem;
+}
+
+.printhead-roll {
+  font-weight: 400;
+  color: #444;
+}
+
+.printhead-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 22px;
+  margin: 8px 0 10px;
+  font-size: 0.8rem;
+}
+
+.printhead-facts dt {
+  font-weight: 700;
+  color: #444;
+}
+
+.printhead-facts dd {
+  margin: 0;
+}
+
+.printhead-facts > div {
+  display: flex;
+  gap: 6px;
+}
+
+/* The one thing on the sheet that must survive being read out of context. */
+.printhead-warn {
+  margin: 0 0 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--aubergine-3);
+  border-left: 3px solid var(--marigold);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+/* The roll number under a name in the review queue. Quieter than the name,
+   because it is there to disambiguate rather than to be read every time. */
+.roll {
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+  margin-top: 1px;
+}
