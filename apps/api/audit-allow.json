@@ -1,0 +1,17 @@
+{
+  "note": "Advisories the production audit is allowed to pass. Every entry needs a reason and a date it was last checked. Anything not listed here still fails the build.",
+  "allowed": [
+    {
+      "id": "GHSA-vcc3-ghjq-m6fr",
+      "package": "decode-uri-component",
+      "reason": "Reached only through minio -> query-string@7. minio 8.0.7 is the latest release and is CommonJS; every patched version in that chain (decode-uri-component 0.5.1, query-string 9.5.x and 10) is ESM-only, so an override makes require() return an object instead of a function and MinIO throws at runtime. Verified, not assumed. npm audit fix --force downgrades minio to 7.1.3, a major downgrade of the storage client. MinIO is reachable only on 127.0.0.1 in this deployment.",
+      "checked": "2026-10-30"
+    },
+    {
+      "id": "GHSA-qr28-fpjm-wq7f",
+      "package": "decode-uri-component",
+      "reason": "Same package and same chain as GHSA-vcc3-ghjq-m6fr. Published later and rated high, which is what started failing the gate.",
+      "checked": "2026-10-30"
+    }
+  ]
+}
