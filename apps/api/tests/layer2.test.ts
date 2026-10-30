@@ -593,6 +593,14 @@ describe("nomination", () => {
     expect(String(entry?.course)).toBe(String(course._id));
   });
 
+  // The heaviest test in this file, and the only one that signs in eight
+  // times: seedCohort does five, each nominatable does one, and the bare
+  // student is an eighth. Each sign-in is a bcrypt hash costing roughly half
+  // a second, so the setup alone is over four seconds before the first
+  // assertion. Measured at 5664ms against vitest's 5000ms default, which it
+  // had always been one slow machine away from exceeding. The budget is
+  // raised here rather than globally, because a global raise would also stop
+  // the other 154 tests reporting a genuine hang.
   it("says whether the baseline will actually be usable", async () => {
     const { faculty, people, course } = await seedCohort();
     const anchored = await nominatable(course._id, people[0]!, 7);
@@ -619,7 +627,7 @@ describe("nomination", () => {
     expect(no.body.baselineWillBeUsable).toBe(false);
     expect(no.body.baselineNote).toMatch(/invigilated/);
     expect(await hasObservedAnchor(bare.id, "python")).toBe(false);
-  });
+  }, 20000);
 
   it("refuses a student, a short reason, and a second nomination", async () => {
     const { faculty, people, course } = await seedCohort();
