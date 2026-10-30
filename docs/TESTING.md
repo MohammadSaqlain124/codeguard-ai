@@ -136,11 +136,27 @@ tier — parsing, normalisation, tree edit distance, the prefilter, unit matchin
 the style features and both HTTP endpoints — is green. Whatever the API suite
 turns up, it is not there.
 
-**API suite: still not run since the schema change of 20 October.** That change
-went in on a typecheck alone, and so did everything after it.
+**API suite: 154 passed, 1 timed out, 30 October**, in 377 seconds. The one
+failure was `layer2.test.ts > nomination > says whether the baseline will
+actually be usable`, and it was a timeout rather than a wrong answer: no
+assertion failed. Re-run on its own with a longer budget it passes at
+**5664ms**, against vitest's 5000ms default.
 
-Scoped on 26 October by reading the tests against the source rather than running
-them:
+That test signs in eight times — `seedCohort` does five, each `nominatable`
+does one, and the bare student is an eighth — and each sign-in is a bcrypt hash
+costing roughly half a second. Over four seconds of setup before the first
+assertion. It has always been one slow machine away from failing. It now
+carries its own 20-second budget; the default is left alone everywhere else so
+a genuine hang still reports.
+
+**So the 20 October schema change and everything after it are clear.** No
+behaviour regressed. The suite's own prediction held: it asserts status codes
+and database state rather than message strings, so the reason strings rewritten
+in `anchors.ts` were never at risk.
+
+The scoping done on 26 October, by reading the tests against the source rather
+than running them, proved correct on every point except speed — which it never
+considered:
 
 - No test file has been touched since **17 October**.
 - `services/detection.ts` changed on the **20th**, `services/anchors.ts` on the
