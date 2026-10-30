@@ -247,3 +247,86 @@ Its 2.27x and 3.15x came from a deleted scratch file. They are now superseded
 rather than reproduced: this measurement is larger, confound-controlled,
 reports ranges, and holds the author count fixed when comparing. The Day 19
 entry in `docs/PROJECT_NOTES.md` carries dated amendments pointing here.
+
+---
+
+## The style-shift corpus
+
+Every measurement above answers *whose file is this*. Layer 2 answers *is this
+file unlike the other files this student wrote*, which is anomaly detection
+against one person's own history. The caveats below already admit the gap:
+classification is a proxy for the job the layer actually does, and until now
+there was no labelled outsourced work to test it on.
+
+`style_shift.py` builds that labelled set. It takes a file one author owns and
+replaces some of its top-level functions with another author's, which is what
+outsourcing part of an assignment looks like from outside: the submission is
+mostly yours and a section of it is not. Both versions of every file are
+written, sharing a `pair_id`.
+
+```
+cd apps/detector
+.\.venv\Scripts\Activate.ps1
+python measurements/style_shift.py --language python --work E:\temp\pyrepos \
+    --skip-clone --out E:\temp\splices --rows-cache E:\temp\pyrepos-attribution.json
+```
+
+`--rows-cache` saves the git blame pass, which is two to three minutes and
+does not depend on `--seed` or `--fractions`. Reuse it while tuning either.
+
+### The 30 October run, Python, seed 0
+
+| | |
+|---|---|
+| single-author files | 466 |
+| kept after the per-author cap | 204 |
+| authors in the sample | 27 |
+| pairs written | 214 |
+| splices discarded | 155 |
+| authors represented in the corpus | 24 |
+
+| requested fraction | pairs | median actual |
+|---|---|---|
+| 0.10 | 61 | 0.104 |
+| 0.25 | 80 | 0.235 |
+| 0.50 | 73 | 0.438 |
+
+**Length delta, spliced minus clean: median -1 line, range -68 to +24.**
+
+That median is the confound control reporting success. Three of Layer 2's
+features are length-sensitive — `avg_function_lines`, `functions_per_100_lines`
+and `avg_line_length` — so a corpus whose spliced files were systematically
+shorter would let the layer appear to detect outsourcing while actually
+detecting that the file shrank. Donor units are size-matched to within 30% of
+what they replace, and a median of one line says that worked in aggregate.
+
+**It does not say it worked for every pair.** The range runs to -68 lines, so
+individual pairs carry real length differences even though the population does
+not. Anyone reporting a detection result from this corpus should check whether
+detection correlates with the absolute length delta, and say so. A median near
+zero rules out systematic bias, not per-case confounding.
+
+### What the discards mean
+
+42% of attempted splices were thrown away, and that is the honest figure rather
+than a failure. A splice is discarded when the file is too structurally coarse
+to hit the requested fraction — you cannot replace 10% of a file whose smallest
+top-level function is 22% of it — or when no donor unit matches the size of
+what it would replace, or when the result no longer parses. Keeping those would
+mean a bucket labelled 0.10 containing splices at 0.40, and a corpus padded
+with files the detector cannot read.
+
+The 0.50 bucket undershoots at 0.438. Units are coarse and the tolerance allows
+it; the actual fraction is recorded per item and is what the analysis should
+bucket on, not the requested one.
+
+Three of the 27 authors produced no usable pair at any fraction. **The corpus
+is therefore biased toward authors whose files are structurally amenable to
+splicing**, which is not the same population as the 204-file sample above.
+
+### One choice left open on purpose
+
+Each file is emitted twice, clean and spliced, sharing a `pair_id`. A paired
+analysis is statistically stronger; it also puts near-identical content into
+one run twice, which can leak. The manifest supports either. Whichever the
+ablation uses, it has to say which.
