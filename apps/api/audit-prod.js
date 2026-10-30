@@ -3,46 +3,61 @@
  *
  * Plain `npm audit --audit-level=high` cannot ignore a single advisory, so one
  * unfixable transitive problem either blocks every push or forces the whole
- * threshold down to critical. Neither is honest. This runs the same audit and
- * fails on every high or critical advisory except the ones written down in
- * audit-allow.json with a reason and a date.
+ * threshold down to critical. Neither is honest. This reads npm's own JSON
+ * report and fails on every high or critical advisory except the ones written
+ * down in audit-allow.json with a reason and a date.
  *
- * The unit is the advisory, not the package, so a package that is only flagged
- * because of an allowed advisory passes, and the same package flagged for a new
- * reason still fails.
+ * The unit is the advisory, not the package, so a package flagged only because
+ * of an allowed advisory passes, and the same package flagged for a new reason
+ * still fails.
+ *
+ * It reads the report on stdin rather than running npm itself. An earlier
+ * version shelled out with execFileSync("npm", ...), which works on Linux and
+ * fails on Windows, where npm is npm.cmd and execFile does not use a shell.
+ * A pipe is handled by both cmd.exe and sh, and in both the pipeline's exit
+ * code is the last command's, which is this script.
  */
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const BLOCKING = new Set(["high", "critical"]);
 
-function runAudit() {
+function readStdin() {
   try {
-    return execFileSync("npm", ["audit", "--omit=dev", "--json"], {
-      encoding: "utf8",
-      maxBuffer: 20 * 1024 * 1024,
-    });
-  } catch (err) {
-    // npm exits non-zero whenever it finds anything, so the report is on
-    // stdout even when the command "failed". Only a missing report is fatal.
-    if (err.stdout) return err.stdout;
-    throw err;
+    return readFileSync(0, "utf8");
+  } catch {
+    return "";
   }
 }
 
-const allow = JSON.parse(readFileSync(new URL("./audit-allow.json", import.meta.url)));
+const raw = readStdin().trim();
+if (raw === "") {
+  console.error("No audit report on stdin. Run this through `npm run audit:prod`,");
+  console.error("which pipes `npm audit --omit=dev --json` into it.");
+  process.exit(1);
+}
+
+let report;
+try {
+  report = JSON.parse(raw);
+} catch {
+  console.error("The audit report on stdin was not JSON. First 200 characters:");
+  console.error(raw.slice(0, 200));
+  process.exit(1);
+}
+
+const allow = JSON.parse(readFileSync(new URL("./audit-allow.json", import.meta.url), "utf8"));
 const allowed = new Map(allow.allowed.map((a) => [a.id, a]));
 
-const report = JSON.parse(runAudit());
-const found = new Map();
-
 // Walk every advisory object reachable through the via chains. A string entry
-// in `via` names another package, not an advisory, so it is skipped.
+// in `via` names another package rather than an advisory, so it is skipped.
+const found = new Map();
 for (const vuln of Object.values(report.vulnerabilities ?? {})) {
   for (const via of vuln.via ?? []) {
     if (typeof via !== "object" || !via.url) continue;
     const id = via.url.split("/").pop();
-    if (!found.has(id)) found.set(id, { id, severity: via.severity, title: via.title, package: via.name });
+    if (!found.has(id)) {
+      found.set(id, { id, severity: via.severity, title: via.title, package: via.name });
+    }
   }
 }
 
@@ -51,8 +66,7 @@ const unallowed = blocking.filter((a) => !allowed.has(a.id));
 const used = blocking.filter((a) => allowed.has(a.id));
 
 for (const a of used) {
-  const entry = allowed.get(a.id);
-  console.log(`allowed  ${a.id}  ${a.package}  (${a.severity}, checked ${entry.checked})`);
+  console.log(`allowed  ${a.id}  ${a.package}  (${a.severity}, checked ${allowed.get(a.id).checked})`);
 }
 
 // An entry nobody needs any more is worth removing, so say so rather than
