@@ -76,11 +76,35 @@ The detector extracts **ten** features: `avg_line_length`, `blank_line_ratio`,
 `avg_params_per_function`, `for_loop_ratio`. All ten are stored on the baseline.
 
 **Four of them are scored.** `SCORED_FEATURES` in `services/behavioural.ts` is
-`blank_line_ratio`, `avg_line_length`, `max_block_depth`, `comment_density` — the
-four that measured an F ratio above 1 on real multi-author code, meaning they
-vary less within one author than between authors. The other six measured 0.14 to
-0.56, and including them dropped author identification from **87.9% to 78.8%**.
-The choice is reversible because all ten stay stored.
+`blank_line_ratio`, `avg_line_length`, `max_block_depth`, `comment_density`. All
+ten stay stored on the baseline, so the choice is reversible.
+
+**The justification for those four is retracted, and this document carried the
+retracted version until 31 October.** The four were chosen on Day 19 from a
+60-file sample. `apps/detector/measurements/README.md`, written 13 October on
+**204 Python files from 15 repositories**, says plainly: *"Day 19's ranking does
+not replicate on its own language."* Specifically:
+
+- `blank_line_ratio`, which Day 19 ranked **first at 2.73** and which drove the
+  choice of the four, ranks **ninth of ten at 1.08** in Python.
+- The two naming features Day 19 ranked last at 0.17 and 0.18 rank **fourth and
+  fifth**.
+- **Nine of the ten** have a Python F ratio above 1, not four.
+- Using every feature that applies **beats** the fixed four in both languages:
+  Python **2.91x to 5.56x**, Java **2.80x to 3.88x**.
+
+So the earlier sentence here — that the four were the ones above 1 and that
+including the others cost accuracy — had it backwards. Day 19's script was
+deleted, so the disagreement cannot be diagnosed directly; on every ground that
+can be checked, the larger measurement supersedes it.
+
+**A fixed four cannot be right for both languages.** `blank_line_ratio` carries
+almost no author signal in Python (1.08) while doing real work in Java (3.34);
+`comment_density` is the reverse in degree (13.97 against 2.49).
+
+Whether `behavioural.ts` should score all applicable features instead is a live
+decision, recorded as open in `docs/PROJECT_NOTES.md` and owned by the Layer 2
+vertical. It is not decided here.
 
 Score = `min(1, rootMeanSquare(zScores) / Z_SATURATION)` with `Z_SATURATION = 3`.
 
@@ -96,16 +120,42 @@ spread, taken from three or four anchors, is too unstable to divide by. **AUC
 0.766 using the student's own spread, against 0.909 using the cohort's.** A
 student's mean is personal; the spread is closer to a property of the feature.
 
+**How well it works, stated the way the measurement states it.** Across eleven
+within-project tests, *"the features reach roughly 1.4x to 2.5x where they work
+at all, and they fail to beat chance in more than half the projects tested"* —
+five of eleven hold, six do not. The strongest single result is sympy: nine
+authors, 68 files, 2.51x, never below 2.12x across 25 draws. The weakest that
+still matters is scikit-learn, seven authors and 54 files, which does not clear
+chance at all — so sample size is not the whole story, and projects differ in
+how much personal style survives their own conventions.
+
+That is the sentence the report should carry about Layer 2's strength. It is
+considerably more sober than any earlier figure in this document, and it is the
+one that survives being checked.
+
+**Lift is not comparable across runs with different author counts.** Lift is
+accuracy over chance and chance is 1/k, so it rises with the number of authors
+even when nothing about the features changed: the same Python data gives 2.43x
+at 5 authors and 4.65x at 20. Any two figures quoted side by side must hold the
+author count fixed.
+
 Both halves are load-bearing, and that is the design claim the report defends.
 An earlier version of this document said "never against the cohort", which is
 false and does not survive an examiner opening the file. It also contradicted
 mitigation 5 below, which exists precisely because the cohort denominator can
 collapse.
 
-**The reference notebook had both of these right the whole time** — §6 Viva Cram
-Sheet rows 68 and 69, with the measurements above. This document drifted from it.
-Where the two disagree, the notebook and the code win, and this document is the
-one to correct.
+**Cram sheet row 69 carries this answer; row 68 does not.** On 27 October this
+document was corrected using the notebook as the source, and row 68 turned out
+to carry the same retracted Day 19 figures corrected above. The notebook is not
+a source either. `apps/detector/measurements/README.md` and the code are the
+sources; the notebook and this file are both summaries of them, and both have
+drifted at least once.
+
+Row 69's figures for the cohort denominator — AUC 0.766 against 0.909 — are not
+stated anywhere in the measurements folder. They are quoted here because row 69
+is the only record of them, and **they should be traced to a run before the
+report quotes them.**
 
 ### Layer 3 — AI-generated content
 
@@ -322,11 +372,17 @@ These are the parts that distinguish the project from a working CRUD app.
    code path and a missing sort test. Very few undergraduate projects contain
    anything like this.
 
-4. **Seven retracted claims, recorded rather than hidden.** The engineering log
+4. **Eight retracted claims, recorded rather than hidden.** The engineering log
    is a validation record: it shows which figures were wrong, how that was
    found, and what changed. The draws mechanism exists *because* a single
-   sample proved unreliable. Two of the seven are corrections to *this document*
-   made on 27 October, where it had drifted from the code and from the notebook.
+   sample proved unreliable.
+
+   Three of the eight are corrections to *this document*. Two were made on
+   27 October, where it had drifted from the code. The third, on 31 October,
+   corrected one of those: the 27 October fix used the reference notebook as
+   its source, and the notebook carried the same retracted Day 19 feature
+   figures. A correction made against the wrong source is still wrong, and
+   that is worth more to the report than a clean record would be.
 
 5. **An evidence screen that found nine defects the test suite did not** — four
    on 17 October, five on 18 October — including an arithmetic column that did
