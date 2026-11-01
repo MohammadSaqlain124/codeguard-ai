@@ -497,7 +497,17 @@ def stratum_report(frac, stratum, draws):
             if "spliced" in v and "clean" in v
         ]
         wins, losses, p = sign_test(diffs)
-        verdict = "significant" if p < 0.05 else "not significant"
+        # The direction matters more than the p-value here. A two-sided test
+        # fires on any departure from an even split, and Layer 2's split has
+        # been far from even in the direction of spliced scoring LOWER. A bare
+        # "significant" on that line reads as support for the hypothesis when
+        # it is evidence against it.
+        if p >= 0.05:
+            verdict = "not significant"
+        elif wins > losses:
+            verdict = "significant, spliced higher"
+        else:
+            verdict = "significant, spliced LOWER, against the hypothesis"
         print(f"    {label:9} higher on spliced in {wins} of {wins + losses}"
               f"   p = {p:.2e}   {verdict}")
 
