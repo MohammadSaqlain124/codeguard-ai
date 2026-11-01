@@ -23,6 +23,121 @@ jobs:
       - run: npm run typecheck
       - run: npm run audit:prod
 
+  api-tests:
+    name: API tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/api
+
+    # Mongo and Redis run as service containers because neither needs a
+    # command. The object store does, and Actions services cannot pass one,
+    # which is why it is started as a step further down instead.
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same image and command as infra/docker-compose.yml, pinned by digest
+      # for the same reason the compose file pins it: the upstream minio
+      # images disappeared from the registries in October.
+      - name: Start the object store
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=codeguard \
+            -e MINIO_ROOT_PASSWORD=ci-only-throwaway-password \
+            pgsty/silo@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46 \
+            server /data --console-address :9001
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9000/minio/health/live > /dev/null 2>&1; then
+              echo "object store healthy after ${attempt} attempts"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "object store never became healthy"
+          docker logs minio
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+
+      - run: npm ci
+
+      # npm test runs pretest first, so the types are checked before anything
+      # touches a container, and it supplies --no-file-parallelism. Calling
+      # vitest directly would drop both: every test file shares one database
+      # and clears collections between tests, so running files in parallel
+      # makes them delete each other's fixtures.
+      - name: Run the suite
+        run: npm test
+        env:
+          NODE_ENV: test
+          API_PORT: "4000"
+          CORS_ORIGIN: http://localhost:5173
+          LOG_LEVEL: error
+
+          # helpers.ts rewrites the substring "/codeguard?" to
+          # "/codeguard_test?" and refuses to run if that rewrite did not
+          # happen. The value below is shaped to survive it; a URI without the
+          # query string would fail the guard rather than the tests.
+          MONGO_URI: mongodb://127.0.0.1:27017/codeguard?directConnection=true
+          MONGO_DB: codeguard
+
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: "6379"
+
+          MINIO_ENDPOINT: 127.0.0.1
+          MINIO_PORT: "9000"
+          MINIO_USE_SSL: "false"
+          MINIO_ROOT_USER: codeguard
+          MINIO_ROOT_PASSWORD: ci-only-throwaway-password
+          MINIO_BUCKET: submissions
+
+          # Every value here is thrown away with the runner. None of it is a
+          # real credential and none of it needs to be a GitHub secret: the
+          # containers exist for the length of one job and hold nothing.
+          JWT_ACCESS_SECRET: ci-access-secret-not-real-0123456789abcdef
+          JWT_REFRESH_SECRET: ci-refresh-secret-not-real-fedcba9876543210
+          JWT_ACCESS_EXPIRY: 15m
+          JWT_REFRESH_EXPIRY: 7d
+
+          # The suite stubs the detector on this port and overrides both of
+          # these in helpers.ts. They are set only because env.ts validates
+          # them at import time.
+          DETECTOR_URL: http://127.0.0.1:8099
+          DETECTOR_TOKEN: test-detector-token-not-a-real-secret-0123456789
+
+          MAX_UPLOAD_BYTES: "262144"
+          ALLOWED_EXTENSIONS: .py,.java
+
+      - name: Object store logs on failure
+        if: failure()
+        run: docker logs minio
+
   detector:
     name: Detector lint and tests
     runs-on: ubuntu-latest
@@ -57,9 +172,12 @@ jobs:
       - run: npm run typecheck
       - run: npm run audit:prod
 
-# The integration suite is deliberately absent. apps/api's vitest run needs
-# Mongo, Redis and an object store, and it reads infra/.env, which is not in
-# the repository. Adding it means putting those credentials into GitHub
-# secrets and writing infra/.env at run time, then starting the stack with
-# docker compose rather than Actions services, because a service container
-# cannot be given the "server /data" command the object store needs.
+# The integration suite used to be absent, and the note here said it could not
+# run without putting credentials into GitHub secrets and starting the stack
+# with docker compose. Two thirds of that was wrong. helpers.ts loads
+# infra/.env only "if existsSync", so a missing file is not an error and the
+# workflow can supply the environment itself; and because every container is
+# thrown away with the runner, nothing it holds is a credential worth
+# protecting. Only the third part was true: an Actions service container
+# cannot be given a command, which is why the object store is a docker run
+# step rather than a service.
