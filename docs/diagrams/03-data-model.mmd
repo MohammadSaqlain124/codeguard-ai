@@ -1,0 +1,97 @@
+erDiagram
+    USER ||--o{ COURSE : "teaches"
+    USER }o--o{ COURSE : "enrolled in"
+    COURSE ||--o{ ASSIGNMENT : "has"
+    ASSIGNMENT ||--o{ SUBMISSION : "receives"
+    USER ||--o{ SUBMISSION : "submits"
+    SUBMISSION ||--o{ DETECTION_RESULT : "scored by"
+    COURSE ||--o| DETECTION_CONFIG : "configured by"
+    USER ||--o{ BASELINE_PROFILE : "described by"
+    SUBMISSION ||--o{ BASELINE_PROFILE : "anchors"
+    USER ||--o{ AUDIT_LOG : "acts in"
+    COURSE ||--o{ AUDIT_LOG : "scoped to"
+
+    USER {
+        string email UK
+        string passwordHash
+        string name
+        string role "student faculty admin"
+        string rollNo "BCS2023126"
+        bool isActive
+    }
+    COURSE {
+        string code
+        string title
+        string academicYear "2026-27"
+        objectId faculty FK
+        objectId_array enrolledStudents FK
+        bool isArchived
+    }
+    ASSIGNMENT {
+        objectId course FK
+        string title
+        string language "python java"
+        string provenance "invigilated takehome"
+        date dueAt
+        bool acceptsLate
+        number maxSubmissions
+        bool isPublished
+    }
+    SUBMISSION {
+        objectId assignment FK
+        objectId student FK
+        number attempt
+        string provenance
+        string objectKey "key in the object store"
+        string contentHash "SHA-256"
+        number lineCount
+        bool isLate
+        string status
+        bool baselineEligible
+        objectId nominatedBy FK
+    }
+    DETECTION_RESULT {
+        objectId submission FK
+        number rps "renormalised score"
+        bool signalDisagreement
+        number revision
+        bool isCurrent
+        json weights "w1 w2 w3 effectiveW2"
+        number reviewThreshold "the one in force when scored"
+        number configVersion "0 means built-in defaults"
+        string detectorVersion
+        json structural "Layer 1 evidence"
+        json behavioral "Layer 2 evidence"
+        json review "status note reviewedBy"
+    }
+    DETECTION_CONFIG {
+        objectId course FK
+        number w1
+        number w2
+        number w3
+        number reviewThreshold
+        json overrides "per language"
+    }
+    BASELINE_PROFILE {
+        objectId student FK
+        string language
+        string status
+        number anchorCount
+        number confidence
+        number trustTotal
+        json features "mean stdDev samples"
+        number featureSetVersion
+        string detectorVersion
+        number revision
+    }
+    AUDIT_LOG {
+        objectId actor FK
+        string actorRole
+        string action
+        string targetType
+        objectId targetId
+        objectId course FK
+        json changes "before and after"
+        string reason
+        date at
+    }

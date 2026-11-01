@@ -1,0 +1,30 @@
+graph LR
+  subgraph client["Client"]
+    web["<b>Web application</b><br/>React 19 · Vite · TypeScript<br/>10 pages, 5 components"]
+  end
+
+  subgraph apptier["Application tier and its job queue — Node 22 / TypeScript"]
+    direction TB
+    api["<b>API</b><br/>Express 5 · Zod · JWT + RBAC<br/>32 HTTP routes · 10 services"]
+    queue[("<b>Redis 7</b><br/>BullMQ job queue")]
+    worker["<b>Worker</b><br/>analyse · recalibrate<br/>rebuild-baseline"]
+    api -->|"enqueue, debounced by job id"| queue
+    queue -->|"jobs"| worker
+  end
+
+  subgraph datatier["Data tier"]
+    direction TB
+    mongo[("<b>MongoDB 7</b><br/>8 collections")]
+    minio[("<b>Object store</b><br/>submitted source files")]
+  end
+
+  subgraph dtier["Detection service — Python 3.11 / FastAPI"]
+    det["<b>Detector</b><br/>tree-sitter · APTED<br/>GET /health<br/>POST /analyze<br/>POST /features"]
+  end
+
+  web -->|"REST, access + refresh JWT"| api
+  api --> mongo
+  api --> minio
+  worker --> mongo
+  worker --> minio
+  worker -->|"HTTP, shared secret"| det

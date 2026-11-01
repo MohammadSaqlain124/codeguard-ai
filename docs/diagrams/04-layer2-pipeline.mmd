@@ -1,0 +1,29 @@
+graph TB
+  inv["<b>Invigilated submissions</b><br/>automatic anchors"]
+  nom["<b>Nominated take-home work</b><br/>a faculty member vouched for it"]
+  anchors["<b>findAnchors</b><br/>per student, per language"]
+  band["<b>Size band</b><br/>anchors within 0.5x to 2x the<br/>submission's line count"]
+  mean["<b>Trust-weighted mean</b><br/>this student's usual value<br/>for each scored feature"]
+
+  cohortsrc["<b>Other students in the cohort</b>"]
+  spread["<b>Cohort spread</b><br/>how much students differ<br/>from one another"]
+  floor["<b>max(spread, VARIANCE_FLOOR)</b><br/>a cohort can have zero spread,<br/>and dividing by it gives infinity"]
+
+  z["<b>z = (value − mean) / stdDev</b><br/>numerator is the student<br/>denominator is the cohort"]
+  rms["<b>root mean square</b><br/>across the scored features"]
+  sat["<b>min(1, rms / Z_SATURATION)</b><br/>Z_SATURATION = 3"]
+  score["<b>behavioural score</b><br/>0 to 1"]
+
+  conf["<b>baselineConfidence</b><br/>thin or inconsistent baselines<br/>attenuate the layer's weight"]
+  eff["<b>effectiveW2</b><br/>what actually reaches the RPS"]
+
+  inv --> anchors
+  nom --> anchors
+  anchors --> band --> mean --> z
+  cohortsrc --> spread --> floor --> z
+  z --> rms --> sat --> score
+  score --> eff
+  conf --> eff
+
+  style z fill:#fdf3e0,stroke:#e09112,stroke-width:2px
+  style floor fill:#f3f1f7,stroke:#7a4583

@@ -1,0 +1,16 @@
+{
+  "theme": "base",
+  "themeVariables": {
+    "fontFamily": "Georgia, 'Times New Roman', serif",
+    "fontSize": "15px",
+    "primaryColor": "#f3f1f7",
+    "primaryTextColor": "#2b1430",
+    "primaryBorderColor": "#7a4583",
+    "lineColor": "#5a2f61",
+    "secondaryColor": "#fdf3e0",
+    "tertiaryColor": "#eceff6",
+    "clusterBkg": "#f8f7fb",
+    "clusterBorder": "#c9bfd1",
+    "edgeLabelBackground": "#ffffff"
+  }
+}

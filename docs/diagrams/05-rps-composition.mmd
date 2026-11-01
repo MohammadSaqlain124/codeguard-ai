@@ -1,0 +1,20 @@
+graph TB
+  l1["<b>Layer 1 — structural</b><br/>highest APTED similarity against<br/>any candidate considered"]
+  l2["<b>Layer 2 — behavioural</b><br/>distance from this student's<br/>own baseline"]
+  l3["<b>Layer 3 — AI content</b><br/><i>not implemented</i><br/>dropped 06 Oct 2026,<br/>recorded as a scope decision"]
+
+  w1["× w1"]
+  w2["× effectiveW2"]
+
+  sum["<b>w1·structural + effectiveW2·behavioural</b>"]
+  active["<b>÷ activeWeight</b><br/>the sum of the weights of the layers that ran<br/>0.4 + 0.3 = 0.7, not 1.0"]
+  rps["<b>RPS</b><br/>a position in a review queue, never a verdict"]
+
+  l1 --> w1 --> sum
+  l2 --> w2 --> sum
+  l3 -.->|"contributes nothing, not zero"| active
+  sum --> active --> rps
+
+  style l3 fill:#f0f0f0,stroke:#999,color:#666
+  style rps fill:#fdf3e0,stroke:#e09112,stroke-width:2px
+  style active fill:#f3f1f7,stroke:#7a4583,stroke-width:2px

@@ -1,0 +1,31 @@
+graph LR
+  subgraph submit["Submit"]
+    direction TB
+    s1["<b>1 · Upload</b><br/>one .py or .java file"]
+    s2["<b>2 · Validate</b><br/>Zod · extension · 256 KB · 5000 lines<br/>UTF-8 strict decode · NUL rejection"]
+    s3["<b>3 · Store</b><br/>SHA-256 content hash<br/>object to the store, Submission to Mongo<br/>status: queued"]
+    s4["<b>4 · Enqueue</b><br/>BullMQ job on Redis, debounced by job id,<br/>so sixty uploads at a deadline<br/>collapse into a few runs"]
+    s1 --> s2 --> s3 --> s4
+  end
+
+  subgraph detect["Detect — in the worker"]
+    direction TB
+    s5["<b>5 · Layer 1</b><br/>POST /analyze<br/>parse · normalise · unit split<br/>APTED tree edit distance"]
+    s6["<b>6 · Layer 2</b><br/>POST /features, z-scored in the API<br/>against this student's own baseline"]
+    s7["<b>7 · Compose</b><br/>RPS renormalised over the layers that ran<br/>DetectionResult stores the weights and<br/>threshold that produced it"]
+    s5 --> s6 --> s7
+  end
+
+  subgraph review["Review — by a person"]
+    direction TB
+    s8["<b>8 · Queue</b><br/>ranked by RPS<br/>evidence page shows the arithmetic"]
+    s9["<b>9 · Decide</b><br/>a human records the outcome<br/>written to the audit log"]
+    s10["<b>10 · Student</b><br/>sees the recorded decision<br/>and may answer it in their own words<br/><i>never sees a score of any kind</i>"]
+    s8 --> s9 --> s10
+  end
+
+  s4 --> s5
+  s7 --> s8
+
+  style s7 fill:#f3f1f7,stroke:#7a4583,stroke-width:2px
+  style s10 fill:#fdf3e0,stroke:#e09112,stroke-width:2px
