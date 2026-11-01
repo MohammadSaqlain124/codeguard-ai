@@ -256,6 +256,7 @@ def build(rows, language, fractions, seed, out_dir):
             for fraction in fractions:
                 result = None
                 donor_author = None
+                donor_path = None
                 for _ in range(DONOR_ATTEMPTS):
                     donor_author = rng.choice(donors)
                     donor_row = rng.choice(groups[donor_author])
@@ -264,6 +265,12 @@ def build(rows, language, fractions, seed, out_dir):
                         continue
                     result = splice(target_src, donor_src, language, fraction, rng)
                     if result is not None:
+                        # Record which file the text came from. The author's
+                        # name is not enough: an analysis that wants to put the
+                        # donor in Layer 1's pool needs this exact file, and
+                        # any other file by the same author is a different
+                        # experiment wearing the same label.
+                        donor_path = donor_row["path"]
                         break
                 if result is None:
                     discarded += 1
@@ -290,6 +297,7 @@ def build(rows, language, fractions, seed, out_dir):
                     "id": f"{base}-clean",
                     "label": "clean",
                     "donor": None,
+                    "donor_path": None,
                     "actual_fraction": 0.0,
                     "lines": target_src.count("\n") + 1,
                     "path": clean_path,
@@ -299,6 +307,7 @@ def build(rows, language, fractions, seed, out_dir):
                     "id": f"{base}-spliced",
                     "label": "spliced",
                     "donor": donor_author,
+                    "donor_path": donor_path,
                     "actual_fraction": round(replaced / (target_src.count("\n") + 1), 4),
                     "lines": spliced_src.count("\n") + 1,
                     "path": dirty_path,
