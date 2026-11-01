@@ -58,6 +58,7 @@ from app.features import extract_features  # noqa: E402
 from app.normalise import normalise  # noqa: E402
 from app.normalise import size as tree_size  # noqa: E402
 from app.parsing import parse_source  # noqa: E402
+from app.prefilter import label_counts, rank  # noqa: E402
 from app.units import compare_unit_sets, extract_units  # noqa: E402
 
 # Mirrored from services/behavioural.ts. See the note above about drift.
@@ -76,6 +77,13 @@ W1, W2 = 0.4, 0.3
 
 AT_K = (10, 20, 50)
 
+# Mirrored from app/main.py. The detector does not run the expensive
+# comparison against every candidate it is handed: it ranks them by label-bag
+# overlap and gives only this many the real treatment. MAX_CANDIDATES is the
+# most candidates the endpoint will accept at all.
+MAX_DEEP_CANDIDATES = 10
+MAX_CANDIDATES = 50
+
 
 def load_source(path):
     try:
@@ -92,6 +100,7 @@ class Files:
         self._features = {}
         self._units = {}
         self._size = {}
+        self._labels = {}
         self.failed = set()
 
     def _parse(self, path):
@@ -116,6 +125,7 @@ class Files:
         self._features[path] = extract_features(result.root, source.encode("utf-8"))
         self._units[path] = extract_units(tree, self.language)
         self._size[path] = tree_size(tree)
+        self._labels[path] = label_counts(tree)
 
     def features(self, path):
         self._parse(path)
@@ -124,6 +134,10 @@ class Files:
     def units(self, path):
         self._parse(path)
         return self._units.get(path), self._size.get(path, 0)
+
+    def labels(self, path):
+        self._parse(path)
+        return self._labels.get(path)
 
 
 def baseline_for(paths, files):
@@ -198,19 +212,44 @@ def layer2_score(path, baseline, spread, files):
     return min(1.0, rms / Z_SATURATION)
 
 
-def layer1_score(path, pool, files):
-    """Highest similarity against any candidate in the pool, as Layer 1 scores."""
+def layer1_score(path, pool, files, cache):
+    """
+    Highest similarity over the candidates the detector would actually compare.
+
+    An earlier version compared against every file in the pool. That measures a
+    system nobody deployed: app/main.py shortlists candidates by label-bag
+    overlap and runs the tree comparison on only the top MAX_DEEP_CANDIDATES,
+    so a real match sitting outside the shortlist is one the API never finds.
+    Comparing exhaustively here would have credited Layer 1 with detections the
+    deployed system cannot make, which biases the ablation against Layer 2 by
+    making Layer 1 look stronger than it is. It was also what made this script
+    take hours: the shortlist caps the expensive work at ten comparisons per
+    file however large the pool is.
+
+    The donor gets no special treatment in the donor-included condition. If the
+    cheap filter does not shortlist it, the API would not have compared it
+    either, and the control is meant to ask whether the real system catches a
+    verbatim copy, not whether an idealised one would.
+    """
     units_a, size_a = files.units(path)
-    if not units_a:
+    labels_a = files.labels(path)
+    if not units_a or labels_a is None:
         return 0.0
+    usable = [p for p in pool if files.units(p)[0] and files.labels(p) is not None]
+    if not usable:
+        return 0.0
+
     best = 0.0
-    for other in pool:
-        units_b, size_b = files.units(other)
-        if not units_b:
-            continue
-        got = compare_unit_sets(units_a, units_b, size_a, size_b).similarity
-        if got > best:
-            best = got
+    for index in rank(labels_a, [files.labels(p) for p in usable], MAX_DEEP_CANDIDATES):
+        other = usable[index]
+        # Both conditions draw the same pools from the same seed, so without
+        # this the second condition recomputes the first one's comparisons.
+        key = (path, other)
+        if key not in cache:
+            units_b, size_b = files.units(other)
+            cache[key] = compare_unit_sets(units_a, units_b, size_a, size_b).similarity
+        if cache[key] > best:
+            best = cache[key]
     return best
 
 
@@ -245,7 +284,7 @@ def sign_test(diffs):
     return wins, losses, p
 
 
-def run_condition(items, files, donor_in_pool, seed, pool_size):
+def run_condition(items, files, donor_in_pool, seed, pool_size, cache):
     rng = random.Random(seed)
     scored = []
     # The spread only varies by which author is excluded, so it is worked out
@@ -278,7 +317,7 @@ def run_condition(items, files, donor_in_pool, seed, pool_size):
         if donor_in_pool and item.get("donor_source"):
             pool = pool + [item["donor_source"]]
 
-        l1 = layer1_score(item["path"], pool, files)
+        l1 = layer1_score(item["path"], pool, files, cache)
         scored.append({**item, "l1": l1, "l2": l2, "rps": rps(l1, l2), "pool": len(pool)})
 
     return scored
@@ -312,7 +351,13 @@ def main():
     ap.add_argument("--corpus", required=True, help="the --out directory style_shift.py wrote")
     ap.add_argument("--language", default="python", choices=("python", "java"))
     ap.add_argument("--draws", type=int, default=25)
-    ap.add_argument("--pool", type=int, default=60, help="candidates Layer 1 compares against")
+    ap.add_argument(
+        "--pool",
+        type=int,
+        default=MAX_CANDIDATES,
+        help=f"cohort candidates offered to Layer 1, capped at {MAX_CANDIDATES} "
+        "because that is the most the detector endpoint accepts",
+    )
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--save", help="write the per-item scores as json")
     args = ap.parse_args()
@@ -344,14 +389,34 @@ def main():
             "corpus with style_shift.py, which now writes it."
         )
 
+    if args.pool > MAX_CANDIDATES:
+        raise SystemExit(
+            f"--pool {args.pool} exceeds MAX_CANDIDATES={MAX_CANDIDATES}, the most "
+            "the detector accepts. A larger pool measures a system that cannot run."
+        )
+
     files = Files(args.language)
+    # Shared across both conditions on purpose: they draw identical pools from
+    # the same seed, so a comparison computed once is correct for both.
+    cache = {}
 
     results = {}
     for name, donor_in_pool in conditions:
         print(f"\ncondition: {name}")
-        scored = run_condition(items, files, donor_in_pool, args.seed, args.pool)
-        cohort, pairs = cohort_analysis(scored, args.draws, args.seed)
-        results[name] = {"scored": scored, "cohort": cohort, "pairs": pairs}
+        scored = run_condition(items, files, donor_in_pool, args.seed, args.pool, cache)
+
+        # Stratified by splice fraction, because the corpus reuses one source
+        # file across the fractions: 214 pairs come from 94 distinct files, so
+        # pooling them feeds the sign test up to three copies of the same clean
+        # file and an n it has not earned. Within one fraction each source file
+        # appears at most once, so the strata are independent. Costs nothing
+        # extra, since the scoring already happened.
+        strata = {}
+        for frac in sorted({s["requested_fraction"] for s in scored}):
+            subset = [s for s in scored if s["requested_fraction"] == frac]
+            cohort, pairs = cohort_analysis(subset, args.draws, args.seed)
+            strata[frac] = {"scored": subset, "cohort": cohort, "pairs": pairs}
+        results[name] = {"scored": scored, "strata": strata}
 
     report(results, args.draws, files)
 
@@ -384,48 +449,57 @@ def report(results, draws, files):
         print(f"\n{len(files.failed)} file(s) could not be parsed and were skipped")
 
     for name, r in results.items():
-        scored = r["scored"]
-        spliced = [s for s in scored if s["label"] == "spliced"]
-        clean = [s for s in scored if s["label"] == "clean"]
-        print(f"\n--- {name}  ({r['pairs']} pairs, {len(scored)} files scored)")
+        sources = len({s["source_path"] for s in r["scored"]})
+        print(f"\n{'=' * 72}\n{name}: {len(r['scored'])} files scored, "
+              f"{sources} distinct source files\n{'=' * 72}")
+        for frac, stratum in r["strata"].items():
+            stratum_report(frac, stratum, draws)
 
-        print("\n  mean score by class")
-        print(f"    {'':12} {'clean':>8} {'spliced':>9} {'gap':>8}")
-        for key, label in (("l1", "Layer 1"), ("l2", "Layer 2"), ("rps", "RPS")):
-            c = sum(s[key] for s in clean) / len(clean) if clean else 0
-            p = sum(s[key] for s in spliced) / len(spliced) if spliced else 0
-            print(f"    {label:12} {c:8.4f} {p:9.4f} {p - c:+8.4f}")
 
-        print(f"\n  precision@k, median over {draws} draws")
-        print(f"    {'':12}" + "".join(f"{'@' + str(k):>10}" for k in AT_K))
-        for key, label in (("l1", "Layer 1 only"), ("rps", "L1 + L2"), ("l2", "Layer 2 only")):
-            row = "".join(f"{median(r['cohort'][key][k]):10.3f}" for k in AT_K)
-            print(f"    {label:12}{row}")
+def stratum_report(frac, stratum, draws):
+    r = stratum
+    scored = r["scored"]
+    spliced = [s for s in scored if s["label"] == "spliced"]
+    clean = [s for s in scored if s["label"] == "clean"]
+    print(f"\n--- splice fraction {frac}  ({r['pairs']} pairs, {len(scored)} files)")
 
-        # Chance is 0.5 by construction, not something to measure: every draw
-        # takes exactly one of the two versions of each usable pair, so a random
-        # ranking puts a spliced file in the top k half the time whatever the
-        # corpus looks like. An earlier version divided spliced files by all
-        # scored files. That is a different quantity, and orphaned halves, where
-        # one version of a pair failed to parse, pulled it below 0.5 and made a
-        # non-result look like a lift.
-        base = 0.5
-        print(f"    {'chance':12}" + "".join(f"{base:10.3f}" for _ in AT_K))
+    print("\n  mean score by class")
+    print(f"    {'':12} {'clean':>8} {'spliced':>9} {'gap':>8}")
+    for key, label in (("l1", "Layer 1"), ("l2", "Layer 2"), ("rps", "RPS")):
+        c = sum(s[key] for s in clean) / len(clean) if clean else 0
+        p = sum(s[key] for s in spliced) / len(spliced) if spliced else 0
+        print(f"    {label:12} {c:8.4f} {p:9.4f} {p - c:+8.4f}")
 
-        print("\n  paired, spliced minus clean on the same file")
-        by_pair = defaultdict(dict)
-        for s in scored:
-            by_pair[s["pair_id"]][s["label"]] = s
-        for key, label in (("l1", "Layer 1"), ("l2", "Layer 2"), ("rps", "RPS")):
-            diffs = [
-                v["spliced"][key] - v["clean"][key]
-                for v in by_pair.values()
-                if "spliced" in v and "clean" in v
-            ]
-            wins, losses, p = sign_test(diffs)
-            verdict = "significant" if p < 0.05 else "not significant"
-            print(f"    {label:9} higher on spliced in {wins} of {wins + losses}"
-                  f"   p = {p:.2e}   {verdict}")
+    print(f"\n  precision@k, median over {draws} draws")
+    print(f"    {'':12}" + "".join(f"{'@' + str(k):>10}" for k in AT_K))
+    for key, label in (("l1", "Layer 1 only"), ("rps", "L1 + L2"), ("l2", "Layer 2 only")):
+        row = "".join(f"{median(r['cohort'][key][k]):10.3f}" for k in AT_K)
+        print(f"    {label:12}{row}")
+
+    # Chance is 0.5 by construction, not something to measure: every draw
+    # takes exactly one of the two versions of each usable pair, so a random
+    # ranking puts a spliced file in the top k half the time whatever the
+    # corpus looks like. An earlier version divided spliced files by all
+    # scored files. That is a different quantity, and orphaned halves, where
+    # one version of a pair failed to parse, pulled it below 0.5 and made a
+    # non-result look like a lift.
+    base = 0.5
+    print(f"    {'chance':12}" + "".join(f"{base:10.3f}" for _ in AT_K))
+
+    print("\n  paired, spliced minus clean on the same file")
+    by_pair = defaultdict(dict)
+    for s in scored:
+        by_pair[s["pair_id"]][s["label"]] = s
+    for key, label in (("l1", "Layer 1"), ("l2", "Layer 2"), ("rps", "RPS")):
+        diffs = [
+            v["spliced"][key] - v["clean"][key]
+            for v in by_pair.values()
+            if "spliced" in v and "clean" in v
+        ]
+        wins, losses, p = sign_test(diffs)
+        verdict = "significant" if p < 0.05 else "not significant"
+        print(f"    {label:9} higher on spliced in {wins} of {wins + losses}"
+              f"   p = {p:.2e}   {verdict}")
 
 
 if __name__ == "__main__":
