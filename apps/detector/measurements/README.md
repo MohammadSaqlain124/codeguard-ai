@@ -330,3 +330,145 @@ Each file is emitted twice, clean and spliced, sharing a `pair_id`. A paired
 analysis is statistically stronger; it also puts near-identical content into
 one run twice, which can leak. The manifest supports either. Whichever the
 ablation uses, it has to say which.
+
+## The ablation: does Layer 2 add signal beyond Layer 1?
+
+`ablation.py`, run 01 November 2026 on the 214-pair Python style-shift corpus
+above. Per-item scores saved to `ablation-python.json`; the follow-up analyses
+in `independence.py` and `suppression.py` read that file rather than repeating
+the run, which takes forty minutes on a sixteen-thread laptop.
+
+```
+cd apps/detector
+.\.venv\Scripts\Activate.ps1
+python measurements/ablation.py --corpus E:\temp\splices --language python \
+    --pool 50 --draws 25 --save E:\temp\ablation-python.json
+python measurements/independence.py --scores E:\temp\ablation-python.json
+python measurements/suppression.py --corpus E:\temp\splices
+```
+
+`--pool` is capped at 50 because `MAX_CANDIDATES = 50` in `app/main.py` is the
+most the detector endpoint accepts; a larger pool measures a system that cannot
+run. Pool size only feeds the cheap label-bag ranking, so 50 costs no more than
+20: the expensive tree comparison is capped at `MAX_DEEP_CANDIDATES = 10` per
+file, matching what `app/main.py` actually does.
+
+### Answering the choice this file left open
+
+The section above asked which analysis the ablation would use, paired or
+cohort, and said it had to say which. **It uses both, and they answer different
+questions.** The paired analysis takes the difference between the two versions
+of the same file and runs an exact two-sided sign test, which is the stronger
+test and the one that controls for everything about the file except the splice.
+The cohort analysis draws exactly one version of each pair per draw, 25 draws,
+and reports precision@k — which is what a reviewer's queue actually looks like,
+and where no file can appear twice.
+
+Chance in the cohort analysis is **0.5 by construction**, not something to
+measure: one of two versions per pair means a random ranking puts a spliced file
+in the top k half the time whatever the corpus holds.
+
+### The corpus has 214 pairs and 94 independent units
+
+Not recorded above, and it should have been. Eighty-one of the 94 distinct
+source files were reused across the three splice fractions, so the same clean
+file is written up to three times under different pair ids, byte-identical each
+time. Pooling all 214 pairs hands a sign test up to three copies of one file and
+an n it has not earned.
+
+The analysis is therefore stratified by splice fraction — 61, 80 and 73 pairs —
+within which each source file appears at most once. **Ninety-four is the number
+any reported statistic rests on.**
+
+### The result
+
+Donor excluded, which is the thesis test and matches the threat model of
+outsourced work with no second copy in the cohort:
+
+| splice fraction | Layer 1 gap | Layer 2 gap | precision@10 L1 | precision@10 L1+L2 |
+|---|---|---|---|---|
+| 0.10 | +0.0095 | **-0.0124** | 0.500 | 0.500 |
+| 0.25 | +0.0088 | **-0.0176** | 0.700 | **0.400** |
+| 0.50 | -0.0006 | **-0.0090** | 0.700 | 0.500 |
+
+Layer 2 scores *lower* on spliced files than on clean ones at every fraction,
+which is the wrong direction, and adding it to Layer 1 degrades precision@10
+every time, below chance at 0.25. No dose-response.
+
+Donor included, the positive control, with the donor's own file inside Layer 1's
+pool:
+
+| splice fraction | Layer 1 gap | paired sign test | precision@10 L1 |
+|---|---|---|---|
+| 0.10 | +0.0150 | 42 of 60, p = 2.67e-03 | 0.700 |
+| 0.25 | +0.0335 | 53 of 80, p = 4.87e-03 | 0.800 |
+| 0.50 | +0.0706 | 47 of 73, p = 1.86e-02 | **1.000** |
+
+The control passes and rises monotonically with how much was copied. Layer 2's
+figures are byte-identical across the two conditions, as they must be since the
+donor never enters its computation. **The harness measures what it claims to**,
+which is the reason the negative result above is worth reporting rather than
+dismissing as a broken rig.
+
+### Why Layer 2 does not move
+
+`layer2_direction.py` takes the four scored features one at a time. Even at the
+half-replaced fraction they barely move:
+
+| feature | raw, clean | raw, spliced | pairs tied |
+|---|---|---|---|
+| `blank_line_ratio` | 0.1986 | 0.2069 | 0 of 73 |
+| `avg_line_length` | 38.891 | 38.181 | 0 of 73 |
+| `max_block_depth` | 3.6849 | 3.6575 | **33 of 73** |
+| `comment_density` | 0.0162 | 0.0154 | 5 of 73 |
+
+Nothing significant at any fraction. `Z_SATURATION = 3` clamps **zero** pairs,
+so saturation is not hiding movement; the usable range of Layer 2 on this corpus
+is roughly 0.18 to 0.30 out of nought to one.
+
+All four scored features are whole-file aggregates — two ratios, a mean and a
+maximum — and averaging over a whole file is what destroys a signal carried by
+part of it. `max_block_depth` is worst for this task because it is a maximum:
+one surviving deeply nested function pins it, which is why it ties in 57 of 61
+pairs at fraction 0.10.
+
+**The proposed mechanism is not yet verified.** A mixing model says a file that
+is fraction *f* another author's should land near (1-f) times the student's
+typical value plus *f* times the donor's, giving a deviation of about *f* times
+the between-author difference, against a denominator that is itself the scale on
+which authors differ — so the earnable deviation is bounded near one while the
+clean files' own baseline |z| already sits at 0.55 to 0.90. Observed movement is
+smaller even than that bound predicts, so something further is suppressing it.
+`suppression.py` separates the two possibilities by measuring **reach** (how far
+there is to move, in cohort standard deviations) against **realisation** (how
+much of the predicted move happened). Near-zero reach indicts the feature set;
+near-zero realisation indicts the corpus construction, in which case this null
+result is partly an artifact and must say so.
+
+### Three checks closed from the saved scores
+
+`independence.py`, 02 November. None of these needed the forty-minute run
+repeated.
+
+**Layer 1 and Layer 2 are independent.** Pearson -0.042 over all 428 scored
+files, about -0.04 within each class, Spearman within ±0.11 everywhere. The RPS
+weights the layers separately on the premise that each says something the other
+does not, and nothing here contradicts it. Read with care: two signals are also
+uncorrelated when one is noise, so independence is necessary for the composition
+to make sense and is not by itself evidence that combining them helps.
+
+**No dose-response against `actual_fraction`, measured continuously.** Pearson
++0.022 for Layer 2, -0.054 for Layer 1, -0.032 for the RPS. This matters because
+this file says plainly that the requested fraction is a design label and the
+actual one is what an analysis should bucket on — and the stratification shipped
+on 01 November bucketed on the requested one. The buckets do overlap: requested
+0.25 spans actual 0.127 to 0.371, requested 0.50 spans 0.251 to 0.747.
+**Correcting it does not change the conclusion**, which is the only reason the
+01 November figures survive. `ablation.py` now prints each stratum's actual
+range so the overlap is visible on the face of the output.
+
+**The length confound is clear.** This file asked anyone reporting a detection
+result from the corpus to check whether detection tracks the absolute length
+delta. It does not: |delta lines| against delta RPS is **-0.131**, under 2% of
+variance, and negative. Median absolute line delta is three lines. The
+size-matching control worked, and that check can be marked done.
