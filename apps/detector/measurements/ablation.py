@@ -463,6 +463,17 @@ def stratum_report(frac, stratum, draws):
     clean = [s for s in scored if s["label"] == "clean"]
     print(f"\n--- splice fraction {frac}  ({r['pairs']} pairs, {len(scored)} files)")
 
+    # The requested fraction is a design label, not what the splice achieved:
+    # units are coarse, so a bucket asking for half a file settles near 0.44 and
+    # the buckets overlap each other. measurements/README.md says to bucket on
+    # the actual fraction for exactly this reason. Printing the range keeps the
+    # overlap visible, and measurements/independence.py tests the dose-response
+    # continuously against actual_fraction, where no bucket edge can decide it.
+    actual = sorted(s["actual_fraction"] for s in spliced)
+    if actual:
+        print(f"    actual fraction: median {actual[len(actual) // 2]:.3f}, "
+              f"range {actual[0]:.3f} to {actual[-1]:.3f}")
+
     print("\n  mean score by class")
     print(f"    {'':12} {'clean':>8} {'spliced':>9} {'gap':>8}")
     for key, label in (("l1", "Layer 1"), ("l2", "Layer 2"), ("rps", "RPS")):
