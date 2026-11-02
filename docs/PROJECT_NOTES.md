@@ -10301,3 +10301,189 @@ of the first kind. The method has now found more defects in this project than
 every other method combined, and it has never once been the method a test could
 have replaced: a test asserts a value, and every one of these was a thing nobody
 had thought to assert.
+
+### File 106 — Four defects a run would have hidden, and Layer 2's answer (01-02 Nov)
+
+The ablation study was built, debugged, run, and answered its question. The
+answer is no. Layer 2 does not add signal beyond Layer 1 on the style-shift
+corpus, and the reason is structural rather than a matter of tuning.
+
+Getting there took four corrections, and the thing worth recording is that
+**not one of them would have been caught by running the script.** Each one
+produced output that looked like a result.
+
+**One: the positive control compared the wrong file.** The design has two
+conditions. Donor-excluded is the thesis test, where the donor's file is outside
+Layer 1's pool, matching the threat model: outsourced work with no second copy
+in the cohort. Donor-included is a positive control, which should prove Layer 1
+catches a verbatim copy when it can see one.
+
+`style_shift.py` recorded the donor's *author name* and never the donor file. So
+the control stood in that author's first clean file — an unrelated file that
+happens to share an author. Layer 1 would have been asked to match something the
+submission never copied from, scored near chance, and the control would have
+printed *"Layer 1 misses verbatim copying"*. That is a false statement about this
+project's own core layer, and it would have looked like a finding.
+
+`style_shift.py` now records `donor_path`, and `ablation.py` refuses the
+condition outright when a corpus does not carry it rather than substituting a
+stand-in. The corpus was regenerated; being seeded, and with no new random draws
+added, it reproduced the same 214 pairs with the field filled in.
+
+**Two: the chance baseline was inflating every number.** The precision@k table
+printed a `chance` row computed as spliced files divided by all scored files.
+But each draw takes exactly one of the two versions of every usable pair, so a
+random ranking puts a spliced file in the top k half the time regardless of how
+the corpus is composed. Chance is 0.5 by construction. Orphaned halves — pairs
+where one version failed to parse — dragged the printed baseline to 0.429, which
+turned a non-result into an apparent lift of thirteen points.
+
+**Three: Layer 1 was measuring a system nobody deployed.** `app/main.py` does
+not run the tree comparison against every candidate it is handed. It ranks them
+by label-bag overlap in `app/prefilter.py` and gives only the top
+`MAX_DEEP_CANDIDATES = 10` the expensive treatment. The ablation compared against
+every file in the pool.
+
+That is a fidelity error before it is anything else: a real match sitting outside
+the shortlist is one the API never finds, so comparing exhaustively credits
+Layer 1 with detections the deployed system cannot make — which biases the whole
+study *against* Layer 2 by making Layer 1 look stronger than it is. It was also
+what made the script take forty minutes. The shortlist caps the expensive work at
+ten comparisons per file however large the pool is, so the honest fix and the
+fast fix were the same fix, which does not usually happen.
+
+The same reading found `--pool` defaulting to 60 when `MAX_CANDIDATES = 50` is
+the most the endpoint accepts. The default measured a system that cannot run.
+
+**Four: "significant" was printed without a direction.** The sign test is
+two-sided, so it fires on any departure from an even split. At splice fraction
+0.25 the output read *"Layer 2 higher on spliced in 30 of 80, p = 3.30e-02,
+significant"*. Thirty of eighty means spliced scored **lower** in fifty. That
+line is significant evidence against the hypothesis, printed in words that read
+like support for it. The verdict now names which way it went.
+
+**The corpus has 214 pairs and 94 independent units.** Eighty-one source files
+were reused across the three splice fractions, producing byte-identical clean
+copies. Pooling all 214 feeds the sign test up to three copies of the same clean
+file and an n it has not earned. The analysis is now stratified by fraction —
+61, 80 and 73 pairs — within which each source appears at most once. The report
+must carry 94, not 214, as the number the statistics rest on.
+
+#### What Layer 2 actually does
+
+The positive control passes cleanly. With the donor in Layer 1's pool, Layer 1's
+gap rises monotonically with how much was copied — +0.0150, +0.0335, +0.0706 —
+significant at all three fractions, precision@10 reaching 1.000 at the
+half-copied fraction. Layer 2's numbers are byte-identical across the two
+conditions, as they must be, since the donor never enters Layer 2's computation.
+So the harness measures what it claims to. That is what makes the negative result
+worth taking seriously instead of dismissing as a broken rig.
+
+Donor-excluded, the actual test:
+
+- Layer 2 scores **lower** on spliced files than on clean ones at every
+  fraction: -0.0124, -0.0176, -0.0090. The wrong direction.
+- Adding Layer 2 to Layer 1 **degrades** precision@10 every time: 0.500 to
+  0.500, 0.700 to 0.400, 0.700 to 0.500. At fraction 0.25 the combination lands
+  below chance.
+- No dose-response.
+
+The direction diagnostic says why. Even with half the file replaced, the four
+scored features barely move: `blank_line_ratio` 0.1986 to 0.2069,
+`avg_line_length` 38.89 to 38.18, `comment_density` 0.0162 to 0.0154. Nothing
+significant anywhere. `Z_SATURATION = 3` clamps zero pairs, so the clamp is not
+hiding movement — the usable range of Layer 2 on this corpus is about 0.18 to
+0.30 out of nought to one.
+
+All four features are whole-file aggregates: two ratios, a mean, and a maximum.
+A file that is fraction *f* somebody else's lands near (1-f) times the student's
+typical value plus *f* times the donor's, so its deviation from the student's
+baseline is about *f* times the between-author difference — while the z-score
+divides by cohort spread, which is itself the scale on which authors differ. The
+earnable deviation is proportional to the splice fraction and bounded near one,
+and the baseline noise already present in the clean files' own |z| is 0.55 to
+0.90. The signal cannot clear the noise it is measured against. Averaging over a
+whole file destroys the thing the method is looking for.
+
+**That derivation is not yet verified, and the observed movement is smaller even
+than it predicts**, so something further is suppressing the signal.
+`measurements/suppression.py` exists to settle it: it measures reach (how far
+there is to move, in cohort standard deviations) against realisation (how much of
+the predicted move happened). Near-zero reach means the feature set is the
+problem and no aggregation level rescues it. Near-zero realisation means the
+corpus construction suppressed the signal and the null is partly an artifact,
+which would have to be said very plainly.
+
+Two findings that stand on their own either way:
+
+- **`max_block_depth` is nearly inert for this task.** Tied in 57 of 61 pairs at
+  fraction 0.10 and 33 of 73 at 0.50. It is a maximum over the file, so one
+  surviving deeply nested function pins it.
+- **`Z_SATURATION = 3` is never reached** on this corpus.
+
+#### Three checks closed on 02 November
+
+From the saved per-item scores, needing no re-run:
+
+- **Layer 1 and Layer 2 are independent.** Pearson -0.042 across all 428 rows,
+  about -0.04 within each class. The RPS weighting assumption holds. Read with
+  care: two signals are also uncorrelated when one of them is noise, so this is
+  necessary for the design to make sense and is not on its own evidence that
+  combining them helps. Open since File 105; closed.
+- **No dose-response even against `actual_fraction`, measured continuously.**
+  +0.022 for Layer 2. This matters because `measurements/README.md` is explicit
+  that the requested fraction is a design label and the actual one is what an
+  analysis should bucket on, and the stratification shipped on 01 November used
+  the requested one. The buckets do overlap: requested 0.25 spans actual 0.127
+  to 0.371, requested 0.50 spans 0.251 to 0.747. **Fixing the error does not
+  change the conclusion**, which is the only reason the 01 November numbers
+  survive. `ablation.py` now prints each stratum's actual range so the overlap
+  is visible, and `independence.py` tests the dose-response without buckets.
+- **The length confound is clear.** `measurements/README.md` asked anyone
+  reporting a detection result from this corpus to check whether detection
+  tracks the absolute length delta. It does not: |delta lines| against delta RPS
+  is -0.131, under 2% of variance, and negative. Median absolute line delta is
+  three lines. The size-matching control worked.
+
+#### Retractions and corrections
+
+- The 01 November stratification bucketed on `requested_fraction` against the
+  corpus README's explicit instruction. Corrected, conclusion unchanged.
+- File 105 described CI as a gate that "was never shut", which reads as an
+  oversight. It was a documented decision recorded in `ci.yml` itself, with a
+  stated reason that turned out to be two-thirds wrong. Wrong reasoning openly
+  written down is not the same failure as an omission, and the earlier framing
+  was unfair to the record.
+- The day numbering has come apart. The notebook's daily log ends at Day 37
+  (27 Oct) with Day 38 still a placeholder, while this file has already used
+  Day 38 for 28 October. Nothing establishes a day number for 30 October onward,
+  so this entry is dated and left unnumbered rather than given an invented one.
+
+**CARRY-OVER.**
+
+- Settle reach against realisation with `suppression.py`, and decide whether the
+  null is a property of the feature set or partly of the corpus.
+- The fix direction, if the feature set is at fault, is per-function or windowed
+  features rather than whole-file aggregates. That is a design change, not a
+  reweighting, and it is too large to start without deciding it deliberately.
+- **The project's claimed research novelty needs rewording.** That is a
+  conversation with Mr. Ashish Sharma, not a unilateral edit, and nothing in the
+  report should be rewritten before it happens.
+- `signalDisagreement` still fires on boundary artefacts; the margin is still
+  unmeasured.
+- Finding 3 remains unflagged.
+- Cram sheet row 69's AUC figures, 0.766 and 0.909, still match no run in the
+  measurements folder. They must be traced or retracted before the report quotes
+  them.
+- The report is the standing risk: Chapter 2 unwritten, no SRS, thirteen
+  references carrying TODOs.
+- The notebook's daily log is five sessions behind and its day numbering needs
+  reconciling with this file.
+
+**The count that matters, continued.** This entry adds four, every one found by
+reading code rather than running it, and each one had produced output that
+looked like an answer. File 105's phrasing leaves it ambiguous whether its
+eleven already included that night's two, so the running total needs
+reconciling rather than extending here. The pattern does not need the total: the
+method keeps finding defects that no test would have caught, because a test
+asserts a value and every one of these was a thing nobody had thought to assert.
