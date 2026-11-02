@@ -157,6 +157,68 @@ stated anywhere in the measurements folder. They are quoted here because row 69
 is the only record of them, and **they should be traced to a run before the
 report quotes them.**
 
+**Detecting an author and detecting a splice are different problems, and the
+measurements above only establish the first.** Everything stated so far asks
+whether the features can tell whose a whole file is. The ablation study of
+01 November asked the question the threat model in slide 4 actually needs —
+given a file that is *partly* somebody else's, do the features notice — and the
+answer is no. The two results do not contradict each other. Recognising a
+whole file as somebody's work is a different task from noticing that a fraction
+of it changed hands, and Layer 2 as built does the first and not the second.
+
+On the 214-pair style-shift corpus, donor excluded, Layer 2 scores **lower** on
+spliced files than on clean ones at every splice fraction: -0.0124, -0.0176,
+-0.0090. Adding Layer 2 to Layer 1 **degrades** precision@10 each time — 0.500
+to 0.500, 0.700 to 0.400, 0.700 to 0.500 — landing below chance at fraction
+0.25. There is no dose-response, measured continuously against the actual
+fraction rather than the requested one: +0.022.
+
+The mechanism is visible in the features. Even with half the file replaced they
+barely move: `blank_line_ratio` 0.1986 to 0.2069, `avg_line_length` 38.89 to
+38.18, `comment_density` 0.0162 to 0.0154. `Z_SATURATION = 3` clamps zero pairs,
+so the clamp hides nothing; the usable range of Layer 2 on this corpus is about
+0.18 to 0.30 out of nought to one. All four scored features are whole-file
+aggregates — two ratios, a mean, a maximum — and averaging across a whole file
+is what destroys a signal carried by part of it. `max_block_depth` is nearly
+inert for this task specifically: tied in 57 of 61 pairs at fraction 0.10,
+because one surviving deeply nested function pins a maximum.
+
+**The harness that produced this is validated, which is why the result stands.**
+The study runs a positive control in which the donor's own file is inside
+Layer 1's pool. Layer 1's gap there rises monotonically with how much was
+copied — +0.0150, +0.0335, +0.0706 — significant at all three fractions, with
+precision@10 reaching 1.000 at the half-copied fraction. Layer 2's figures are
+byte-identical across the two conditions, as they must be since the donor never
+enters its computation.
+
+**Layer 1 and Layer 2 are independent, and that assumption did survive.**
+Pearson -0.042 across all 428 scored files, about -0.04 within each class, by
+`apps/detector/measurements/independence.py`. The RPS weights them separately on
+the premise that each says something the other does not, and nothing in the data
+contradicts that premise. It should be read carefully rather than as a
+vindication: two signals are also uncorrelated when one of them is noise, so
+independence is necessary for the composition to make sense and is not by itself
+evidence that combining them helps. On this corpus the combination does not
+help.
+
+**What this costs the project, stated plainly.** Layer 2 is the only layer that
+can see outsourced work with no second copy anywhere, which is the claim that
+makes this project more than a clone detector. The claim is not supported by the
+one corpus built to test it. Whether the fault lies in the feature set or partly
+in how the corpus was constructed is being settled by
+`apps/detector/measurements/suppression.py`; the fix direction, if the feature
+set is at fault, is per-function or windowed features rather than whole-file
+aggregates, which is a design change and not a reweighting. **The project's
+claimed research novelty needs rewording in light of this, and that is a
+conversation with the guide rather than an edit to this file.**
+
+**Corpus limitation that belongs beside every figure above.** The 214 pairs come
+from only **94 distinct source files**: 81 sources were reused across the three
+splice fractions, producing byte-identical clean copies. The statistics are
+stratified by fraction — 61, 80 and 73 pairs — within which each source appears
+at most once. Any figure pooled over all 214 pairs violates independence and
+overstates its significance. Ninety-four is the number the report should carry.
+
 ### Layer 3 — AI-generated content
 
 **Dropped, deliberately, and recorded rather than hidden.** Every result stores
