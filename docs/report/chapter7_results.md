@@ -276,12 +276,31 @@ overshoots wildly.
 Neither failure is a tuning problem. Both say the same thing: **a whole-file
 magnitude cannot detect a partial, signed substitution.**
 
-### 7.6.4 One check still outstanding
+### 7.6.4 The arbitrary direction, measured directly
 
-`suppression.py` reports `|reach|` rather than signed reach, so "the donor's
-direction is arbitrary across pairs" is inferred from the coin-flip counts above
-rather than measured directly. Reporting the sign distribution of reach closes
-it properly and is a small change.
+The claim above — that the donor's position relative to the student is
+arbitrary across pairs — was initially inferred from the coin-flip counts in
+§7.6.2. `suppression.py` now measures it, reporting the **sign** of reach and
+not only its magnitude:
+
+| feature | donor above target | of | share | p |
+|---|---|---|---|---|
+| `blank_line_ratio` | 102 | 214 | 0.477 | 0.54 |
+| `avg_line_length` | 107 | 214 | **0.500** | 1.00 |
+| `max_block_depth` | 85 | 174 | 0.489 | 0.82 |
+| `comment_density` | 96 | 208 | 0.462 | 0.30 |
+
+All four are indistinguishable from a coin flip, and `avg_line_length` is
+exactly half. The displacement a splice applies therefore has a magnitude the
+mixing model predicts and **a sign that carries no information** — which is
+precisely the condition under which a distance from a baseline cannot detect it.
+
+The account in §7.6 is consequently measured at every link rather than argued at
+any of them: the donors differ (reach), the direction of that difference is
+arbitrary (this table), and the splice realises the predicted displacement
+(realisation). A magnitude applied in an arbitrary direction to a point already
+off centre moves it closer about as often as further away, and the paired counts
+in §7.6.2 show exactly that.
 
 ## 7.7 Layer independence
 
