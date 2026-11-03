@@ -472,3 +472,53 @@ result from the corpus to check whether detection tracks the absolute length
 delta. It does not: |delta lines| against delta RPS is **-0.131**, under 2% of
 variance, and negative. Median absolute line delta is three lines. The
 size-matching control worked, and that check can be marked done.
+
+### Resolved, 02-03 November: the corpus is exonerated
+
+`suppression.py` answered the question the section above left open, and the
+answer clears the corpus. **Reach** is how far there was to move, in cohort
+standard deviations; **realisation** is how much of the predicted move happened.
+
+| feature | median \|reach\| | median realisation |
+|---|---|---|
+| `blank_line_ratio` | 0.945 | 0.997 |
+| `avg_line_length` | 0.905 | 0.907 |
+| `comment_density` | 0.590 | 0.893 |
+| `max_block_depth` | 0.694 | **-0.000** |
+
+Predicted against observed displacement, in sd: 0.085 against 0.062 at f=0.10,
+0.182 against 0.254 at f=0.25, 0.365 against 0.443 at f=0.50.
+
+The donors differ from the targets by about nine tenths of a standard deviation,
+and for three of the four features the splice moves them almost exactly as the
+mixing model predicts. **Nothing in the corpus construction is suppressing the
+signal, and the size-matching control is not to blame.** The earlier claim that
+observed movement was smaller than the bound predicted is retracted: it compared
+a whole-file score against a per-feature bound, which are different quantities.
+
+What is wrong is the feature set and the score, in two distinct ways.
+
+**An rms distance is direction-blind.** The score is a magnitude of deviation
+from the student's own baseline. At f=0.50 the splice displaces each feature by
+about 0.44 sd, in a direction set by where the donor happens to sit relative to
+the student, which is arbitrary across pairs. A point already 0.55 to 0.90 sd
+from its baseline, displaced 0.44 sd in an arbitrary direction, lands closer
+about as often as further away. `layer2_direction.py` confirms it: at f=0.50,
+|z| grew in 37 of 73 pairs for `blank_line_ratio`, 38 of 73 for
+`avg_line_length`, 37 of 68 for `comment_density`. Coin flips. This is why the
+gaps are slightly negative rather than merely small.
+
+**A maximum is not a mixable statistic.** `max_block_depth` has reach 0.694, so
+donors do differ on it, yet realisation is exactly -0.000: replacing some
+functions cannot lower a maximum unless the deepest is replaced, and a donor's
+function only raises it if it is deeper. Tied in 57 of 61 pairs at f=0.10, and
+its realisation upper quartile is 2.250, so when it moves it overshoots.
+
+Neither is a tuning problem. A whole-file magnitude cannot detect a partial,
+signed substitution. The fix direction is per-unit or windowed features plus a
+signed rather than magnitude comparison, which is a design change to Layer 2 and
+not a reweighting.
+
+`suppression.py` also reports the **sign** distribution of reach, so the
+arbitrary-direction claim can be read off a measurement rather than inferred
+from the coin-flip counts above. Run it and record those figures.
