@@ -519,6 +519,18 @@ signed substitution. The fix direction is per-unit or windowed features plus a
 signed rather than magnitude comparison, which is a design change to Layer 2 and
 not a reweighting.
 
-`suppression.py` also reports the **sign** distribution of reach, so the
-arbitrary-direction claim can be read off a measurement rather than inferred
-from the coin-flip counts above. Run it and record those figures.
+**The arbitrary direction is measured, not inferred.** `suppression.py` reports
+the sign of reach as well as its magnitude, run 03 November:
+
+| feature | donor above target | of | share | p |
+|---|---|---|---|---|
+| `blank_line_ratio` | 102 | 214 | 0.477 | 0.54 |
+| `avg_line_length` | 107 | 214 | 0.500 | 1.00 |
+| `max_block_depth` | 85 | 174 | 0.489 | 0.82 |
+| `comment_density` | 96 | 208 | 0.462 | 0.30 |
+
+All four are indistinguishable from a coin flip; `avg_line_length` is exactly
+half. So the splice applies a displacement whose magnitude the mixing model
+predicts and whose sign carries no information, which is the condition under
+which a distance from a baseline cannot detect it. Every link in the account
+above is now a measurement.
