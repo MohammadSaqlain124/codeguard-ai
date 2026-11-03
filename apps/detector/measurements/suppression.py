@@ -50,6 +50,7 @@ from ablation import (  # noqa: E402
     VARIANCE_FLOOR,
     Files,
     cohort_spread,
+    sign_test,
 )
 
 # Below this, the predicted move is too small to divide by: the ratio becomes
@@ -149,6 +150,25 @@ def main():
             continue
         print(f"{feature:20} {median(vals):15.3f} "
               f"{vals[len(vals) // 4]:8.3f} {vals[3 * len(vals) // 4]:8.3f} {len(vals):6}")
+
+    print(f"\n{'=' * 78}")
+    print("DIRECTION OF REACH - is the donor above or below the target")
+    print("=" * 78)
+    print("The score is an rms, so it measures distance from the baseline and not")
+    print("which way. If the donor sits above the target about half the time, the")
+    print("displacement a splice applies has an arbitrary sign, and a distance")
+    print("cannot tell a move away from the baseline from a move toward it. A split")
+    print("near half here is the mechanism behind a null result, not noise in it.\n")
+    print(f"{'feature':20} {'donor above':>12} {'of':>6} {'share':>8} {'p':>10}")
+    for feature in SCORED_FEATURES:
+        got = [r["reach"] for r in rows if r["feature"] == feature]
+        above = sum(1 for v in got if v > 0)
+        below = sum(1 for v in got if v < 0)
+        if above + below == 0:
+            continue
+        _, _, p = sign_test(got)
+        print(f"{feature:20} {above:12} {above + below:6} "
+              f"{above / (above + below):8.3f} {p:10.2e}")
 
     print(f"\n{'=' * 78}")
     print("REALISATION - how much of the predicted move actually happened")
