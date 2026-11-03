@@ -10487,3 +10487,129 @@ eleven already included that night's two, so the running total needs
 reconciling rather than extending here. The pattern does not need the total: the
 method keeps finding defects that no test would have caught, because a test
 asserts a value and every one of these was a thing nobody had thought to assert.
+
+### File 107 — The corpus is exonerated, and four chapters exist (03 Nov)
+
+Two things happened: the question File 106 left open was answered, and the
+report stopped being a plan.
+
+**File 106's suspicion of the corpus was wrong, and the retraction matters more
+than the finding.** That entry recorded that observed feature movement was
+smaller than the mixing model predicted, and named corpus construction as a
+live suspect — specifically that size-matching donor units might be preserving
+the target's own statistics. `suppression.py` settled it by measuring two
+quantities per pair: **reach**, how far there was to move in cohort standard
+deviations, and **realisation**, how much of the predicted move happened.
+
+| feature | median \|reach\| | median realisation |
+|---|---|---|
+| `blank_line_ratio` | 0.945 | 0.997 |
+| `avg_line_length` | 0.905 | 0.907 |
+| `comment_density` | 0.590 | 0.893 |
+| `max_block_depth` | 0.694 | **-0.000** |
+
+Reach is about nine tenths of a standard deviation, so the donors genuinely
+differ from the targets. Realisation is 0.89 to 1.00 for three of the four
+features, so the splice moves them almost exactly as the model says it should.
+Predicted and observed displacement grow together across the fractions: 0.085
+against 0.062, 0.182 against 0.254, 0.365 against 0.443.
+
+**The corpus is not suppressing anything.** File 106's claim that "something
+further is suppressing it" was an artifact of comparing a whole-file score
+against a per-feature bound — two different quantities. Retracted.
+
+**What is actually wrong is sharper than the original derivation.** Two
+structural failures, neither fixable by reweighting:
+
+*An rms distance is direction-blind.* The score is
+`min(1, rms(z) / Z_SATURATION)`, a magnitude of deviation from the student's own
+baseline. The splice displaces a file by roughly 0.44 standard deviations per
+feature at the half-replaced fraction, but in a direction set by where the donor
+happens to sit relative to the student, which is arbitrary across pairs. A point
+already 0.55 to 0.90 sd from its baseline, displaced 0.44 sd in an arbitrary
+direction, lands closer about as often as further. `layer2_direction.py`'s own
+counts confirm it: at f=0.50, |z| grew in 37 of 73 pairs for
+`blank_line_ratio`, 38 of 73 for `avg_line_length`, 37 of 68 for
+`comment_density`. Coin flips. That is why the gaps are slightly negative rather
+than merely small — the distance moves down as readily as up.
+
+*A maximum is not a mixable statistic.* `max_block_depth` has reach 0.694, so
+donors do differ on it, yet realisation is exactly -0.000. Replacing some
+functions cannot lower a maximum unless the deepest one is replaced, and a
+donor's function only raises it if it is deeper. Tied in 57 of 61 pairs at
+f=0.10. Its realisation upper quartile is 2.250, so when it does move it
+overshoots.
+
+`suppression.py` now also reports the **sign** distribution of reach, not only
+its magnitude, which closes the one check File 106 left inferred rather than
+measured. The arbitrary-direction claim was being read off the coin-flip counts;
+now it is measured directly.
+
+#### The report
+
+Four documents drafted, which is the first time the report has existed as prose
+rather than as a plan:
+
+- **Chapter 2, literature survey.** Written from the argument already recorded
+  in `report/chapter2_plan.md`, which was the single largest gap in the report.
+  No factual claim about any paper was added beyond what that plan records,
+  because the plan's own header forbids writing citations from memory and the
+  rule has already caught three errors in this project.
+- **Appendix A, the SRS.** Did not exist in any form. Written as an *as-built*
+  specification and labelled as one: 32 functional requirements, 10
+  non-functional, 10 data requirements, each traceable to code that exists. Two
+  of the non-functional requirements, NFR-9 and NFR-10, are **stated
+  limitations rather than capabilities**, which is the honest way to carry the
+  Layer 2 result into a requirements document.
+- **Chapter 5, implementation.** The working section for all three layers,
+  including Layer 3 as a documented scope exclusion with its reasoning rather
+  than a hole in the architecture.
+- **Chapter 7, results and discussion.** The Layer 2 negative result, the
+  passing positive control that licenses it, the mechanism, the independence
+  measurement, and seven limitations.
+
+**Three things were deliberately not done, and the reasons are not scheduling.**
+
+- **No prose was written describing Layer 3 as working.** It was dropped on
+  06 October and does not exist. A CodeBERT layer is the first thing an examiner
+  asks to see run, and writing it up as built would be fabrication.
+- **The research novelty was not reworded.** Both Chapter 2 §2.7 and Chapter 7
+  §7.9 carry an explicit flag that the project's claimed contribution asserts
+  behavioural detection of outsourced work, that the measurement does not
+  support it, and that the rewording is a conversation with Mr. Ashish Sharma.
+  Making that edit unilaterally would commit the project to a position its
+  supervisor has not seen.
+- **The bibliography was not verified.** Nine of thirteen entries still carry a
+  TODO. Crossref's API is not reachable from the environment this session runs
+  in and the publisher sites are bot-protected, so the lookups could not be
+  done here. It is a browser task of perhaps half an hour, and it blocks
+  printing the bibliography but not writing the chapters.
+
+**CARRY-OVER.**
+
+- Run `suppression.py` for the signed-reach figures and record them.
+- Decide the Layer 2 fix direction: per-unit or windowed features, and a signed
+  rather than magnitude comparison, so that moving *toward* another author's
+  typical values is itself the signal. Design change, not a reweighting.
+- **Rework the novelty claim with the guide.** Chapters 2 and 7 both block on it.
+- Verify the nine outstanding bibliography fields; close the seven named
+  reference gaps in `chapter2_plan.md`'s table. Baxter et al. must not be cited
+  until confirmed.
+- Chapters 1, 3, 4, 6, 8 remain unwritten, though 4 and 6 are mostly assembly
+  now that the diagrams exist and `TESTING.md` holds the suite contract.
+- Cram sheet row 69's AUC figures, 0.766 and 0.909, still match no run. They are
+  the evidence for the cohort denominator, which is a central design choice, so
+  this one is not cosmetic.
+- `signalDisagreement` still fires on boundary artefacts; the margin is still
+  unmeasured. Finding 3 remains unflagged.
+- The notebook's daily log is still six sessions behind and the day numbering
+  still needs reconciling with this file. File 107 is dated and unnumbered for
+  the same reason File 106 was.
+
+**The count that matters, continued.** Nothing new found by reading code today,
+because today was writing rather than building. The retraction above is of a
+different kind and worth its own note: File 106 was wrong not because it was
+careless but because it compared two quantities that were not comparable, and it
+said in its own text that the derivation was unverified. **An unverified claim
+labelled as unverified is what let it be checked and withdrawn in a day.** That
+is the practice working, not failing.
