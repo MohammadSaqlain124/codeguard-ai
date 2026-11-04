@@ -176,10 +176,10 @@ divide by. A student's mean is personal; the spread is closer to a property of
 the feature. The variance floor exists because a cohort can produce zero spread
 on a coarse feature, and dividing by zero gives infinity.
 
-> **Unresolved, and must not be quoted until traced.** The AUC figures of 0.766
-> for a student's own spread against 0.909 for the cohort's appear on cram sheet
-> row 69 and **match no run in `apps/detector/measurements/`**. Trace them to a
-> script or remove them.
+**The AUC figures previously quoted here are retracted** — 0.766 for a
+student's own spread against 0.909 for the cohort's. No measurement script
+computes an AUC; see Chapter 7 §7.4. The cohort denominator rests on the
+stability argument above, which is reasoning rather than measurement.
 
 ### 5.3.4 The five baseline-integrity mitigations
 
