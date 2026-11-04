@@ -10613,3 +10613,80 @@ careless but because it compared two quantities that were not comparable, and it
 said in its own text that the derivation was unverified. **An unverified claim
 labelled as unverified is what let it be checked and withdrawn in a day.** That
 is the practice working, not failing.
+
+### File 108 — The AUC figures were never measured, and the report exists (04 Nov)
+
+**Cram sheet row 69 is retracted.** The AUC pair — 0.766 using a student's own
+spread against 0.909 using the cohort's — has been carried as "trace before
+quoting" since 27 October. It was traced today and the answer is clean: **no
+script in `apps/detector/measurements/` computes an AUC or an ROC curve at
+all.** The metrics vocabulary across all nine scripts is lift, chance, F ratio,
+accuracy, precision and ANOVA. The only `roc` matches in the whole folder are
+inside the word `subprocess`.
+
+So the figures are reproducible from nothing in the repository. Their likeliest
+source is the deleted Day 19 scratch file, which is the same provenance as the
+2.27x and 3.15x figures already retracted for exactly this reason, and
+`python_authorship.py`'s own docstring records that provenance in writing.
+
+**What this costs is worth being precise about, because it is not nothing.**
+Those figures were the stated evidence for the cohort denominator, which is one
+of the two load-bearing halves of the z-score and therefore a central design
+choice. The choice may well still be right — the argument is that a spread
+estimated from three or four anchors is too unstable to divide by, while a mean
+is personal and a spread is closer to a property of the feature. But that is an
+argument, not a measurement, and the documentation presented it as measured.
+Four files now say so plainly: `PROJECT_STATUS.md`, Chapter 5, Chapter 7 and
+this entry.
+
+Establishing it empirically would need a run that does not exist. That is a
+candidate for the next measurement rather than a gap to paper over.
+
+**`TESTING.md` carried a statement that stopped being true on 01 November.** It
+said CI does not run the API suite and the gate covers 123 of 278. The API
+tests job was added that day and the gate has covered all 278 since. Corrected.
+The document was otherwise accurate, which is what made the one stale line easy
+to miss.
+
+#### The report now exists in draft, all nine chapters
+
+Five written today — 1, 3, 4, 6 and 8 — joining 2, 5, 7 and the SRS from
+yesterday. Chapter 6 is the one to read first: it carries the mutation testing,
+which is the strongest verification evidence in the project and the thing most
+likely to be asked about. Nineteen deliberate mutations, seventeen caught at
+once, and **two that were not** — one reaching a code path no test exercised,
+one changing an ordering nothing asserted on. The finding to report is not
+"nineteen of nineteen eventually caught" but that a suite can be green,
+substantial, and blind in a specific direction.
+
+Chapter 4 is built entirely from the five committed diagrams, so every figure
+in the report has a regenerable source beside it — the same rule the
+measurements folder works under.
+
+**Three chapters carry the same flag and must be settled in one conversation.**
+Chapter 1 §1.4, Chapter 2 §2.7 and Chapter 8 §8.6 all state the project's
+contribution, and all three are pending the rewording with Mr. Ashish Sharma.
+Chapter 1 states the defensible position explicitly so the conversation has
+something to start from: the contribution is a working two-layer evidence
+system with a measured negative result and a diagnosed mechanism, not a
+demonstrated capability to detect outsourced work.
+
+**CARRY-OVER.**
+
+- **The conversation with the guide.** It blocks three chapters and is the only
+  open item that cannot be done alone.
+- Nine bibliography fields still unverified; seven named reference gaps still
+  open. Baxter et al. must not be cited until confirmed.
+- A run that would establish the cohort denominator empirically, now that the
+  figure claiming to has been withdrawn.
+- Layer 2 redesign: per-unit features and a signed comparison. Design change.
+- `signalDisagreement` margin still unmeasured; Finding 3 still unflagged.
+- The notebook's daily log is seven sessions behind; day numbering still
+  unreconciled, so this entry is dated and unnumbered like 106 and 107.
+
+**The count that matters, continued.** Today's retraction was found by grep
+rather than by reading or rendering, which is a fourth method and the cheapest
+yet: the claim was specific enough to be searched for, and searching took under
+a minute against five days of carrying it as an open item. **An unverified
+figure that names exactly what would verify it is one grep from being settled.**
+The cost was not finding it; it was that nobody ran the grep until today.
