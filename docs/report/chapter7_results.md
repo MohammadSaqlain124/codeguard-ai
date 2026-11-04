@@ -129,12 +129,21 @@ A fixed four cannot be right for both languages in any case:
 real work in Java (3.34); `comment_density` is the reverse in degree (13.97
 against 2.49).
 
-> **Not traceable — resolve before submission.** The AUC comparison quoted
-> elsewhere in project documentation, **0.766** using a student's own spread
-> against **0.909** using the cohort's, appears on cram sheet row 69 and matches
-> no run in `apps/detector/measurements/`. It is the evidence for the cohort
-> denominator, which is a central design choice, so it matters. **Trace it to a
-> script or delete the claim.**
+**RETRACTED, 04 November 2026.** An AUC comparison of **0.766** using a
+student's own spread against **0.909** using the cohort's was quoted in earlier
+project documentation as the evidence for this choice. It is withdrawn. No
+script in `apps/detector/measurements/` computes an AUC or an ROC curve at all
+— the metrics the measurement programme computes are lift, chance, F ratio,
+accuracy and precision — so the figures are reproducible from nothing in the
+repository. Their likeliest source is the deleted Day 19 scratch file, which is
+the same provenance as the 2.27x and 3.15x figures already retracted for the
+same reason.
+
+**The design choice stands on its argument, which is not a measurement and
+should not be presented as one.** A student's own spread is estimated from
+three or four anchors and is too unstable to divide by; a mean is personal,
+whereas a spread is closer to a property of the feature. Establishing the
+cohort denominator empirically would need a run that does not yet exist.
 
 ## 7.5 The ablation — does Layer 2 add signal beyond Layer 1?
 
