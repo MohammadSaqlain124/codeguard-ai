@@ -6,10 +6,11 @@ not recalled.
 
 **278 tests: 155 in the API (vitest), 123 in the detector (pytest).**
 
-**CI does not run the API suite.** The workflow has three jobs — API typecheck,
-Detector lint and tests, Web typecheck — and none of them runs vitest. The gate
-covers 123 of the 278. Running the API suite is a manual step until service
-containers are added to `ci.yml`. See File 105.
+**CI runs the whole suite as of 01 November 2026.** The workflow has four jobs:
+API typecheck and production audit, **API tests**, detector lint and tests, and
+web typecheck. The gate covers all 278. Until 01 November it covered 123 — the
+API tests job did not exist — so any green badge before that date means "the
+types check and the detector passes". See Files 105 and 106.
 
 ---
 
