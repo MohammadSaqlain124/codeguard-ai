@@ -115,10 +115,10 @@ cohort's.** In `behavioural.ts` the z-score is `(value - mean) / stdDev`, where
 A z-score here means *how far this submission sits from this student's usual,
 measured in units of how much students in this class differ from one another.*
 
-The cohort denominator is a measured choice, not a convenience: a student's own
-spread, taken from three or four anchors, is too unstable to divide by. **AUC
-0.766 using the student's own spread, against 0.909 using the cohort's.** A
-student's mean is personal; the spread is closer to a property of the feature.
+The cohort denominator is a reasoned choice: a student's own spread, taken from
+three or four anchors, is too unstable to divide by. A student's mean is
+personal; the spread is closer to a property of the feature. **An AUC pair
+previously quoted here in support of this is retracted — see below.**
 
 **How well it works, stated the way the measurement states it.** Across eleven
 within-project tests, *"the features reach roughly 1.4x to 2.5x where they work
@@ -152,10 +152,14 @@ a source either. `apps/detector/measurements/README.md` and the code are the
 sources; the notebook and this file are both summaries of them, and both have
 drifted at least once.
 
-Row 69's figures for the cohort denominator — AUC 0.766 against 0.909 — are not
-stated anywhere in the measurements folder. They are quoted here because row 69
-is the only record of them, and **they should be traced to a run before the
-report quotes them.**
+**Row 69's figures are retracted, 04 November 2026.** The AUC pair 0.766
+against 0.909 was traced, and the answer is that no script in
+`apps/detector/measurements/` computes an AUC or ROC curve at all; the
+programme computes lift, chance, F ratio, accuracy and precision. The figures
+are reproducible from nothing in the repository, and their likeliest source is
+the deleted Day 19 scratch file — the same provenance as the 2.27x and 3.15x
+figures already retracted. The cohort denominator now rests on its stability
+argument alone, which is reasoning and must not be presented as measurement.
 
 **Detecting an author and detecting a splice are different problems, and the
 measurements above only establish the first.** Everything stated so far asks
