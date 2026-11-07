@@ -247,6 +247,25 @@ finding.
 weights and the review threshold that produced it — so a result stays readable
 after the configuration changes.
 
+**`signalDisagreement` is measured, and it is reporting the wrong thing.**
+The flag records two layers landing on opposite sides of the review threshold,
+on the reasoning that two confident and opposite findings should not be allowed
+to cancel out in an average. Measured on 07 November over 428 scored files
+(`measurements/disagreement.py`), at a threshold of 0.50 it fires on **290 of
+them, 68%**, with the nearer layer a median of 0.0442 from the threshold.
+
+The cause is not a missing margin, though a margin of 0.05 would remove 56% of
+the firings. **The two layers are not on the same scale.** Layer 1's median
+score is 0.5286 and Layer 2's is 0.2785; at a shared threshold of 0.50, Layer 1
+is above it 68% of the time and Layer 2 7% of the time, so the two are placed
+on opposite sides by construction. The flag therefore reports a distribution
+mismatch and not a disagreement.
+
+Per-layer thresholds, or calibrating the two scores onto a common scale, is the
+fix. It is a design change and is open. The counts above come from the
+style-shift corpus, where Layer 2 carries no signal, so the firing rate is
+partly a property of that corpus — the scale mismatch is not.
+
 ---
 
 ## 4. Baseline integrity
