@@ -10690,3 +10690,89 @@ yet: the claim was specific enough to be searched for, and searching took under
 a minute against five days of carrying it as an open item. **An unverified
 figure that names exactly what would verify it is one grep from being settled.**
 The cost was not finding it; it was that nobody ran the grep until today.
+
+### File 109 — Finding 3 was closed weeks ago and nobody struck it off (07 Nov)
+
+**The carry-over was lying, and I propagated it twice.** Every entry since
+File 097 has ended with "Finding 3 remains unflagged" — eleven entries, two of
+them written by me on the 3rd and 4th of November. Finding 3 is the
+low-variance penalty: a student whose own work varies less than the cohort's is
+penalised by z-scoring, and the condition changes how the score should be read.
+
+It is flagged. `behavioural.ts:458` builds
+
+```ts
+const lowVariance = {
+  flagged: percentile !== undefined && percentile < config.lowVariancePercentile,
+  ...
+```
+
+and `detection.ts:195` carries it onto the stored result. File 102 even records
+the evidence page rendering it above the number rather than below. So the thing
+was implemented, surfaced and rendered, while the carry-over list went on
+reporting it open because each entry copied the previous entry's list forward
+without checking any of it.
+
+`PROJECT_STATUS.md` has had it right all along as mitigation 4, and the SRS
+written on the 3rd states it as FR-27. **Two documents said implemented and one
+said open, for weeks, and nobody reconciled them.** A carry-over list is a
+to-do list, and an unaudited to-do list grows false entries exactly the way an
+unaudited bibliography grows false fields — which is a thing this project
+already knew and had written a rule about.
+
+Finding 3 is closed. It is struck from the carry-over below.
+
+#### Two measurements added
+
+**`denominator.py` — which denominator separates better.** File 108 retracted
+the AUC pair that was the stated evidence for dividing by the cohort's spread
+rather than the student's own. This replaces it with a figure that can be
+re-run: given a student's baseline, does a file by somebody else outrank a file
+by the student, scored once under each denominator on the same splits? The
+measure is the area under the ROC curve as a Mann-Whitney statistic, written
+out rather than imported, and unit-tested against perfect separation, perfect
+reversal, all-ties and a hand-computed quarter. **Written and verified, not yet
+run** — it needs the blame pass over the cloned repositories.
+
+**`disagreement.py` — the signalDisagreement margin.** Open since File 098 and
+never measured. It is measured now, and the complaint is confirmed with room to
+spare: at a review threshold of 0.50, **290 of 428 files are recorded as
+carrying two confident and opposite findings**, with the nearer layer a median
+of 0.0442 from the threshold. A margin of 0.05 removes 56% of the firings and
+0.10 removes 93%.
+
+**The margin is not the real fix, and the measurement says so.** The two layers
+are not on the same scale: Layer 1's median is 0.5286 and Layer 2's is 0.2785,
+so at a shared threshold of 0.50 Layer 1 sits above it 68% of the time and
+Layer 2 only 7%. The two are put on opposite sides **by construction**, and the
+flag is reporting a distribution mismatch rather than a disagreement. A margin
+suppresses the symptom; per-layer thresholds, or calibrating the scores onto a
+common scale, addresses the cause. That is a design decision and belongs with
+the guide conversation rather than in a quiet commit.
+
+One honest caveat on the counts: they come from the style-shift corpus, where
+Layer 2 carries no signal, so a high straddle rate is partly expected there.
+The scale mismatch is a property of the layers, not of the corpus.
+
+**CARRY-OVER.**
+
+- ~~Finding 3 remains unflagged.~~ **Closed** — it was implemented weeks ago.
+- **The conversation with the guide**, which now carries two items rather than
+  one: the contribution wording blocking Chapters 1, 2 and 8, and whether the
+  layers should share a review threshold at all.
+- Run `denominator.py` and record the result, so the cohort denominator stops
+  resting on argument alone.
+- Nine bibliography fields unverified; seven named gaps still open. Baxter et
+  al. must not be cited until confirmed.
+- Layer 2 redesign: per-unit features and a signed comparison.
+- The notebook's daily log is eight sessions behind; day numbering still
+  unreconciled, so this entry is dated and unnumbered like 106 to 108.
+
+**The count that matters, continued.** File 108 said a figure specific enough
+to be searched for is one grep from being settled. Today makes the companion
+point: **a claim repeated in a to-do list is never checked, because repeating
+it feels like reporting it.** Finding 3 survived eleven entries not because it
+was hard to verify — it took one grep of `behavioural.ts` — but because nobody
+asked whether the list was still true. The carry-over list has been copied
+forward for five weeks; the rest of it should be audited the same way, and
+some of it probably will not survive.
