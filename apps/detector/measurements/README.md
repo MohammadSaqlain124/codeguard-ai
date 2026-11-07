@@ -534,3 +534,80 @@ half. So the splice applies a displacement whose magnitude the mixing model
 predicts and whose sign carries no information, which is the condition under
 which a distance from a baseline cannot detect it. Every link in the account
 above is now a measurement.
+
+## Which denominator separates better
+
+`denominator.py`, added 07 November 2026. **Written and unit-tested, not yet
+run.**
+
+File 108 retracted the AUC pair 0.766 against 0.909 that had been the stated
+evidence for dividing by the cohort's spread rather than the student's own: no
+script in this folder computes an AUC, so the figures were reproducible from
+nothing. This script replaces them with one that can be re-run.
+
+It poses the question Layer 2 actually faces. Given a student's baseline, does
+a file by somebody else score higher than a file by the student? That is a
+ranking question, so the measure is the area under the ROC curve, computed as
+the Mann-Whitney statistic directly rather than pulled from a library the
+detector does not carry:
+
+    AUC = P(foreign scores above self) + 0.5 P(tie)
+
+0.5 is chance. Both denominators are scored on the same files, the same
+baselines and the same splits, so the comparison is paired and any difference
+belongs to the denominator. Both are floored with the production
+`VARIANCE_FLOOR`, since production would floor whichever it used, and the floor
+rate is reported separately — the design argument is precisely that a spread
+taken from three anchors is unstable, so how often it collapses is the point.
+
+```
+cd apps/detector
+.\.venv\Scripts\Activate.ps1
+python measurements/denominator.py --work E:\temp\pyrepos --skip-clone --draws 25
+```
+
+The git blame pass takes a few minutes. **Record the result here when it runs**,
+and note that until it does, the cohort denominator rests on its stability
+argument alone and must not be described as measured.
+
+## The signalDisagreement margin, and a larger problem behind it
+
+`disagreement.py`, added and run 07 November 2026 against
+`ablation-python.json`, 428 scored files, donor-excluded.
+
+`detection.ts` records a disagreement when the two layers land on opposite
+sides of the review threshold. The complaint, open since File 098 and never
+measured, was that it fires on boundary artefacts. It does.
+
+| margin | T=0.40 | T=0.50 | T=0.60 |
+|---|---|---|---|
+| 0.00 | 323 (100%) | 290 (100%) | 32 (100%) |
+| 0.01 | 312 (97%) | 262 (90%) | 23 (72%) |
+| 0.02 | 299 (93%) | 237 (82%) | 20 (62%) |
+| 0.05 | 247 (76%) | 127 (44%) | 8 (25%) |
+| 0.10 | 163 (50%) | 20 (7%) | 3 (9%) |
+| 0.20 | 5 (2%) | 3 (1%) | 3 (9%) |
+
+At a threshold of 0.50, **290 of 428 files — 68% — are recorded as carrying two
+confident and opposite findings**, and the median distance from the threshold
+of the nearer layer is 0.0442. A margin of 0.05 removes 56% of them and 0.10
+removes 93%.
+
+**But a margin is not the real fix, and the script says why.** The two layers
+are not on the same scale:
+
+| layer | median | p10 | p90 | above 0.40 | above 0.50 | above 0.60 |
+|---|---|---|---|---|---|---|
+| Layer 1 | 0.5286 | 0.4265 | 0.5773 | 93% | 68% | 5% |
+| Layer 2 | 0.2785 | 0.1477 | 0.4709 | 21% | 7% | 3% |
+
+At 0.50, Layer 1 is above the line most of the time and Layer 2 almost never
+is. A single shared threshold therefore puts the two layers on opposite sides
+by construction, and the flag reports that distribution mismatch rather than a
+disagreement. A margin suppresses the symptom; **per-layer thresholds, or
+calibrating the two scores onto a common scale, addresses the cause.**
+
+One caveat on the absolute counts: these scores come from the style-shift
+corpus, where Layer 2 carries no signal at all (see the ablation above). A high
+straddle rate is partly expected there. The scale mismatch, however, is a
+property of the two layers and not of this corpus.
