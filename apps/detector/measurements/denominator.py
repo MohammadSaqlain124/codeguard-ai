@@ -39,9 +39,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from common import SCORED, attribute, clone_all, measure, select  # noqa: E402
-
 from ablation import VARIANCE_FLOOR, Z_SATURATION  # noqa: E402
+from common import SCORED, attribute, clone_all, measure, select  # noqa: E402
 
 # A baseline needs at least this many anchors before Layer 2 will score against
 # it at all. Mirrored from minAnchorsForBaseline in the API configuration.
