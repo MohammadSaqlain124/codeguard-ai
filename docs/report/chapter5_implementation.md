@@ -45,8 +45,8 @@ different representations of the same file.
 `app/parsing.py` exposes `parse_source(language, source)`, returning a
 `ParseResult` carrying `ok`, `node_count`, `error` and `root`. One detail is
 load-bearing and caused a real defect during the measurement work: **the root
-is returned even when the parse fails.** tree-sitter is an error-recovering
-parser, so a syntactically broken file still yields a tree. Any caller that
+is returned even when the parse fails.** tree-sitter \cite{treesitter} is an
+error-recovering parser, so a syntactically broken file still yields a tree. Any caller that
 tests `root is None` rather than `ok` will therefore proceed on a tree built
 from broken source. Callers test `ok`.
 
