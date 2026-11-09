@@ -5,6 +5,27 @@ prose in Markdown; they are the source the LaTeX is assembled from, not the
 submission itself. Citation keys match `references.bib` and are written as
 `\cite{key}` so they survive the move.
 
+## Building the PDF
+
+```
+cd docs/report/latex
+python build.py --pdf-only
+```
+
+The whole report compiles: **67 pages**, nine chapters, five numbered figures,
+13 bibliography entries, zero undefined references. `latex/README.md` covers
+the build, what is generated, and the draft-note switch.
+
+The chapter notes render as boxed **DRAFT NOTE** panels. One line in
+`latex/main.tex` hides every one of them for the submission build:
+
+```latex
+\draftnotesfalse
+```
+
+Leave it `\draftnotestrue` until the blocked items below are resolved, so a
+note cannot be submitted by accident. There are 13.
+
 ## Status
 
 | file | chapter | state |
