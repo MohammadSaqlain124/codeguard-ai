@@ -10776,3 +10776,84 @@ was hard to verify — it took one grep of `behavioural.ts` — but because nobo
 asked whether the list was still true. The carry-over list has been copied
 forward for five weeks; the rest of it should be audited the same way, and
 some of it probably will not survive.
+
+### File 110 — The report compiles (09 Nov)
+
+Nine Markdown chapters became a 67-page PDF today: title page, contents, list
+of figures, eight chapters, References, and the SRS as Appendix A. Five
+numbered figures, thirteen bibliography entries, zero undefined references.
+`docs/report/latex/` holds it, and `build.py` regenerates the whole thing from
+the Markdown and builds the PDF in one command.
+
+Four defects were found by looking at the output rather than by the build
+reporting them, which is the pattern this project keeps rediscovering.
+
+**The figures nearly shipped with no text on them.** The diagrams folder keeps
+`.svg` "vector, for LaTeX", so the obvious move was to convert them to PDF.
+`cairosvg` did it without a single warning, and the output was five beautifully
+drawn diagrams with **every label missing** — it could not resolve the fonts
+the Mermaid SVG references. Rendering one and looking at it is the only reason
+this was caught. The `.png` exports, which `mmdc` rendered itself, carry their
+text and are what the report now uses.
+
+**Every section number was doubled.** "2.6 2.6 Detection of machine-generated
+code", because the Markdown headings carry their own numbers and LaTeX adds its
+own. Only visible in a rendered page.
+
+**Three bibliography entries were quietly broken, and one was missing
+entirely.** BibTeX rejects a `%` comment inside an entry — "You're missing a
+field name" — and loses the field that follows. `references.bib` carries its
+TODOs as in-entry comments, which is good practice for a human reader and a
+parse error for BibTeX, and it had silently cost `frantzeskou2006` and
+`abuhamad2019` their author lists. `plainnat.bst` has no `@software`, so the
+tree-sitter entry would have been dropped without an error even if it had been
+cited, which it was not: defined, never cited, therefore absent from a
+References section that looked complete. Chapter 5 now cites it.
+
+**A bare underscore ate a sentence.** The note on `caliskan2015` ends "Read the
+caveat in chapter2\_plan.md before quoting these figures". Unescaped, the `_`
+puts LaTeX into math mode and collapses every space after it, so the printed
+entry read `chapter2plan.mdbeforequotingthesefigures`. The build fixes all
+three of these in a generated copy rather than in the source, so the source
+stays readable.
+
+**And one of my own, worth recording because it wasted the fix.** I chained the
+build as `pdflatex && bibtex && pdflatex && pdflatex`. **`bibtex` exits with
+status 2 whenever it warns**, and this bibliography warns legitimately — three
+entries still lack fields. The chain stopped at bibtex, never regenerated the
+`.bbl`, and the following passes used a stale bibliography. I looked at the
+rendered page, saw the underscore bug still present, and only caught it by
+comparing the `.bbl` timestamp against the `.bib`. `build.py` runs the steps
+unconditionally and `latex/README.md` says why.
+
+**The draft notes are an environment, not prose.** Every chapter's "check this
+before submission" block renders as a boxed DRAFT NOTE. One line in `main.tex`
+makes all thirteen disappear for the submission build. The default is visible,
+because the failure that matters is submitting one by accident rather than
+printing one in a draft.
+
+**The build degrades rather than failing.** `lmodern` and `microtype` are
+loaded only if present and the file was verified compiling without them, so the
+same `main.tex` builds on a minimal TeX Live and on MiKTeX. That is the
+opposite of this project's recurring verification failure, where something was
+checked in one environment and handed over for another.
+
+**CARRY-OVER.**
+
+- **The guide conversation**, still carrying three items: the contribution
+  wording blocking Chapters 1, 2 and 8; whether the layers should share a
+  review threshold; and now the title page, whose format the department
+  prescribes and nobody has checked.
+- Nine bibliography fields unverified. Three of them now surface as BibTeX
+  warnings on every build, which is a better reminder than a TODO comment.
+- Seven named reference gaps. Baxter et al. must not be cited until confirmed.
+- Run `denominator.py`; the cohort denominator still rests on argument alone.
+- Layer 2 redesign: per-unit features and a signed comparison.
+- The notebook's daily log is nine sessions behind.
+
+**The count that matters, continued.** Four more found by rendering and
+reading, none by the build reporting them — LaTeX compiled with zero errors
+through all four. The textless figures are the one to remember: a converter
+that succeeds, produces a plausible file, and silently drops the only part that
+carries meaning. **A build that exits zero has told you it ran, not that it is
+right.**
