@@ -1,0 +1,167 @@
+% =====================================================================
+% CodeGuard AI - final year project report
+% Invertis University, Bareilly - AY 2026-2027
+%
+% Build:  pdflatex main && bibtex main && pdflatex main && pdflatex main
+% or:     latexmk -pdf main.tex
+%
+% The chapter sources are generated from the Markdown drafts in
+% docs/report/ and are overwritten by the build. Edit the Markdown,
+% or adopt these .tex files as the source and stop regenerating them -
+% but do not edit both, because one of the two will silently win.
+% =====================================================================
+\documentclass[12pt,a4paper,oneside]{report}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+% Guarded: present on MiKTeX and full TeX Live, absent on minimal installs.
+% Without it the default Computer Modern is used, which is fine but renders
+% as bitmap fonts in some viewers.
+\IfFileExists{lmodern.sty}{\usepackage{lmodern}}{}
+\usepackage[a4paper,margin=1in,bindingoffset=6mm]{geometry}
+\usepackage{graphicx}
+\usepackage{longtable,booktabs,array,calc}
+\usepackage{caption}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\IfFileExists{microtype.sty}{\usepackage[protrusion=true,expansion=false]{microtype}}{}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{fancyhdr}
+\usepackage{mdframed}
+\usepackage{comment}
+\usepackage[hidelinks,breaklinks]{hyperref}
+
+% ---------------------------------------------------------------------
+% Draft notes.
+%
+% Each chapter carries notes addressed to the author: what still needs
+% checking, what is blocked, what must not be submitted as it stands.
+% They are NOT part of the report.
+%
+% Set this to \draftnotesfalse for the submission build and they all
+% disappear. Leave it true while the blocked items are outstanding, so
+% that a note cannot be submitted by accident.
+% ---------------------------------------------------------------------
+\newif\ifdraftnotes
+\draftnotestrue
+
+\ifdraftnotes
+  \definecolor{draftrule}{HTML}{B3261E}
+  \definecolor{draftback}{HTML}{FDF3F2}
+  \newmdenv[
+    linecolor=draftrule, linewidth=1pt,
+    backgroundcolor=draftback,
+    leftmargin=0pt, rightmargin=0pt,
+    innerleftmargin=8pt, innerrightmargin=8pt,
+    innertopmargin=6pt, innerbottommargin=6pt,
+    skipabove=10pt, skipbelow=10pt,
+    frametitle={\textbf{DRAFT NOTE \textendash\ not part of the report}},
+    frametitlebackgroundcolor=draftback,
+  ]{draftnote}
+\else
+  \excludecomment{draftnote}
+\fi
+
+% pandoc emits \tightlist for compact lists
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+\captionsetup{font=small,labelfont=bf}
+\setlength{\parskip}{0.4em}
+\setlength{\parindent}{0pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\nouppercase{\leftmark}}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\hypersetup{
+  pdftitle={Code Plagiarism Detector Using AST and Behavioural Fingerprinting},
+  pdfauthor={Mohd Saqlain Hussain},
+}
+
+\begin{document}
+
+% ---------------------------------------------------------------- title
+\begin{titlepage}
+\centering
+\vspace*{1.5cm}
+
+{\LARGE\bfseries Code Plagiarism Detector Using AST\\[0.3em]
+and Behavioural Fingerprinting\par}
+
+\vspace{0.8cm}
+{\Large CodeGuard AI\par}
+
+\vspace{1.2cm}
+{\large A project report submitted in partial fulfilment\\
+of the requirements for the degree of\par}
+\vspace{0.4cm}
+{\large\bfseries Bachelor of Technology\par}
+{\large in Computer Science and Engineering\par}
+
+\vspace{1.5cm}
+{\large\bfseries Submitted by\par}
+\vspace{0.3cm}
+{\large Mohd Saqlain Hussain\par}
+
+\vspace{0.4cm}
+{\normalsize
+Vanshika Uppal \quad\textbullet\quad Trisha \quad\textbullet\quad Shubham\par}
+
+\vspace{1.5cm}
+{\large\bfseries Under the guidance of\par}
+\vspace{0.3cm}
+{\large Mr.\ Ashish Sharma\par}
+
+\vfill
+{\large Department of Computer Science and Engineering\par}
+{\large Invertis University, Bareilly\par}
+\vspace{0.4cm}
+{\large Academic Year 2026--2027\par}
+\vspace{1cm}
+\end{titlepage}
+
+\begin{draftnote}
+The title page is a working version. Check it against the department's
+prescribed format before submission: roll numbers, the university emblem,
+the exact degree wording and the order of names are all things a department
+specifies and none of them were available when this was generated. Team
+members other than the author are listed without their roles; confirm
+whether the department wants them listed at all on a single-author report.
+\end{draftnote}
+
+\cleardoublepage
+\pagenumbering{roman}
+\tableofcontents
+\listoffigures
+\cleardoublepage
+\pagenumbering{arabic}
+
+% -------------------------------------------------------------- chapters
+\include{chapters/ch1}
+\include{chapters/ch2}
+\include{chapters/ch3}
+\include{chapters/ch4}
+\include{chapters/ch5}
+\include{chapters/ch6}
+\include{chapters/ch7}
+\include{chapters/ch8}
+
+% ---------------------------------------------------------- bibliography
+\cleardoublepage
+\phantomsection
+\addcontentsline{toc}{chapter}{References}
+% report class calls it "Bibliography"; Indian university formats and the
+% TOC entry below both say "References", so make the heading agree.
+\renewcommand{\bibname}{References}
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+% ------------------------------------------------------------- appendix
+\appendix
+\include{chapters/appendix_srs}
+
+\end{document}

@@ -1,0 +1,618 @@
+\hypertarget{software-requirements-specification-codeguard-ai}{%
+\chapter{Software Requirements Specification --- CodeGuard
+AI}\label{software-requirements-specification-codeguard-ai}}
+
+\textbf{Project:} Code Plagiarism Detector Using AST and Behavioural
+Fingerprinting \textbf{Institution:} Invertis University, Bareilly \textperiodcentered{} AY
+2026--2027 \textbf{Document version:} 1.0, 03 November 2026
+\textbf{Intended placement:} Report Appendix A, summarised in Chapter 3
+
+\begin{draftnote}
+
+\textbf{Nature of this document.} This is an \textbf{as-built
+specification}: it was reconstructed from the implemented system, its
+tests and its configuration, rather than written in advance of
+construction. It is presented as such deliberately. Every requirement
+below is traceable to code that exists, and no requirement describes
+behaviour that has not been built. Where the implementation falls short
+of what a requirement would ideally state, the shortfall is recorded in
+the requirement itself rather than omitted.
+
+Requirements are identified as FR-n (functional), NFR-n (non-functional)
+and DR-n (data). Identifiers are stable; do not renumber them, because
+Chapter 6's test table refers to them.
+
+\end{draftnote}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{introduction}{%
+\section{Introduction}\label{introduction}}
+
+\hypertarget{purpose}{%
+\subsection{Purpose}\label{purpose}}
+
+CodeGuard AI ranks programming assignment submissions by the likelihood
+that they warrant human review for academic misconduct, and attaches to
+each ranking the evidence that produced it. It is an evidence system and
+not a verdict machine: it produces an ordering and a justification, and
+a member of faculty makes the decision.
+
+This document specifies what the system does, for whom, under what
+constraints, and with what limits.
+
+\hypertarget{scope}{%
+\subsection{Scope}\label{scope}}
+
+The system addresses three forms of misconduct in submitted source code:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Collusion} --- two or more students submitting structurally
+  equivalent work. Addressed by Layer 1, structural AST similarity.
+\item
+  \textbf{Outsourcing} --- a student submitting work written by a third
+  party, with no second copy in the cohort. Addressed in design by Layer
+  2, behavioural fingerprinting. \textbf{See NFR-9 for the measured
+  limitation on this claim.}
+\item
+  \textbf{Machine-generated submission} --- work produced by a language
+  model. \textbf{Out of scope in this version}; see \S{}2.6.
+\end{enumerate}
+
+Supported languages are Python and Java. The system handles single-file
+submissions.
+
+\hypertarget{definitions}{%
+\subsection{Definitions}\label{definitions}}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5000}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5000}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+term
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+meaning
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{RPS} & Review Priority Score. The composed, renormalised score a
+submission is ranked by. \\
+\textbf{Layer 1} & Structural detection: AST comparison between a
+submission and cohort candidates. \\
+\textbf{Layer 2} & Behavioural detection: comparison of a submission's
+style against its own author's baseline. \\
+\textbf{Layer 3} & Detection of machine-generated code. Not implemented;
+see \S{}2.6. \\
+\textbf{Anchor} & A past submission trustworthy enough to describe a
+student's style. \\
+\textbf{Baseline} & A per-student, per-language style profile built from
+anchors. \\
+\textbf{Cohort} & The other students whose work provides comparison
+candidates and distributional statistics. \\
+\textbf{Provenance} & Whether an assignment was invigilated or taken
+home, which determines anchor trust. \\
+\end{longtable}
+
+\hypertarget{references}{%
+\subsection{References}\label{references}}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{docs/PROJECT\_STATUS.md} --- the as-built inventory this
+  document derives from
+\item
+  \texttt{docs/PROJECT\_NOTES.md} --- the decision record, including
+  retractions
+\item
+  \texttt{docs/TESTING.md} --- the suite contract
+\item
+  \texttt{apps/detector/measurements/README.md} --- the measurement
+  record and its limits
+\item
+  \texttt{docs/report/references.bib} --- academic citations
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{overall-description}{%
+\section{Overall description}\label{overall-description}}
+
+\hypertarget{product-perspective}{%
+\subsection{Product perspective}\label{product-perspective}}
+
+Three tiers and one detection service:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Web client} (\texttt{apps/web}) --- React and Vite. Holds no
+  credentials and talks only to the API.
+\item
+  \textbf{API} (\texttt{apps/api}) --- Node, Express, TypeScript,
+  Mongoose. Holds all credentials and is the only component that reaches
+  a data store.
+\item
+  \textbf{Detector} (\texttt{apps/detector}) --- Python, FastAPI,
+  tree-sitter, APTED. Stateless; parses and compares source, and
+  extracts style features.
+\item
+  \textbf{Infrastructure} --- MongoDB (documents), Redis (job queue),
+  MinIO-compatible object store (submitted files).
+\item
+  \textbf{Worker} --- the same codebase as the API started on a
+  different entry point, so a queued job and a request share one set of
+  services rather than two implementations that can diverge.
+\end{itemize}
+
+\hypertarget{user-classes}{%
+\subsection{User classes}\label{user-classes}}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5000}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5000}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+class
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+may
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{Student} & submit work, view their own submission status and any
+recorded decision, answer a flag, nominate past work as an anchor \\
+\textbf{Faculty} & create courses and assignments, enrol students, view
+the ranked review queue and full evidence, record decisions, accept
+nominations, re-run detection \\
+\textbf{Admin} & all of the above, plus create accounts with roles and
+edit detection configuration \\
+\end{longtable}
+
+A student never sees a score. This is a design decision and not an
+oversight: a ranking a student can read is a ranking a student can tune
+against.
+
+\hypertarget{operating-environment}{%
+\subsection{Operating environment}\label{operating-environment}}
+
+Developed and run on Windows with Docker Desktop providing MongoDB,
+Redis and the object store via \texttt{infra/docker-compose.yml}. CI
+runs on Ubuntu with the same services. The detector targets Python 3.11.
+
+\hypertarget{design-and-implementation-constraints}{%
+\subsection{Design and implementation
+constraints}\label{design-and-implementation-constraints}}
+
+\begin{itemize}
+\tightlist
+\item
+  Single-file submissions only; no archive or multi-file project
+  support.
+\item
+  Two languages only, enforced by extension allow-list.
+\item
+  The detector accepts at most 50 comparison candidates per request, and
+  compares at most 10 of them in full (\S{}3.3, NFR-3).
+\item
+  The API is the only holder of credentials; no credential appears in
+  the web client or the detector.
+\end{itemize}
+
+\hypertarget{assumptions-and-dependencies}{%
+\subsection{Assumptions and
+dependencies}\label{assumptions-and-dependencies}}
+
+\begin{itemize}
+\tightlist
+\item
+  A student's past work is available and attributable to them, which is
+  what makes a baseline possible. Where it is not, Layer 2 declines to
+  score.
+\item
+  Invigilated work is genuinely the student's own. The anchor provenance
+  model rests on this and cannot verify it.
+\item
+  Cohort members are solving comparable problems, so that distributional
+  statistics are meaningful.
+\end{itemize}
+
+\hypertarget{explicitly-excluded-from-this-version}{%
+\subsection{Explicitly excluded from this
+version}\label{explicitly-excluded-from-this-version}}
+
+\textbf{Layer 3, detection of machine-generated code, is not
+implemented.} The decision was taken on 06 October 2026 and is recorded
+rather than hidden: every detection result stores
+\texttt{aiContent:\ \{\ status:\ "skipped",\ reason:\ "Layer\ 3\ is\ not\ implemented\ yet"\ \}}.
+
+The reason is a requirements problem and not a scheduling one. The
+published approach this layer would have followed reports that
+classifier accuracy depends on training data resembling the target code,
+which requires a labelled corpus of student work from the course being
+policed. No such corpus exists, and manufacturing one would mean
+treating synthetic submissions as ground truth. A layer whose output
+cannot be characterised is worse than an absent layer in a system whose
+premise is auditable evidence, because a reviewer would have no basis on
+which to weigh it.
+
+Also excluded: real-time push notification of queue changes (the queue
+is polled), and side-by-side AST diff rendering of two sources.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{specific-requirements}{%
+\section{Specific requirements}\label{specific-requirements}}
+
+\hypertarget{functional-requirements}{%
+\subsection{Functional requirements}\label{functional-requirements}}
+
+\hypertarget{authentication-and-accounts}{%
+\subsubsection{Authentication and
+accounts}\label{authentication-and-accounts}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{FR-1} The system shall allow public self-registration, which
+  shall create an account with the student role and no other.
+\item
+  \textbf{FR-2} The system shall authenticate by email and password and
+  issue a short-lived access token and a longer-lived refresh token.
+\item
+  \textbf{FR-3} The system shall allow a held refresh token to be
+  exchanged for a new access token, and shall allow logout to invalidate
+  it.
+\item
+  \textbf{FR-4} The system shall allow an authenticated user to retrieve
+  their own account.
+\item
+  \textbf{FR-5} The system shall allow an admin, and only an admin, to
+  create an account with a chosen role, and to amend an existing
+  account.
+\item
+  \textbf{FR-6} The system shall allow an admin to list accounts, paged,
+  filtered by role and active state, and searchable by term.
+\end{itemize}
+
+\hypertarget{courses-enrolment-and-configuration}{%
+\subsubsection{Courses, enrolment and
+configuration}\label{courses-enrolment-and-configuration}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{FR-7} The system shall allow faculty to create a course and to
+  amend it.
+\item
+  \textbf{FR-8} The system shall allow faculty to enrol a student on a
+  course and to remove one.
+\item
+  \textbf{FR-9} The system shall expose, per course, the detection
+  configuration in force, and shall allow an authorised user to amend
+  it.
+\item
+  \textbf{FR-10} Detection configuration shall support per-language
+  overrides, so that one course may weight Python and Java differently.
+\end{itemize}
+
+\hypertarget{assignments}{%
+\subsubsection{Assignments}\label{assignments}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{FR-11} The system shall allow faculty to create an assignment
+  carrying its language and its provenance (invigilated or take-home),
+  and to amend it.
+\item
+  \textbf{FR-12} The system shall expose, per assignment, the review
+  queue ordered by RPS descending.
+\end{itemize}
+
+\hypertarget{submission}{%
+\subsubsection{Submission}\label{submission}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{FR-13} The system shall accept a single source file per
+  submission, rejecting any file whose extension is outside the
+  configured allow-list or whose size exceeds the configured maximum.
+\item
+  \textbf{FR-14} The system shall store the submitted file in the object
+  store and retain a content hash of it.
+\item
+  \textbf{FR-15} The system shall enqueue detection on upload, debounced
+  by job identity, so that many uploads arriving at a deadline collapse
+  into a bounded number of detection runs rather than one run per
+  upload.
+\item
+  \textbf{FR-16} The system shall allow a student to retrieve their own
+  submission and its file, and faculty to retrieve any submission within
+  their courses.
+\end{itemize}
+
+\hypertarget{detection}{%
+\subsubsection{Detection}\label{detection}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{FR-17} The system shall compute a structural similarity score
+  for a submission against candidates drawn from the cohort.
+\item
+  \textbf{FR-18} The system shall compute a behavioural score for a
+  submission against that student's own baseline for the submission's
+  language, where a baseline of sufficient quality exists.
+\item
+  \textbf{FR-19} The system shall compose the available layer scores
+  into one RPS, \textbf{renormalised over the layers that actually ran}.
+  An absent layer shall contribute nothing, rather than contributing a
+  zero, because a zero is a finding and an absent layer has made no
+  finding.
+\item
+  \textbf{FR-20} The system shall store, on every result, the weights
+  and review threshold that produced it, so that the result remains
+  interpretable after the configuration changes.
+\item
+  \textbf{FR-21} The system shall store both layers' evidence on the
+  result, not merely their scores, so that the evidence view is
+  reproducible from stored data rather than recomputed on demand.
+\item
+  \textbf{FR-22} The system shall allow faculty to re-run detection on a
+  submission; a re-run shall supersede the previous result by revision
+  without destroying it, because a decision may already have been
+  recorded against the old one.
+\end{itemize}
+
+\hypertarget{baseline-integrity}{%
+\subsubsection{Baseline integrity}\label{baseline-integrity}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{FR-23} Only invigilated work, or work a student nominates and
+  faculty accept, shall be eligible to describe that student's style.
+\item
+  \textbf{FR-24} The system shall allow a student to nominate a past
+  submission as an anchor and to withdraw that nomination, and faculty
+  to accept it.
+\item
+  \textbf{FR-25} Where fewer than \texttt{minAnchorsForBaseline} (3)
+  anchors exist, Layer 2 shall decline to score rather than scoring on a
+  guess.
+\item
+  \textbf{FR-26} A thin or inconsistent baseline shall attenuate Layer
+  2's effective weight rather than being trusted at full strength.
+\item
+  \textbf{FR-27} Where a student's own work varies less than the
+  cohort's, the result shall carry a low-variance flag, because
+  z-scoring penalises such a student.
+\item
+  \textbf{FR-28} Where the pooled cohort spread has collapsed, the
+  result shall carry a cohort-saturation flag, because every z-score is
+  then a real difference divided by an invented floor and the layer has
+  stopped discriminating.
+\end{itemize}
+
+\hypertarget{review-and-the-students-view}{%
+\subsubsection{Review and the student's
+view}\label{review-and-the-students-view}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{FR-29} The system shall allow faculty to record a decision
+  against a submission.
+\item
+  \textbf{FR-30} The system shall expose to a student a view of their
+  own submission carrying its status and any recorded decision,
+  \textbf{and no score}.
+\item
+  \textbf{FR-31} The system shall allow a student to submit a written
+  explanation against a recorded decision.
+\end{itemize}
+
+\hypertarget{audit}{%
+\subsubsection{Audit}\label{audit}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{FR-32} The system shall record every state change affecting a
+  student's record in an audit log held separately from the documents it
+  describes, so that the record of who changed what cannot be amended by
+  the same operation that changes the thing.
+\end{itemize}
+
+\hypertarget{external-interfaces}{%
+\subsection{External interfaces}\label{external-interfaces}}
+
+35 HTTP endpoints. The API surface is 32 routes across four routers; the
+detector exposes 3.
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+router
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+count
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+endpoints
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{authRoutes.ts} & 8 & \texttt{POST\ /register},
+\texttt{POST\ /login}, \texttt{POST\ /refresh}, \texttt{POST\ /logout},
+\texttt{GET\ /me}, \texttt{GET\ /users}, \texttt{POST\ /users},
+\texttt{PATCH\ /users/:userId} \\
+\texttt{courseRoutes.ts} & 8 & \texttt{GET\ /},
+\texttt{GET\ /:courseId}, \texttt{POST\ /}, \texttt{PATCH\ /:courseId},
+\texttt{POST\ /:courseId/students},
+\texttt{POST\ /:courseId/students/remove},
+\texttt{GET\ /:courseId/config}, \texttt{PATCH\ /:courseId/config} \\
+\texttt{assignmentRoutes.ts} & 5 & \texttt{GET\ /}, \texttt{POST\ /},
+\texttt{GET\ /:assignmentId}, \texttt{PATCH\ /:assignmentId},
+\texttt{GET\ /:assignmentId/results} \\
+\texttt{submissionRoutes.ts} & 11 & \texttt{POST\ /}, \texttt{GET\ /},
+\texttt{GET\ /:submissionId}, \texttt{GET\ /:submissionId/file},
+\texttt{GET\ /:submissionId/result},
+\texttt{GET\ /:submissionId/student-view},
+\texttt{PATCH\ /:submissionId/explanation},
+\texttt{PATCH\ /:submissionId/review},
+\texttt{POST\ /:submissionId/nominate},
+\texttt{DELETE\ /:submissionId/nominate},
+\texttt{POST\ /:submissionId/rerun} \\
+detector \texttt{main.py} & 3 & \texttt{GET\ /health},
+\texttt{POST\ /analyze}, \texttt{POST\ /features} \\
+\end{longtable}
+
+The web client presents 10 pages and 5 shared components. The detector
+is reachable only from the API and only with a bearer token.
+
+\hypertarget{non-functional-requirements}{%
+\subsection{Non-functional
+requirements}\label{non-functional-requirements}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{NFR-1 (security --- credential isolation)} No credential shall
+  appear outside the API. The web client and the detector shall hold
+  none.
+\item
+  \textbf{NFR-2 (security --- authorisation)} Every route shall enforce
+  role and course-scope authorisation; a faculty member shall not read a
+  submission outside their own courses.
+\item
+  \textbf{NFR-3 (performance --- bounded comparison)} The detector shall
+  accept at most 50 candidates per request and shall run full tree
+  comparison on at most 10 of them, selected by a cheap label-bag
+  prefilter. This bounds the cost of one analysis irrespective of cohort
+  size, and it is the behaviour any measurement of Layer 1 must
+  reproduce to be faithful.
+\item
+  \textbf{NFR-4 (performance --- upload bound)} Submitted files shall be
+  limited to the configured maximum (262,144 bytes as configured) and
+  the detector request body to 16 MB.
+\item
+  \textbf{NFR-5 (reliability --- queue)} Detection shall be queued
+  rather than synchronous, and debounced by job identity.
+\item
+  \textbf{NFR-6 (auditability)} A result shall be interpretable from
+  stored data alone, without re-running detection and without reference
+  to the current configuration.
+\item
+  \textbf{NFR-7 (evidence quality)} A reported match shall meet a
+  minimum span size (10 nodes) before being shown to a reviewer, because
+  two one-line functions resemble each other by virtue of being one line
+  long.
+\item
+  \textbf{NFR-8 (explainability)} Every feature contributing to a
+  behavioural score shall be explainable to a student contesting a flag.
+  This constrains the feature set to a size a person can be walked
+  through, and is the reason four features are scored rather than the
+  ten extracted.
+\item
+  \textbf{NFR-9 (stated limitation --- Layer 2 efficacy)} Layer 2's
+  ability to detect \textbf{partial} outsourcing is \textbf{not
+  established}. On the 214-pair style-shift corpus (94 distinct source
+  files) the layer did not separate spliced files from clean ones at any
+  splice fraction, and combining it with Layer 1 degraded ranking
+  precision. The cause is understood and structural: the four scored
+  features are whole-file aggregates, and the score is a magnitude of
+  deviation, so a partial substitution displaces a file in a direction
+  that is as likely to move it toward its baseline as away. Any
+  requirement asserting that Layer 2 detects outsourcing must be read
+  against this. The design direction for addressing it --- per-unit
+  rather than whole-file features, and a signed rather than magnitude
+  comparison --- is future work and is not built.
+\item
+  \textbf{NFR-10 (stated limitation --- Layer 1 efficacy)} No precision
+  or recall figure exists for structural similarity on
+  \emph{known-copied} pairs, because no labelled corpus of genuine
+  student plagiarism exists. The measured distribution is over honest
+  work by different authors, which is a different claim.
+\end{itemize}
+
+\hypertarget{data-requirements}{%
+\subsection{Data requirements}\label{data-requirements}}
+
+Eight document collections.
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+id
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+collection
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+holds
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{DR-1} & \texttt{User} & accounts and roles: admin, faculty,
+student \\
+\textbf{DR-2} & \texttt{Course} & a course and its enrolment \\
+\textbf{DR-3} & \texttt{Assignment} & an assignment, its language, its
+provenance \\
+\textbf{DR-4} & \texttt{Submission} & an uploaded file reference, its
+hash, its status \\
+\textbf{DR-5} & \texttt{DetectionResult} & the score, both layers'
+evidence, the applied weights and threshold, the recorded review \\
+\textbf{DR-6} & \texttt{DetectionConfig} & per-course weights and
+thresholds, with per-language overrides \\
+\textbf{DR-7} & \texttt{BaselineProfile} & a student's style baseline,
+per language \\
+\textbf{DR-8} & \texttt{AuditLog} & every state change affecting a
+student's record \\
+\end{longtable}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{DR-9} \texttt{DetectionResult} shall carry \texttt{isCurrent}
+  and \texttt{revision}, so that a re-run supersedes without destroying.
+\item
+  \textbf{DR-10} \texttt{AuditLog} shall be independent of the documents
+  it describes (see FR-32).
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{verification}{%
+\section{Verification}\label{verification}}
+
+Requirements are verified by the automated suite described in
+\texttt{docs/TESTING.md}: 155 API tests and 123 detector tests. The
+suite is run in CI on every push, including the API integration tests,
+which were added to the gate on 01 November 2026.
+
+Chapter 6 of the report carries the test-case table mapping requirement
+identifiers to tests, together with the mutation-testing results: 19
+deliberate mutations across the detector suite, of which two were not
+caught on the first attempt and exposed a dead code path and a missing
+sort assertion.
+
+\textbf{Requirements NFR-9 and NFR-10 are verified as limitations rather
+than as capabilities}, by the measurement scripts in
+\texttt{apps/detector/measurements/}, each of which is committed and
+re-runnable.
