@@ -10857,3 +10857,89 @@ through all four. The textless figures are the one to remember: a converter
 that succeeds, produces a plausible file, and silently drops the only part that
 carries meaning. **A build that exits zero has told you it ran, not that it is
 right.**
+
+### File 111 — The report's numbers are clean; the code's are not (12 Nov)
+
+Four days to the presentation. A constants pass: every figure the nine chapters
+quote, checked against the code and the measurement scripts rather than against
+the earlier documents that quoted them.
+
+**The report is clean.** Nothing in it is wrong.
+
+| claim | checked against | result |
+|---|---|---|
+| 32 API routes, 35 with the detector | counted in the four routers: 8 + 8 + 5 + 11, plus 3 | correct |
+| 8 Mongoose models | `models/` less `index.ts` and `plugins.ts` | correct |
+| 10 web pages, 5 components | `apps/web/src/pages`, `/components` | correct |
+| `MAX_CANDIDATES` 50, `MAX_DEEP_CANDIDATES` 10, `MIN_SPAN_NODES` 10 | `app/main.py` | correct |
+| `SCORED_FEATURES`, the four and their order | `behavioural.ts` | correct |
+| `Z_SATURATION` 3, all four `VARIANCE_FLOOR` values | `behavioural.ts` | correct |
+| every npm script Chapter 6 quotes | `apps/api/package.json` | correct |
+| 278 tests, 155 API and 123 detector | observed in the runs | correct |
+
+That is a pleasant result and not the interesting one.
+
+**Three design constants are justified by figures that exist nowhere.** The
+pass found them in `behavioural.ts`, in comments rather than in the report:
+
+- `Z_SATURATION` cited a median RMS z of 0.70, a 90th percentile of 1.83 and a
+  foreign median of 2.20. No script produces them; the only 1.83 in the
+  measurements folder is an unrelated zxing range.
+- `VARIANCE_FLOOR` described its four values as a tenth of the median
+  within-author spread measured on real code. `common.py` computes a
+  within-author *coefficient of variation*, which is a different quantity, and
+  the four values appear in no run.
+- `SIZE_BAND_LOW` and `SIZE_BAND_HIGH` cited a rise in author identification
+  from 32% to 79%, "the largest single effect measured". Those figures appear
+  nowhere at all. And the 204-file measurement found the opposite for absolute
+  bands: *"No band beats leaving the band off, in either language."* That
+  tested absolute ranges while the constant is a ratio of the submission's own
+  length, so it does not refute it — but it does not support it either.
+
+All three are Day 19 era, the same provenance as the 2.27x and 3.15x lifts and
+the 0.766/0.909 AUC pair, both already retracted. **That is now three sets of
+figures from one deleted scratch file, found one at a time, weeks apart.** The
+constants are kept and the justifications are marked `UNTRACEABLE` in place,
+because the system behaves correctly with these values and it is the evidence
+for them that is missing. Comment-only edit, verified by diffing: 28 lines
+changed, 0 of them code.
+
+The pattern is worth naming. A figure in a document gets re-read and eventually
+checked. **A figure in a code comment is read once, by whoever wrote it.** Both
+the retractions before this one were found because something quoted them
+elsewhere; these three were found only because somebody went looking at the
+constants themselves.
+
+#### The deck
+
+`CodeGuard_AI_Presentation_v6.pptx`, 18 slides, built from the report rather
+than edited from v5_2 — v5_2 is a chat attachment and not in the repository, so
+there was nothing to edit. **Diff it against v5_2 for anything worth keeping.**
+
+v5_2 presents a three-layer system with a WebSocket push and a Monaco
+side-by-side diff. None of the three exists. The deck now states what was
+built, carries the positive control before the negative result so the null is
+credible rather than embarrassing, gives the mechanism its own slide, and lists
+Shubham's mobile vertical as not started rather than implying otherwise.
+
+Validated and rendered: schema checks pass, all 18 slides inspected, no
+overflow or overlap.
+
+**CARRY-OVER.**
+
+- **The guide conversation**, four items now: the contribution wording blocking
+  Chapters 1, 2 and 8; the shared review threshold; the title-page format; and
+  whether to say anything about the three untraceable constants.
+- Nine bibliography fields; seven named gaps. Baxter et al. unverified.
+- Run `denominator.py`.
+- A run that would support `Z_SATURATION`, the variance floors, or the size
+  band, now that none of the three has one.
+- `\draftnotesfalse` before the submission build. Thirteen notes.
+- Nobody has read the 67 pages start to finish.
+
+**The count that matters, continued.** Three found today, all by going and
+looking rather than by anything reporting them. The lesson is narrow and
+useful: **this project has now retracted three separate sets of figures from
+one deleted script, and each was found by a different accident.** Nobody ever
+audited the comments. The remaining question is not whether more exist but
+where else a number was written down once and never re-read.
