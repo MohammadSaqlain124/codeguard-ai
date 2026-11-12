@@ -25,13 +25,23 @@ export const SCORED_FEATURES = [
 type Scored = (typeof SCORED_FEATURES)[number];
 
 // Where the score reaches 1. Three standard deviations of the typical
-// student-to-student spread: measured on real code, honest work had a median
-// RMS z of 0.70 and a 90th percentile of 1.83, foreign work a median of 2.20.
+// student-to-student spread.
+//
+// UNTRACEABLE, 12 Nov 2026. This comment used to cite a median RMS z of 0.70,
+// a 90th percentile of 1.83 and a foreign median of 2.20. No script in
+// apps/detector/measurements/ produces those figures. They are Day 19 era,
+// the same provenance as the 2.27x/3.15x lifts and the 0.766/0.909 AUC pair,
+// both already retracted. The constant is kept because nothing argues against
+// 3; its stated justification is withdrawn until a run supports it.
 export const Z_SATURATION = 3;
 
 // A cohort can produce a spread of zero on a coarse feature, and dividing by
-// it gives infinity. Each floor is a tenth of the median within-author
-// spread measured on real code.
+// it gives infinity.
+//
+// UNTRACEABLE, 12 Nov 2026. The floors were described as a tenth of the
+// median within-author spread measured on real code. common.py computes a
+// within-author coefficient of variation, not a spread, and these four values
+// appear in no run. The floors work and are kept; the derivation is withdrawn.
 export const VARIANCE_FLOOR: Record<Scored, number> = {
   blank_line_ratio: 0.0065,
   avg_line_length: 0.4947,
@@ -40,8 +50,14 @@ export const VARIANCE_FLOOR: Record<Scored, number> = {
 };
 
 // Anchors far from the submission's size measure size rather than style.
-// Restricting real files to one size band raised author identification from
-// 32% to 79%, the largest single effect measured.
+//
+// UNTRACEABLE, 12 Nov 2026. This cited a rise in author identification from
+// 32% to 79% as "the largest single effect measured". Those figures appear
+// nowhere. The 204-file measurement found the opposite for absolute bands:
+// "No band beats leaving the band off, in either language"
+// (measurements/README.md). That tested absolute line ranges while the band
+// below is a ratio of the submission's own length, so it does not refute this
+// constant - but it does not support it either.
 export const SIZE_BAND_LOW = 0.5;
 export const SIZE_BAND_HIGH = 2;
 export const MIN_BAND_ANCHORS = 2;
