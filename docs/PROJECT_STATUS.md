@@ -108,6 +108,30 @@ vertical. It is not decided here.
 
 Score = `min(1, rootMeanSquare(zScores) / Z_SATURATION)` with `Z_SATURATION = 3`.
 
+**Three constants in `behavioural.ts` had untraceable justifications, marked
+12 November 2026.** A constants pass checked every figure the report quotes
+against the code and found the report clean. It also found three empirical
+claims living in code comments, none reproducible from any script in
+`apps/detector/measurements/`:
+
+| constant | the claim that was withdrawn |
+|---|---|
+| `Z_SATURATION` | honest work had a median RMS z of 0.70, a 90th percentile of 1.83, foreign work a median of 2.20 |
+| `VARIANCE_FLOOR` | each floor is a tenth of the median within-author spread measured on real code |
+| `SIZE_BAND_LOW` / `HIGH` | restricting files to one size band raised author identification from 32% to 79%, "the largest single effect measured" |
+
+All three are Day 19 era — the same provenance as the 2.27x/3.15x lifts and
+the 0.766/0.909 AUC pair, both already retracted. The constants themselves are
+kept, because nothing argues against them and the system behaves correctly with
+them; it is the stated evidence that is withdrawn. The size-band claim is the
+notable one: the 204-file measurement found that **no absolute band beats
+leaving the band off, in either language**. That tested absolute line ranges
+while `behavioural.ts` uses a ratio of the submission's own length, so it does
+not refute the constant — but it plainly does not support it either.
+
+An examiner reading `behavioural.ts` would have found three confident numbers
+justifying three design decisions, and been able to reproduce none of them.
+
 **The comparison is against the student's own past work. The units are the
 cohort's.** In `behavioural.ts` the z-score is `(value - mean) / stdDev`, where
 `mean` is the student's own, trust-weighted across their anchors, and `stdDev` is
