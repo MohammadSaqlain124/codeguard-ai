@@ -203,40 +203,82 @@ Mitigations 2, 3, 4 and 5 all have the same character: the system reports that
 it cannot tell, instead of producing a number that looks like an answer. That
 is the behaviour an evidence system owes a reviewer.
 
-## 5.4 Layer 3 — specified, justified, and not built
+## 5.4 Layer 3 — measured offline, not wired in
 
-**Layer 3 is not implemented.** This section states the decision and its
-reasoning, because an unexplained hole where a third of the architecture should
-be is worse than a documented exclusion.
+**Layer 3 does not run in the deployed system.** It has, however, been built
+far enough to be measured, and the two statements need separating carefully
+because the distinction is the whole point of this section.
 
-The layer would have detected machine-generated code, following the CodeBERT
+### 5.4.1 The original objection, and what answered it
+
+The layer was to detect machine-generated code, following the CodeBERT
 fine-tuning approach of Nguyen et al. \cite{nguyen2023, gptsniffer2024}. That
-work reports two findings that together make the layer unbuildable *as evidence*
-in this setting: classifier performance improves when the training data
-resembles the target code, and when snippets are classified in pairs.
+work reports that classifier performance improves when the training data
+resembles the target code — which means a labelled corpus of code like the
+submissions being policed is a precondition, not a nicety.
 
-A classifier whose accuracy depends on in-distribution training data requires a
-labelled corpus of student submissions from the course it will police. No such
-corpus exists for this project, and one cannot be manufactured honestly —
-generating synthetic "AI-written" submissions and treating them as ground truth
-would produce a figure that measures the generator, not the classifier.
+For most of this project no such corpus existed, and the position taken was
+that the layer could be *implemented* but not *characterised*: in a system
+whose premise is auditable evidence, a layer emitting a number nobody can put
+an interval on is worse than an absent layer.
 
-The layer could still have been *implemented*. What it could not be is
-*characterised*. In a system whose entire premise is auditable evidence, a layer
-that emits a number nobody can put a confidence interval on is worse than an
-absent layer, because a reviewer has no basis on which to weigh it against the
-layers that are measured.
+That objection was answered by building the corpus rather than by assuming one
+away. 96 human files were collected from public student repositories, every
+file filtered by its own last-commit date to predate the public availability of
+generative coding assistants; 60 generated files were produced to match that
+corpus on task mix and on surface style. The construction, its controls, and
+the figures are in §7.8.
 
-The decision is recorded in the data rather than in a comment. Every detection
-result stores:
+### 5.4.2 What exists
+
+Four programs, all committed under `apps/detector/measurements/`:
+
+| script | role |
+|---|---|
+| `collect_human.py` | clones student repositories and keeps files by per-file commit date, recording provenance |
+| `ai_corpus.py` | builds the labelled corpus in three edit grades, with matched preprocessing |
+| `check_ai_corpus.py` | verifies generated files against the style their prompt specified |
+| `baseline_classifier.py` | TF-IDF and logistic regression, group-disjoint splits, with a confound control and a boilerplate ablation |
+
+A fifth, `train_codebert.py`, implements the fine-tune itself: sliding 512-token
+windows, max pooling to one score per file, temperature scaling on a validation
+split, and accuracy reported per edit grade. Its non-model components carry
+unit tests. **Its training loop has never been executed**, and no CodeBERT
+figure appears anywhere in this report.
+
+### 5.4.3 Why it is still not wired in
+
+The measured classifier is an experimental artifact, not a deployable layer.
+Three things stand between the two, and none of them is a weekend's work:
+
+1. **Nothing is served.** There is no persisted model, no endpoint on the
+   detector service, and no client in the API. The baseline is refit from the
+   corpus each time it is measured.
+2. **Nothing is calibrated for presentation.** The system's contract is that a
+   score is evidence a human reads, not a verdict. A probability from an
+   uncalibrated classifier shown beside the Layer 1 and Layer 2 evidence would
+   be read as more certain than it is.
+3. **The evidence page has nothing to show.** Layers 1 and 2 can both point at
+   the thing that caused the score — a matched span, a feature's deviation from
+   a baseline. A bag-of-n-grams probability points at nothing, and §7.8 shows
+   it is wrong on partial insertion about as often as it is right. Deploying it
+   without an explanation a student could contest would break the premise the
+   rest of the system is built on.
+
+Until those are addressed, the production path records the layer's absence in
+the data rather than in a comment. Every detection result stores:
 
 ```
 aiContent: { status: "skipped", reason: "Layer 3 is not implemented yet" }
 ```
 
 so that a result read years later says why it has two layers and not three.
-Chapter 8 lists the layer as future work with the labelled corpus named as its
-precondition.
+The stored reason is accurate for the deployed service; it predates the offline
+work and should be revised to distinguish *not implemented* from *implemented,
+measured, and deliberately not served*.
+
+Chapter 8 lists the layer as future work. The precondition it named — a
+labelled corpus — now exists, and the remaining work is the three items above.
 
 ## 5.5 Composing the Review Priority Score
 
