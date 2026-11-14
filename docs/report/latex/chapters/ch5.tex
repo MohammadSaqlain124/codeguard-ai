@@ -298,44 +298,121 @@ reports that it cannot tell, instead of producing a number that looks
 like an answer. That is the behaviour an evidence system owes a
 reviewer.
 
-\hypertarget{layer-3-specified-justified-and-not-built}{%
-\section{Layer 3 --- specified, justified, and not
-built}\label{layer-3-specified-justified-and-not-built}}
+\hypertarget{layer-3-measured-offline-not-wired-in}{%
+\section{Layer 3 --- measured offline, not wired
+in}\label{layer-3-measured-offline-not-wired-in}}
 
-\textbf{Layer 3 is not implemented.} This section states the decision
-and its reasoning, because an unexplained hole where a third of the
-architecture should be is worse than a documented exclusion.
+\textbf{Layer 3 does not run in the deployed system.} It has, however,
+been built far enough to be measured, and the two statements need
+separating carefully because the distinction is the whole point of this
+section.
 
-The layer would have detected machine-generated code, following the
-CodeBERT fine-tuning approach of Nguyen et
-al.~\cite{nguyen2023, gptsniffer2024}. That work reports two findings
-that together make the layer unbuildable \emph{as evidence} in this
-setting: classifier performance improves when the training data
-resembles the target code, and when snippets are classified in pairs.
+\hypertarget{the-original-objection-and-what-answered-it}{%
+\subsection{The original objection, and what answered
+it}\label{the-original-objection-and-what-answered-it}}
 
-A classifier whose accuracy depends on in-distribution training data
-requires a labelled corpus of student submissions from the course it
-will police. No such corpus exists for this project, and one cannot be
-manufactured honestly --- generating synthetic ``AI-written''
-submissions and treating them as ground truth would produce a figure
-that measures the generator, not the classifier.
+The layer was to detect machine-generated code, following the CodeBERT
+fine-tuning approach of Nguyen et al.~\cite{nguyen2023, gptsniffer2024}.
+That work reports that classifier performance improves when the training
+data resembles the target code --- which means a labelled corpus of code
+like the submissions being policed is a precondition, not a nicety.
 
-The layer could still have been \emph{implemented}. What it could not be
-is \emph{characterised}. In a system whose entire premise is auditable
-evidence, a layer that emits a number nobody can put a confidence
-interval on is worse than an absent layer, because a reviewer has no
-basis on which to weigh it against the layers that are measured.
+For most of this project no such corpus existed, and the position taken
+was that the layer could be \emph{implemented} but not
+\emph{characterised}: in a system whose premise is auditable evidence, a
+layer emitting a number nobody can put an interval on is worse than an
+absent layer.
 
-The decision is recorded in the data rather than in a comment. Every
-detection result stores:
+That objection was answered by building the corpus rather than by
+assuming one away. 96 human files were collected from public student
+repositories, every file filtered by its own last-commit date to predate
+the public availability of generative coding assistants; 60 generated
+files were produced to match that corpus on task mix and on surface
+style. The construction, its controls, and the figures are in \S{}7.8.
+
+\hypertarget{what-exists}{%
+\subsection{What exists}\label{what-exists}}
+
+Four programs, all committed under \texttt{apps/detector/measurements/}:
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5000}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5000}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+script
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+role
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{collect\_human.py} & clones student repositories and keeps files
+by per-file commit date, recording provenance \\
+\texttt{ai\_corpus.py} & builds the labelled corpus in three edit
+grades, with matched preprocessing \\
+\texttt{check\_ai\_corpus.py} & verifies generated files against the
+style their prompt specified \\
+\texttt{baseline\_classifier.py} & TF-IDF and logistic regression,
+group-disjoint splits, with a confound control and a boilerplate
+ablation \\
+\end{longtable}
+
+A fifth, \texttt{train\_codebert.py}, implements the fine-tune itself:
+sliding 512-token windows, max pooling to one score per file,
+temperature scaling on a validation split, and accuracy reported per
+edit grade. Its non-model components carry unit tests. \textbf{Its
+training loop has never been executed}, and no CodeBERT figure appears
+anywhere in this report.
+
+\hypertarget{why-it-is-still-not-wired-in}{%
+\subsection{Why it is still not wired
+in}\label{why-it-is-still-not-wired-in}}
+
+The measured classifier is an experimental artifact, not a deployable
+layer. Three things stand between the two, and none of them is a
+weekend's work:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Nothing is served.} There is no persisted model, no endpoint
+  on the detector service, and no client in the API. The baseline is
+  refit from the corpus each time it is measured.
+\item
+  \textbf{Nothing is calibrated for presentation.} The system's contract
+  is that a score is evidence a human reads, not a verdict. A
+  probability from an uncalibrated classifier shown beside the Layer 1
+  and Layer 2 evidence would be read as more certain than it is.
+\item
+  \textbf{The evidence page has nothing to show.} Layers 1 and 2 can
+  both point at the thing that caused the score --- a matched span, a
+  feature's deviation from a baseline. A bag-of-n-grams probability
+  points at nothing, and \S{}7.8 shows it is wrong on partial insertion
+  about as often as it is right. Deploying it without an explanation a
+  student could contest would break the premise the rest of the system
+  is built on.
+\end{enumerate}
+
+Until those are addressed, the production path records the layer's
+absence in the data rather than in a comment. Every detection result
+stores:
 
 \begin{verbatim}
 aiContent: { status: "skipped", reason: "Layer 3 is not implemented yet" }
 \end{verbatim}
 
 so that a result read years later says why it has two layers and not
-three. Chapter 8 lists the layer as future work with the labelled corpus
-named as its precondition.
+three. The stored reason is accurate for the deployed service; it
+predates the offline work and should be revised to distinguish \emph{not
+implemented} from \emph{implemented, measured, and deliberately not
+served}.
+
+Chapter 8 lists the layer as future work. The precondition it named ---
+a labelled corpus --- now exists, and the remaining work is the three
+items above.
 
 \hypertarget{composing-the-review-priority-score}{%
 \section{Composing the Review Priority
