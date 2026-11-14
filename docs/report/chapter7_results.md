@@ -1,19 +1,22 @@
 # Chapter 7 — Results and Discussion
 
-> **Draft status, 03 November 2026.** Every figure below is traceable to a
-> committed script in `apps/detector/measurements/`. Figures that are **not**
-> so traceable are marked as such and must be traced or removed before
-> submission — there is one, in §7.4.
+> **Draft status, 14 November 2026.** Every figure below is traceable to a
+> committed script in `apps/detector/measurements/`. The one figure that was
+> not — an AUC pair quoted in §7.4 — was retracted on 04 November and is
+> marked as such in place rather than deleted.
+>
+> §7.8 reports the Layer 3 measurements, added 14 November. The layer is
+> measured but not deployed; §5.4 states the difference.
 >
 > This chapter reports a **negative result** for the project's headline claim.
-> That is deliberate and it is defensible, but §7.9 must be read with the
+> That is deliberate and it is defensible, but §7.10 must be read with the
 > project guide before the report is finalised.
 
 ---
 
 ## 7.1 What was measured, and what was not
 
-Four measurement programmes exist, each a committed and re-runnable script
+Five measurement programmes exist, each a committed and re-runnable script
 rather than a recorded number:
 
 | programme | script | what it establishes |
@@ -22,6 +25,7 @@ rather than a recorded number:
 | Structural distribution | `structural_floor.py` | how Layer 1 scores honest work by different authors |
 | Labelled outsourcing corpus | `style_shift.py` | a corpus of partially outsourced files to test against |
 | The ablation and its follow-ups | `ablation.py`, `layer2_direction.py`, `suppression.py`, `independence.py` | whether Layer 2 adds signal beyond Layer 1, and why not |
+| Machine-generated code | `collect_human.py`, `ai_corpus.py`, `check_ai_corpus.py`, `baseline_classifier.py` | whether generated code is separable from student code, and at which edit grades |
 
 **What is not measured, and is a standing limitation.** There is no precision or
 recall figure for Layer 1 on *known-copied* pairs, because no labelled corpus of
@@ -324,7 +328,164 @@ noise.** Independence is necessary for the composition to make sense; it is not
 by itself evidence that combining the layers helps. On this corpus, §7.5.3 shows
 it does not.
 
-## 7.8 Limitations
+## 7.8 Layer 3 — machine-generated code, measured
+
+Chapter 5 §5.4 records why Layer 3 went unbuilt for most of this project: the
+published approach depends on training data that resembles the submissions it
+will police, and no such corpus existed. That objection was answered by
+building the corpus rather than by assuming one, and the layer has now been
+measured. It is **not deployed** — §5.4 explains what is and is not wired into
+the detection path — but the question of whether it works is no longer open.
+
+### 7.8.1 The corpus, and one serious false start
+
+The first attempt reused the 214-pair splice corpus from §7.5. That corpus is
+CPython standard library code, which is appropriate for asking whether a splice
+is detectable and wholly inappropriate here. A classifier given library code as
+its human class and generated code as its AI class separates twenty years of
+committee-edited library source from freshly written single-purpose modules.
+It would have scored well and measured nothing about authorship. The median
+file length alone makes the mismatch plain: **444 lines for the standard
+library against 98 for student coursework**.
+
+The human class was rebuilt from scratch. `collect_human.py` clones public
+GitHub repositories tagged as coursework, mini-projects and student projects,
+and keeps a file only if **that file's own last commit** predates 1 January
+2023. Repository age is not sufficient — a 2019 repository can hold a file
+edited in 2024 — so the filter asks git for each candidate individually. The
+result is 96 files from 25 repositories, last-commit dates spanning
+2017-02-28 to 2022-11-30, with per-file provenance recorded in a manifest.
+
+The AI class is 60 files generated to match the human corpus on two axes.
+
+**Task mix**, so the classifier cannot separate the classes by subject matter:
+
+| share | task type |
+|---|---|
+| 28% | computer vision and machine-learning coursework |
+| 23% | networking, bots and scraping |
+| 21% | tools, editors, calculators |
+| 14% | CRUD systems with a GUI and a database |
+| 7% | games |
+| 7% | algorithms |
+
+**Surface style**, which matters more than it appears to. Language models
+produce docstrings and type hints on almost everything, while the human corpus
+carries module docstrings on 11% of files, function docstrings on 33% and type
+hints on 11%. Left alone, those four traits separate the classes almost
+perfectly and a classifier learns formatting rather than authorship. Each
+prompt therefore carried an explicit style instruction drawn at the human
+corpus's own rates, and `check_ai_corpus.py` verified every generated file
+against what its prompt asked for. Two files in fifty ignored the instruction
+and were corrected; models are not reliable about this.
+
+### 7.8.2 Matched preprocessing, and why the control is not a deduction
+
+`ai_corpus.py` builds three edit grades: **raw** model output, **disguised**
+output with identifiers renamed and comments and docstrings stripped, and
+**mixed**, one generated function spliced into an otherwise human file at a
+minimum AI share of 0.10.
+
+Grade 2 carries a trap. If only the AI class is disguised, the stripped
+comments and `v0, v1, v2` identifiers appear in exactly one class by
+construction, and the classifier wins by detecting the transformation. On an
+early run with deliberately falsified labels this produced **100% recall on
+grade 2 that meant nothing at all**.
+
+The fix is matched preprocessing: a disguised copy of every human file is added
+to the human class, so the transformation appears on both sides and cannot act
+as a class cue. With matching in place and the labels still falsified, grade-2
+recall fell to **0%** — the correct answer when there is nothing to find, and
+the negative control the rest of this section rests on.
+
+A control measurement accompanies every run, training on plain human code
+against disguised human code. Both classes are human-written, so the figure is
+purely how detectable the transformation is in isolation: **0.8543**. An
+earlier version of the measurement script instructed the reader to subtract
+that from the grade-2 result. **That instruction was wrong and has been
+removed.** Once preprocessing is matched the disguise sits in both classes and
+cannot inflate anything; the control states why matching was necessary, not how
+much of the result is artifact.
+
+### 7.8.3 The result
+
+351 items in 102 groups, split 233 train and 118 test. Items derived from one
+source file are the same program in three disguises, and a mixed file is mostly
+its human host, so whole groups are held out rather than individual files.
+
+| measure | value |
+|---|---|
+| ROC AUC, overall | **0.9521** |
+| specificity — human files left unflagged | 41 / 44 (93.2%) |
+| recall, grade 1 — raw generated output | 22 / 25 (88.0%) |
+| recall, grade 2 — disguised | 20 / 25 (80.0%) |
+| recall, grade 3 — one function spliced in | **9 / 24 (37.5%)** |
+
+**The grade-3 figure is the result.** Wholesale generation is caught most of
+the time; partial insertion is caught barely more often than a coin would
+manage. The classifier sees a file as one bag of n-grams, so a single generated
+function is diluted by the human host surrounding it.
+
+That is the same failure, reached independently, as §7.5.3 and §7.6: Layer 2
+could not see a partial substitution either, for reasons that were structural
+rather than fixable. **Two layers, two methods, two corpora, one conclusion** —
+this class of detector catches wholesale substitution and misses partial
+substitution. The agreement is worth more than the headline figure, because it
+is a statement about the problem rather than a score for an implementation.
+
+### 7.8.4 Two confounds tested and rejected
+
+A figure of 0.95 invites the question of what else it could be measuring. Two
+candidates were checked.
+
+**Era.** The human corpus is 2017–2022 and the AI corpus is 2026. If Python
+idiom moved in that window, the classifier could be separating dates rather
+than authors. Measured across 47 human and 60 generated files:
+
+| marker | human | generated |
+|---|---|---|
+| f-strings | 17% | 25% |
+| type hints | 9% | 12% |
+| `pathlib` | 2% | 2% |
+| walrus `:=` | 0% | 0% |
+
+No meaningful gap. The students wrote structurally modern Python, and this
+explanation is rejected.
+
+**Boilerplate.** `if __name__ == "__main__"` appears in 82% of AI items and 32%
+of human items, and reaches **AUC 0.7499 on its own** — a single line, trivially
+added or deleted by anyone wishing to evade detection. The full model scores
+0.9521 with it present and **0.9616 with it removed entirely**. With 118 test
+items the standard error on an AUC is roughly 0.025, so those two figures are
+indistinguishable: the feature contributes nothing either way, and the result
+does not rest on it.
+
+### 7.8.5 What is not claimed
+
+- **CodeBERT is untrained.** `train_codebert.py` exists, its non-model
+  components are unit tested, and its training loop has never executed. Every
+  figure above belongs to the logistic-regression baseline. **No CodeBERT
+  accuracy is claimed anywhere in this report.**
+- **The generated class is dominated by one model.** 40 of 60 files came from
+  one assistant and 20 from others. Generalisation to other generators is
+  untested.
+- **The generated files use `%` string formatting far more than is natural** —
+  19% of human files against 55% of generated ones — because the author chose
+  that style while producing them, to avoid an obviously generated look. This
+  is not natural model output. Its direction makes the task harder rather than
+  easier, so it does not inflate the result, but it is an artifact introduced
+  by the corpus author and is disclosed here rather than left to be found.
+- **Grade-3 hosts come from a narrow pool.** Only 21 of 96 human files have
+  enough top-level functions to host a splice, so 54 mixed items draw on 21
+  hosts.
+- **The corpus is small.** 351 items, 102 groups, and each per-grade recall
+  rests on 24 or 25 test items. Every figure carries wide error bars.
+- **Python only**, as with the ablation in §7.5.
+- **One file is unaccounted for.** The collector wrote 97 files and the corpus
+  builder found 96 usable, under what should be identical filters. The
+  discrepancy is unexplained and is recorded rather than quietly absorbed.
+
+## 7.9 Limitations
 
 1. **No labelled corpus of genuine plagiarism.** All structural figures describe
    honest work by different authors.
@@ -335,15 +496,16 @@ it does not.
 5. **One language.** The ablation ran on Python only. The authorship measurement
    covers both, and the two features most affected behave oppositely across
    them, so the ablation should not be assumed to transfer to Java.
-6. **Layer 3 absent**, so the renormalisation is always active and the
-   three-layer design is untested as a three-layer design.
+6. **Layer 3 measured but not deployed.** The renormalisation is always
+   active in the running system, so the three-layer design remains untested as
+   a three-layer design even though Layer 3 now has figures of its own (§7.8).
 7. **Discrimination is not detection.** §7.4 shows the features carry some
    author signal; §7.5 shows that signal does not survive partial substitution.
    The two are not in conflict — identifying a whole file's author is a
    different task from noticing that a fraction of it changed hands — and the
    report must keep them separate.
 
-## 7.9 What this means for the project's claim
+## 7.10 What this means for the project's claim
 
 Layer 2 is the only layer that can see outsourced work with no second copy
 anywhere. That capability is what distinguishes this project from a clone
