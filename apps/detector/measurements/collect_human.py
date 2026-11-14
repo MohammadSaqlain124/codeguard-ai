@@ -29,6 +29,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -50,6 +51,43 @@ SKIP_DIRS = {
 
 # Files that are usually generated, trivial, or not the author's own prose.
 SKIP_NAMES = {"__init__.py", "setup.py", "conftest.py", "manage.py", "wsgi.py", "asgi.py"}
+
+
+def cleanup(workdir):
+    """
+    Delete the clones, clearing read-only bits on the way.
+
+    Git marks its pack files read-only. On Windows that makes an ordinary
+    delete fail, and a plain rmtree would leave every clone behind without
+    saying so - gigabytes, for a list this long. The handler clears the bit
+    and retries, and whatever survives that is reported rather than hidden.
+    """
+    def retry(func, path, _problem):
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except OSError:
+            pass
+
+    # onerror was replaced by onexc in 3.12; the handler ignores the third
+    # argument either way, so the same function serves both
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(workdir, onexc=retry)
+    else:
+        shutil.rmtree(workdir, onerror=retry)
+
+    if not os.path.exists(workdir):
+        return
+    left = 0
+    for folder, _dirs, files in os.walk(workdir):
+        for name in files:
+            try:
+                left += os.path.getsize(os.path.join(folder, name))
+            except OSError:
+                pass
+    print(f"\nNOTE: the clones could not be fully deleted. {left / 1e6:.0f} MB remain in")
+    print(f"  {workdir}")
+    print("  Delete that folder by hand to get the space back.")
 
 
 def run_git(args, cwd=None):
@@ -211,7 +249,7 @@ def main():
             harvest(url, workdir, args.cutoff, seen, args.out, items, stats, args.per_repo)
     finally:
         if not args.keep_clones:
-            shutil.rmtree(workdir, ignore_errors=True)
+            cleanup(workdir)
         else:
             print(f"\nclones left in {workdir}")
 
