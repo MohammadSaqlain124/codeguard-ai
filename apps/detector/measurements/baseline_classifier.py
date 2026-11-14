@@ -27,14 +27,22 @@ ceiling of what grade-2 accuracy is allowed to claim.
 """
 
 import argparse
+import ast
 import json
 import os
 import random
+import warnings
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import FeatureUnion, Pipeline
+
+# Student files sometimes contain things like "\_" inside a string, which is
+# an invalid escape sequence. Python only warns, and the file still parses,
+# but parsing a hundred of them buries the real output. The warning is about
+# the corpus, not about this code, so it is silenced here.
+warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 TEST_SHARE = 0.3
 
@@ -52,6 +60,36 @@ def build_model():
         ("features", features),
         ("clf", LogisticRegression(max_iter=2000, class_weight="balanced")),
     ])
+
+
+def has_main_guard(source):
+    """True when the file ends with the usual `if __name__ == "__main__"`."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return False
+    for node in tree.body:
+        if isinstance(node, ast.If) and "__name__" in ast.dump(node.test):
+            return True
+    return False
+
+
+def strip_main_guard(source):
+    """Remove the main-guard block, so the classifier cannot see it."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return source
+    cuts = []
+    for node in tree.body:
+        if isinstance(node, ast.If) and "__name__" in ast.dump(node.test):
+            cuts.append((node.lineno - 1, getattr(node, "end_lineno", node.lineno) - 1))
+    if not cuts:
+        return source
+    lines = source.split("\n")
+    for start, end in sorted(cuts, reverse=True):
+        del lines[start:end + 1]
+    return "\n".join(lines)
 
 
 class Groups:
@@ -198,6 +236,45 @@ def main():
         caught = sum(1 for p, _ in rows if p >= best_t)
         print(f"    {grade:18} {caught}/{len(rows)} ({caught / len(rows):.1%})")
 
+    # ---- boilerplate ablation ---------------------------------------------
+    # Models end nearly every file with `if __name__ == "__main__":`; students
+    # often do not. That one line is a strong separator and a student can
+    # delete it in two seconds, so a result resting on it would not survive
+    # contact with anyone trying to evade detection. This measures how far the
+    # line gets on its own, and what the model scores once it is removed.
+    print(f"\n{'=' * 70}")
+    print("BOILERPLATE ABLATION - the main guard")
+    print("=" * 70)
+
+    guarded = [(1.0 if has_main_guard(r["text"]) else 0.0, r) for r in items]
+    share_ai = sum(g for g, r in guarded if r["label"] == "ai") / \
+        max(1, sum(1 for _g, r in guarded if r["label"] == "ai"))
+    share_human = sum(g for g, r in guarded if r["label"] == "human") / \
+        max(1, sum(1 for _g, r in guarded if r["label"] == "human"))
+    print(f"  files carrying a main guard:  AI {share_ai:.0%}   human {share_human:.0%}")
+
+    alone = roc_auc([g for g, _r in guarded],
+                    [1 if r["label"] == "ai" else 0 for _g, r in guarded])
+    print(f"  that one feature on its own:   AUC {alone:.4f}")
+
+    stripped_train = [dict(r, text=strip_main_guard(r["text"])) for r in train]
+    stripped_test = [dict(r, text=strip_main_guard(r["text"])) for r in test]
+    _m3, sprobs, struth = evaluate(stripped_train, stripped_test)
+    stripped_auc = roc_auc(list(sprobs), struth)
+    full_auc = roc_auc(list(probs), truth)
+    print(f"  full model with it:           AUC {full_auc:.4f}")
+    print(f"  full model without it:        AUC {stripped_auc:.4f}   "
+          f"({stripped_auc - full_auc:+.4f})")
+    print()
+    if abs(stripped_auc - full_auc) < 0.02:
+        print("  Removing it barely changes the result, so the signal is redundant")
+        print("  rather than load-bearing: the headline figure does not rest on this")
+        print("  one line. Report both numbers anyway - a reader will ask.")
+    else:
+        print("  Removing it moves the result materially, so a large part of the")
+        print("  headline figure IS this one line. Report the stripped figure as the")
+        print("  honest one, because a student who deletes the line defeats the rest.")
+
     if args.skip_control:
         return
 
@@ -231,11 +308,22 @@ def main():
         auc = roc_auc(list(cprobs), ctruth)
         print(f"  ROC AUC telling disguised human code from plain human code: {auc:.4f}")
         print()
-        print("  Both classes were written by people, so a perfect score here means")
-        print("  the model has learnt the disguise, not the author. Grade-2 accuracy")
-        print("  above this figure is the only part attributable to AI authorship;")
-        print("  everything up to it is an artifact of how grade 2 was built, and the")
-        print("  report has to say so.")
+        print("  Both classes here were written by people, so this figure is purely")
+        print("  how detectable the grade-2 transformation is on its own.")
+        print()
+        matched = any(r.get("preprocessing") == "disguised" for r in items
+                      if r["label"] == "human")
+        if matched:
+            print("  The corpus was built with --disguise-human, so disguised files sit")
+            print("  in BOTH classes above and the transformation cannot act as a class")
+            print("  cue. Do NOT subtract this figure from the grade-2 result: it says")
+            print("  why matching was necessary, not how much of the result is an")
+            print("  artifact. A high number here with matching in place is expected.")
+        else:
+            print("  The corpus was built WITHOUT --disguise-human, so the disguise")
+            print("  appears in the AI class only and the classifier can win by")
+            print("  detecting it. Grade-2 accuracy is inflated by up to this figure")
+            print("  and is not reportable. Rebuild with --disguise-human.")
     else:
         print("  the control split landed on one class - raise the corpus size")
 
