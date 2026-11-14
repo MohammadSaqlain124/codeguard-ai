@@ -41,11 +41,18 @@ import json
 import os
 import random
 import tokenize
+import warnings
 
 # A file shorter than this carries too little style to classify, and one
 # longer than this is usually generated boilerplate or a vendored blob.
 MIN_LINES = 25
 MAX_LINES = 600
+
+# Student files sometimes contain things like "\_" inside a string, which is
+# an invalid escape sequence. Python only warns, and the file still parses,
+# but parsing a hundred of them buries the real output. The warning is about
+# the corpus, not about this code, so it is silenced here.
+warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 # Grade 3 splices one AI function into a human file. Below this many top-level
 # functions the host has nothing to give up without becoming mostly AI.
