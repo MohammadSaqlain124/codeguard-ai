@@ -3,7 +3,7 @@ import { BaselineProfileModel } from "../models/BaselineProfile.js";
 import { DetectionResultModel } from "../models/DetectionResult.js";
 import { LANGUAGES } from "../models/index.js";
 import type { SubmissionDoc } from "../models/Submission.js";
-import { getSubmission } from "../storage/minio.js";
+import { getSubmission } from "../storage/fileStore.js";
 import { extractFeatures } from "./detectorClient.js";
 
 const log = componentLogger("behavioural");

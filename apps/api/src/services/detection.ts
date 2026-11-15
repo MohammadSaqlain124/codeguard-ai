@@ -3,7 +3,7 @@ import { AssignmentModel, SubmissionModel } from "../models/index.js";
 import { configFor } from "./detectionConfig.js";
 import { DetectionResultModel } from "../models/DetectionResult.js";
 import type { SubmissionDoc } from "../models/Submission.js";
-import { getSubmission } from "../storage/minio.js";
+import { getSubmission } from "../storage/fileStore.js";
 import { enqueueRecalibration } from "../queue/detectionQueue.js";
 import { analyzeSubmission, type CandidateSource } from "./detectorClient.js";
 import { scoreBehavioural } from "./behavioural.js";

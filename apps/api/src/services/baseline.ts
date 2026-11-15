@@ -2,7 +2,7 @@ import { componentLogger } from "../config/logger.js";
 import { BaselineProfileModel } from "../models/BaselineProfile.js";
 import { DEFAULT_DETECTION_CONFIG } from "../models/DetectionConfig.js";
 import { LANGUAGES } from "../models/index.js";
-import { getSubmission } from "../storage/minio.js";
+import { getSubmission } from "../storage/fileStore.js";
 import { extractFeatures } from "./detectorClient.js";
 import { findAnchors, isAutomaticAnchor, type Anchor } from "./anchors.js";
 

@@ -28,18 +28,6 @@ const envSchema = z
       .default("false")
       .transform((v) => v === "true"),
 
-    MINIO_ENDPOINT: z.string().min(1),
-    MINIO_PORT: z.coerce.number().int().positive(),
-    MINIO_USE_SSL: z.enum(["true", "false"]).transform((v) => v === "true"),
-    MINIO_ROOT_USER: z.string().min(1),
-    MINIO_ROOT_PASSWORD: z.string().min(8),
-    MINIO_BUCKET: z.string().min(1),
-    // Every S3-compatible store signs requests with a region. MinIO accepts
-    // anything, Cloudflare R2 insists on the literal "auto", and AWS wants
-    // the bucket's own region. The default is what the local stack has always
-    // sent implicitly, so nothing changes for docker compose.
-    MINIO_REGION: z.string().min(1).default("us-east-1"),
-
     // 32 hex chars is 128 bits of entropy; ours are 64
     JWT_ACCESS_SECRET: z.string().min(32),
     JWT_REFRESH_SECRET: z.string().min(32),

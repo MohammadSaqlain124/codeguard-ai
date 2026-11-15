@@ -7,7 +7,6 @@ type Role = "student" | "faculty" | "admin";
 
 export const PASSWORD = "codeguard-dev-2026";
 export const TEST_DB = "codeguard_test";
-export const TEST_BUCKET = "submissions-test";
 // the stub detector the tests run in-process, never the real one on 8000
 export const TEST_DETECTOR_PORT = 8099;
 // The stubs check this header, so a client that forgets to send it fails the
@@ -19,7 +18,7 @@ type Modules = {
   db: typeof import("../src/db/connect.js");
   redis: typeof import("../src/db/redis.js");
   models: typeof import("../src/models/index.js");
-  storage: typeof import("../src/storage/minio.js");
+  storage: typeof import("../src/storage/fileStore.js");
   password: typeof import("../src/utils/password.js");
   queue: typeof import("../src/queue/detectionQueue.js");
 };
@@ -33,7 +32,6 @@ let passwordHash = "";
 function useTestSettings() {
   if (existsSync("../../infra/.env")) process.loadEnvFile("../../infra/.env");
   process.env.MONGO_URI = (process.env.MONGO_URI ?? "").replace("/codeguard?", `/${TEST_DB}?`);
-  process.env.MINIO_BUCKET = TEST_BUCKET;
   // set after loading the file, so the real detector can never be reached
   process.env.DETECTOR_URL = `http://127.0.0.1:${TEST_DETECTOR_PORT}`;
   process.env.DETECTOR_TOKEN = TEST_DETECTOR_TOKEN;
@@ -53,15 +51,10 @@ async function clearQueue() {
   await mods!.queue.detectionQueue.obliterate({ force: true });
 }
 
-async function emptyTestBucket() {
-  const { storageClient } = mods!.storage;
-  if (!(await storageClient.bucketExists(TEST_BUCKET))) return;
-  const keys: string[] = [];
-  for await (const o of storageClient.listObjectsV2(TEST_BUCKET, "", true)) {
-    if (o.name) keys.push(o.name);
-  }
-  if (keys.length > 0) await storageClient.removeObjects(TEST_BUCKET, keys);
-  await storageClient.removeBucket(TEST_BUCKET);
+// Files now live in the test database, which is already isolated, so this
+// is a delete rather than tearing a bucket down and building it again.
+async function emptyTestFiles() {
+  await mods!.storage.clearAllFiles();
 }
 
 export async function startTestApp() {
@@ -70,7 +63,7 @@ export async function startTestApp() {
     db: await import("../src/db/connect.js"),
     redis: await import("../src/db/redis.js"),
     models: await import("../src/models/index.js"),
-    storage: await import("../src/storage/minio.js"),
+    storage: await import("../src/storage/fileStore.js"),
     password: await import("../src/utils/password.js"),
     queue: await import("../src/queue/detectionQueue.js"),
   };
@@ -88,8 +81,8 @@ export async function startTestApp() {
   await loaded.redis.connectRedis();
   await clearRateLimits();
   await clearQueue();
-  await emptyTestBucket();
-  await loaded.storage.ensureBucket();
+  await emptyTestFiles();
+  await loaded.storage.initFileStore();
   passwordHash = await loaded.password.hashPassword(PASSWORD);
 
   const { createApp } = await import("../src/app.js");
@@ -102,7 +95,7 @@ export async function stopTestApp() {
   // if start refused or failed before the guard, there is nothing of ours to clean
   if (!mods) return;
   await mods.models.clearAllCollections();
-  await emptyTestBucket();
+  await emptyTestFiles();
   await clearRateLimits();
   await clearQueue();
   // the queue keeps its own redis connection, so it closes separately

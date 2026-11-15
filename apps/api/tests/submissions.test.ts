@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Express } from "express";
 import request from "supertest";
 
-import { TEST_BUCKET, bearer, signIn, startTestApp, stopTestApp } from "./helpers.js";
+import { bearer, signIn, startTestApp, stopTestApp } from "./helpers.js";
 
 type Who = { id: string; token: string };
 type Started = Awaited<ReturnType<typeof startTestApp>>;
@@ -121,10 +121,7 @@ describe("two uploads at the same moment", () => {
     }
 
     const records = await models.SubmissionModel.countDocuments({ assignment: R });
-    const files: string[] = [];
-    for await (const o of storage.storageClient.listObjectsV2(TEST_BUCKET, `${R}/`, true)) {
-      if (o.name) files.push(o.name);
-    }
+    const files = await storage.listKeys(`${R}/`);
     expect(records).toBe([x, y].filter((r) => r.status === 201).length);
     expect(files.length).toBe(records);
     console.log(`race statuses: ${x.status}, ${y.status}`);

@@ -4,14 +4,14 @@ import { connectDb, disconnectDb } from "./db/connect.js";
 import { initModels } from "./models/index.js";
 import { logger } from "./config/logger.js";
 import { connectRedis, disconnectRedis } from "./db/redis.js";
-import { ensureBucket } from "./storage/minio.js";
+import { initFileStore } from "./storage/fileStore.js";
 import { closeQueue } from "./queue/detectionQueue.js";
 
 try {
   await connectDb();
   await initModels();
   await connectRedis();
-  await ensureBucket();
+  await initFileStore();
 } catch (err) {
   logger.fatal({ err }, "startup failed");
   logger.flush();

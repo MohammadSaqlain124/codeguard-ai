@@ -17,7 +17,7 @@ import {
   putSubmission,
   removeSubmission,
   submissionKey,
-} from "../storage/minio.js";
+} from "../storage/fileStore.js";
 import { AppError } from "../utils/AppError.js";
 import { skipFor } from "../validation/common.js";
 import type {
