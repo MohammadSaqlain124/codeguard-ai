@@ -8,6 +8,12 @@ const log = componentLogger("redis");
 export const redis = new Redis({
   host: env.REDIS_HOST,
   port: env.REDIS_PORT,
+  // undefined rather than an empty string, so a local Redis with no password
+  // is not sent an AUTH command it will reject
+  password: env.REDIS_PASSWORD || undefined,
+  // ioredis enables TLS when the option object is present at all, so it has
+  // to be left out entirely rather than set to false
+  ...(env.REDIS_TLS ? { tls: {} } : {}),
   // fail fast rather than queueing commands against a dead server
   maxRetriesPerRequest: 3,
   lazyConnect: true,
