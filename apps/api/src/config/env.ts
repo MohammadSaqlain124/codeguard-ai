@@ -7,6 +7,14 @@ const envSchema = z
     API_PORT: z.coerce.number().int().positive(),
     CORS_ORIGIN: z.string().min(1),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+    // Serves the browsable spec at /api/docs even in production. Off by
+    // default: a deployment should not expose its own route map unless
+    // somebody has decided to. It is on while the mobile client is being
+    // built against the API, and goes back to false afterwards.
+    ENABLE_API_DOCS: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
 
     // Atlas and most hosted providers issue mongodb+srv:// URIs, so both
     // prefixes are accepted. The check still refuses anything that is not a

@@ -43,9 +43,11 @@ export function createApp() {
   app.use(express.json({ limit: "100kb" }));
 
   // Browsable API docs, served from the same spec the mobile client is built
-  // against. Development only: the test run has no use for it, and in
-  // production the spec is a map of the attack surface.
-  if (env.NODE_ENV === "development") {
+  // against. On in development, and in production only when ENABLE_API_DOCS
+  // says so. Serving it from the api's own origin matters: cors() allows one
+  // origin, so a Swagger UI hosted anywhere else could render the spec but
+  // every "Try it out" call would be blocked before it left the browser.
+  if (env.NODE_ENV === "development" || env.ENABLE_API_DOCS) {
     try {
       // npm scripts run from apps/api, so the repo root is two levels up
       const specPath = path.resolve(process.cwd(), "../../docs/openapi.yaml");
