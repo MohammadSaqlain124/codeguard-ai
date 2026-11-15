@@ -23,5 +23,20 @@ export default defineConfig({
     // three times the worst cold import measured; if a hook ever exceeds it,
     // the cause is something other than the cache.
     hookTimeout: 30_000,
+
+    // The per-test timeout needs the same treatment, for a different reason.
+    // The layer 2 tests are the slowest in the suite because each one builds a
+    // whole cohort before it asserts anything: five sign-ins with real
+    // password hashing, a course, three assignments, twelve uploads through
+    // the object store, four baselines, and then eight detector round trips
+    // for the ones that score every student twice. That is several seconds of
+    // honest work against the real services, and the default 5 seconds leaves
+    // no margin for a busy machine. The tests were passing with almost none
+    // of it to spare, so one slow run tipped six of them over at once and
+    // reported timeouts, which read like broken code and are not.
+    //
+    // 30 seconds is about six times the slowest of them. Anything that hits
+    // this is genuinely stuck, not merely slow.
+    testTimeout: 30_000,
   },
 });
