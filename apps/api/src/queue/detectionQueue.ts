@@ -39,6 +39,8 @@ export type QueueJob = DetectionJob | RecalibrateJob | RebuildBaselineJob;
 const connection = new Redis({
   host: env.REDIS_HOST,
   port: env.REDIS_PORT,
+  password: env.REDIS_PASSWORD || undefined,
+  ...(env.REDIS_TLS ? { tls: {} } : {}),
   maxRetriesPerRequest: null,
 });
 
