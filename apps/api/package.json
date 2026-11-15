@@ -12,6 +12,7 @@
     "worker": "tsx watch --env-file=../../infra/.env src/worker.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "start:worker": "node dist/worker.js",
     "typecheck": "tsc -p tsconfig.test.json",
     "pretest": "npm run typecheck",
     "test": "vitest run --no-file-parallelism",
