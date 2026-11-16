@@ -33,6 +33,20 @@ function withOffset(local: string) {
   return `${local}:00${sign}${pad(minutes / 60)}:${pad(minutes % 60)}`;
 }
 
+/**
+ * datetime-local refuses a value that has a date but no time, and the browser
+ * reports that as "please enter a valid value" without saying which half is
+ * missing. Starting from a complete value means the field is only ever
+ * edited, never filled from empty, so that state cannot be reached.
+ */
+function defaultDue() {
+  const at = new Date();
+  at.setDate(at.getDate() + 7);
+  at.setHours(23, 59, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
 export function ManagePage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -54,7 +68,7 @@ export function ManagePage() {
   const [aTitle, setATitle] = useState("");
   const [aLang, setALang] = useState<Language>("python");
   const [aProv, setAProv] = useState<"takehome" | "invigilated">("takehome");
-  const [aDue, setADue] = useState("");
+  const [aDue, setADue] = useState(defaultDue());
   const [aMax, setAMax] = useState(3);
 
   // enrolment
@@ -124,7 +138,7 @@ export function ManagePage() {
       });
       setNotice(`${aTitle} added.`);
       setATitle("");
-      setADue("");
+      setADue(defaultDue());
       await loadAssignments(openId);
     } catch (e) {
       setError((e as Error).message);
