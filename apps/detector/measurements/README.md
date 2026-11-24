@@ -535,6 +535,48 @@ predicts and whose sign carries no information, which is the condition under
 which a distance from a baseline cannot detect it. Every link in the account
 above is now a measurement.
 
+**Label discrepancy, found 24 November, unresolved.** The project finding
+`layer2-cannot-detect-partial-outsourcing` carries these same four rows with the
+last two feature labels the other way round: `comment_density` 85 / 174 and
+`max_block_depth` 96 / 208. One of the two documents has them swapped.
+
+The weak evidence favours the finding's ordering, because the grew counts
+earlier in this file give `comment_density` 68 applicable pairs at f=0.50
+against 73 for the other two, so `comment_density` carrying the smaller
+denominator of the pair is the consistent reading. That is an inference and not
+a check. **Re-run `suppression.py` and correct whichever document is wrong**
+rather than editing one to match the other. The conclusion is untouched either
+way: every share lies between 0.462 and 0.500.
+
+## No AUC exists for Layer 1, Layer 2 or the RPS
+
+Recorded 24 November 2026, and it supersedes any figure to the contrary.
+
+Three documents have at various times carried an AUC for the ablation scores.
+All are retracted:
+
+| figure | attributed to | status |
+|---|---|---|
+| 0.766 / 0.909, student spread against cohort spread | nothing | retracted 12 Nov, File 108 |
+| 0.4772 Layer 2, 0.5402 / 0.6128 Layer 1, 0.4968 RPS | `interpretability.py` | **retracted 24 Nov** |
+
+`interpretability.py` is not in this folder. Listing it on 17 and 24 November
+returns twenty files and that is not among them, and searching every script here
+for AUC-computing code finds only `baseline_classifier.py` and
+`train_codebert.py`, which are Layer 3, and `denominator.py`, which has never
+been run.
+
+The Layer 2 conclusion does not rest on an AUC. `ablation.py` is committed and
+re-runnable, and it measures the gaps directly: -0.0124, -0.0176 and -0.0090 at
+f = 0.10, 0.25 and 0.50, with precision@10 degraded at every fraction. Quote
+those.
+
+**The rule this folder should have been following, stated plainly:** a figure
+may not enter a document until the script that produces it is committed, and the
+document names that script. Where that cannot be satisfied, the figure is a note
+and must be labelled as one. Three retractions in this project share one cause,
+and it is not arithmetic.
+
 ## Which denominator separates better
 
 `denominator.py`, added 07 November 2026. **Written and unit-tested, not yet
