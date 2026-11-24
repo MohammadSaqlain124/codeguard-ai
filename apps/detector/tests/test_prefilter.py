@@ -1,7 +1,7 @@
-"""The cheap score, and the two sided shortlist that fixed the starvation bug."""
+"""The cheap label-bag score, and the file-level ranking built on it."""
 from collections import Counter
 
-from app.prefilter import label_counts, quick_similarity, rank, shortlist_pairs
+from app.prefilter import label_counts, quick_similarity, rank
 from tests.conftest import tree
 
 
@@ -59,30 +59,6 @@ def test_rank_respects_top_k():
 
 def test_rank_of_nothing_is_empty():
     assert rank(Counter({"ID": 1}), [], 5) == []
-
-
-def test_the_shortlist_nominates_from_both_sides():
-    # the starvation bug, as a regression test. Every unit of A prefers
-    # b[0], so a one directional shortlist would never offer b[1] to
-    # anybody and its real partner in A would go unmatched.
-    labels_a = [Counter({"X": 10}), Counter({"X": 10}), Counter({"X": 10})]
-    labels_b = [Counter({"X": 10}), Counter({"Y": 10})]
-
-    pairs = shortlist_pairs(labels_a, labels_b, top_k=1)
-
-    chosen_by_a = {j for i, j in pairs}
-    assert 0 in chosen_by_a, "the obvious match should be shortlisted"
-    assert 1 in chosen_by_a, "b[1] was starved: nothing nominated it"
-
-
-def test_the_shortlist_covers_every_unit_on_both_sides():
-    labels_a = [Counter({"X": 5}), Counter({"Y": 5})]
-    labels_b = [Counter({"X": 5}), Counter({"Y": 5}), Counter({"Z": 5})]
-
-    pairs = shortlist_pairs(labels_a, labels_b, top_k=1)
-
-    assert {i for i, _ in pairs} == {0, 1}
-    assert {j for _, j in pairs} == {0, 1, 2}
 
 
 def test_real_trees_rank_a_copy_above_a_stranger(original, renamed):
