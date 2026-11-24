@@ -238,11 +238,10 @@ for t in [
     "Several sections of this report exist in their present form because he "
     "asked what the evidence was.",
 
-    "We are grateful to Dr. Gaurav Agarwal, Head of the Department of Computer "
-    "Science Engineering, for providing the infrastructure and the academic "
-    "environment in which a project of this scope could be attempted, and to "
-    "all faculty members of the department whose teaching laid the foundation "
-    "this work is built on.",
+    "We are grateful to the Department of Computer Science and Engineering "
+    "for providing the infrastructure and the academic environment in which a "
+    "project of this scope could be attempted, and to all faculty members of "
+    "the department whose teaching laid the foundation this work is built on.",
 
     "We acknowledge the open-source projects this system depends on directly: "
     "tree-sitter and its Python and Java grammars, the APTED tree edit "
