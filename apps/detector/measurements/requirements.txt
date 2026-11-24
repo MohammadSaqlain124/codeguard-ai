@@ -1,0 +1,29 @@
+# Dependencies for the measurement scripts in this folder. These are NOT
+# installed in the detector image: requirements.txt is the runtime list and
+# the Dockerfile installs from it, so nothing here ships to production.
+#
+# This file exists because the runtime pins are justified by reproducibility
+# and the measurement pins were missing entirely. A detection score is
+# explainable months later because tree-sitter and apted are pinned exactly.
+# The Layer 3 figures in docs and in the report had no such guarantee: a
+# different scikit-learn could move them and nothing recorded which one ran.
+#
+# HONESTY NOTE, 24 Nov 2026. The versions below are the floor the scripts are
+# known to work against, not a record of what produced the published numbers.
+# The November run's exact versions were never captured. Anyone reproducing
+# 0.9521 should expect it to move slightly and should record what they used.
+#
+# To pin this file to the interpreter that actually ran the measurements,
+# activate that venv and run:
+#   pip freeze | Select-String "scikit-learn|numpy|scipy|joblib|threadpoolctl"
+
+numpy>=2.1
+scikit-learn>=1.5
+# scipy, joblib and threadpoolctl arrive with scikit-learn and decide its
+# numerics, so a reproduction should record their versions too.
+
+# train_codebert.py imports these, inside train() rather than at module
+# level, so the rest of the file imports and unit-tests without them. The
+# training loop has never been executed, so no version here is validated.
+# torch
+# transformers
