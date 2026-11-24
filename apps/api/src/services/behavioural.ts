@@ -10,11 +10,22 @@ const log = componentLogger("behavioural");
 
 type Language = (typeof LANGUAGES)[number];
 
-// The four features that measured an F ratio above 1 on real multi-author
-// code, meaning they vary less within one author than between authors. The
-// other six measured 0.14 to 0.56, and including them made author
-// identification worse: 87.9% with these four, 78.8% with all ten. All ten
-// stay stored on the baseline, so this choice is reversible.
+// The four features scored against the baseline. All ten stay stored, so
+// this choice is reversible.
+//
+// SUPERSEDED, 24 Nov 2026. This comment used to justify the four by an F
+// ratio measured on 60 files from 7 repositories, and claimed author
+// identification of 87.9% with these four against 78.8% with all ten. The
+// 204-file run across 15 repositories in measurements/README.md measures
+// the opposite: scoring every feature that applies beats the fixed four in
+// both languages, 3.88x against 2.80x in Java and 5.56x against 2.91x in
+// Python. It also fails to replicate the ranking the choice rested on.
+// blank_line_ratio, made the top feature at 2.73, comes ninth of ten at
+// 1.08 on its own language.
+//
+// The four are kept because changing them invalidates every stored
+// baseline, which is a migration rather than an edit. The justification
+// above is withdrawn; the open decision is recorded in docs/PROJECT_NOTES.md.
 export const SCORED_FEATURES = [
   "blank_line_ratio",
   "avg_line_length",
@@ -136,8 +147,15 @@ export function baselineUsability(baseline: HasStatus | null): Usability {
  * the student's own spread is the morning's most useful finding. With four
  * anchors a student's own standard deviation comes from three degrees of
  * freedom and is so unstable that honest work produced RMS z values above
- * 15. Pooling across the cohort measured better at every shrinkage setting
- * tried: AUC 0.909 against 0.766 for the student's own spread.
+ * 15. Pooling across the cohort is the answer to that instability.
+ *
+ * UNTRACEABLE, 12 Nov 2026, restated here 24 Nov. This paragraph used to
+ * close with "AUC 0.909 against 0.766 for the student's own spread". That
+ * pair is retracted, for the reason given against Z_SATURATION above: no
+ * script in measurements/ computes an AUC, so the figures were
+ * reproducible from nothing. denominator.py was written to replace them
+ * and has never been run. Until it runs, the cohort denominator rests on
+ * the stability argument alone and must not be described as measured.
  *
  * The mean is the cohort's position during the baseline period, which the
  * change point needs as its "before". Each student counts once rather than
