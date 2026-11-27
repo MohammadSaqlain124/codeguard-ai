@@ -683,6 +683,27 @@ para("The fix is therefore a redesign and not a retuning. The features would "
 para("The layer is weighted accordingly and the weight is adjustable per "
      "course.")
 
+h3("The denominator, measured")
+para("One design decision inside this layer was tested separately and the "
+     "result is reported here because it corrects an earlier claim. Layer 2 "
+     "takes the mean of each feature from the student's own anchors but "
+     "divides by the spread of the whole cohort. The stated justification "
+     "had been that the cohort spread separates authors better. Measured "
+     "over 204 files and 21 authors across 25 draws, with both denominators "
+     "scored on identical files and splits, it does not: median area under "
+     "the curve 0.6047 for the cohort spread against 0.5989 for the "
+     "student's own, with the cohort ahead in only 10 of 25 draws and a "
+     "median paired difference of -0.0029. The two are indistinguishable.")
+para("The argument that survives is stability rather than separation. The "
+     "student's own spread collapsed to the configured variance floor in "
+     "3.6 per cent of feature scores against 0.0 per cent for the cohort "
+     "spread, and 9.5 per cent of authors had at least one feature on which "
+     "their own spread was exactly zero. A collapsed spread turns a z-score "
+     "into a real difference divided by a constant, which is a worse failure "
+     "than a slightly weaker ranking. The cohort denominator is therefore "
+     "retained on the ground that it never degenerates, and the earlier "
+     "claim that it ranks better is withdrawn.")
+
 h2("11.4 Confounds Tested")
 h3("Boilerplate")
 para("A plausible objection is that the classifier learned a surface "
