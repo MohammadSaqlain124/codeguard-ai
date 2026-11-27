@@ -535,18 +535,30 @@ predicts and whose sign carries no information, which is the condition under
 which a distance from a baseline cannot detect it. Every link in the account
 above is now a measurement.
 
-**Label discrepancy, found 24 November, unresolved.** The project finding
-`layer2-cannot-detect-partial-outsourcing` carries these same four rows with the
-last two feature labels the other way round: `comment_density` 85 / 174 and
-`max_block_depth` 96 / 208. One of the two documents has them swapped.
+**Label discrepancy, raised 24 November, closed 26 November. This table is the
+correct one.** The project finding `layer2-cannot-detect-partial-outsourcing`
+had the last two feature labels the other way round. It has been corrected.
 
-The weak evidence favours the finding's ordering, because the grew counts
-earlier in this file give `comment_density` 68 applicable pairs at f=0.50
-against 73 for the other two, so `comment_density` carrying the smaller
-denominator of the pair is the consistent reading. That is an inference and not
-a check. **Re-run `suppression.py` and correct whichever document is wrong**
-rather than editing one to match the other. The conclusion is untouched either
-way: every share lies between 0.462 and 0.500.
+Two things settle it. The script iterates a fixed tuple and prints each row
+labelled from it, so the output order cannot vary:
+
+    SCORED_FEATURES = ("blank_line_ratio", "avg_line_length",
+                       "max_block_depth", "comment_density")
+
+And re-running `suppression.py` on 26 November reproduces this table exactly.
+
+The mechanism behind the uneven denominators is worth keeping, because it is
+what makes the ordering checkable rather than a matter of trust. A pair drops
+out of the direction count when donor and target hold the *same* value, so
+reach is exactly zero and there is no sign to record. `max_block_depth` is a
+small integer, so two files sharing a depth is common and it keeps only 174 of
+214 pairs. `comment_density` is a continuous ratio that rarely ties exactly, so
+it keeps 208. The feature with the smaller denominator is the integer one.
+
+An inference recorded here on 24 November argued the opposite from the grew
+counts at f=0.50. That reasoning was wrong: it compared a per-fraction
+applicability count against an all-pairs tie-exclusion count, which are
+different quantities. It is removed rather than corrected in place.
 
 ## No AUC exists for Layer 1, Layer 2 or the RPS
 
@@ -579,8 +591,8 @@ and it is not arithmetic.
 
 ## Which denominator separates better
 
-`denominator.py`, added 07 November 2026. **Written and unit-tested, not yet
-run.**
+`denominator.py`, added 07 November 2026, **run 26 November 2026**. 204 files,
+21 authors with at least five files each, 25 draws, 0 parse failures.
 
 File 108 retracted the AUC pair 0.766 against 0.909 that had been the stated
 evidence for dividing by the cohort's spread rather than the student's own: no
@@ -599,8 +611,7 @@ detector does not carry:
 baselines and the same splits, so the comparison is paired and any difference
 belongs to the denominator. Both are floored with the production
 `VARIANCE_FLOOR`, since production would floor whichever it used, and the floor
-rate is reported separately — the design argument is precisely that a spread
-taken from three anchors is unstable, so how often it collapses is the point.
+rate is reported separately.
 
 ```
 cd apps/detector
@@ -608,9 +619,59 @@ cd apps/detector
 python measurements/denominator.py --work E:\temp\pyrepos --skip-clone --draws 25
 ```
 
-The git blame pass takes a few minutes. **Record the result here when it runs**,
-and note that until it does, the cohort denominator rests on its stability
-argument alone and must not be described as measured.
+### Result: the two denominators rank the same
+
+| denominator | median AUC | min | max |
+|---|---|---|---|
+| student's own spread | 0.5989 | 0.5472 | 0.6707 |
+| cohort spread | 0.6047 | 0.5640 | 0.6387 |
+
+**The cohort spread won 10 of 25 draws.** Sign test, two-sided p = 0.42. The
+median paired difference, cohort minus own, is **-0.0029**.
+
+Read the paired figure, not the two medians. The medians differ by +0.0058 in
+the cohort's favour while the median of the paired differences is negative, and
+they can disagree because a median of two marginals is not the median of their
+difference. The comparison was built paired on purpose, so the paired statistic
+is the one that answers the question.
+
+**Neither denominator separates better.** The difference is noise at this
+sample size, and the claim that the cohort spread improves ranking is now not
+merely unsupported but measured against. 0.766 against 0.909 stays retracted,
+and nothing replaces it.
+
+### Result: the floor rate is the real argument, and it holds
+
+| denominator | share of feature scores that hit `VARIANCE_FLOOR` |
+|---|---|
+| student's own spread | **3.6%** |
+| cohort spread | **0.0%** |
+
+Authors whose own spread was exactly zero on at least one feature: **9.5%**,
+median over draws.
+
+This is the design argument, and it is now measured rather than asserted. When
+a student's own spread collapses, the z-score becomes a real difference divided
+by a constant invented in `behavioural.ts`, and roughly one author in ten has
+at least one feature where that happens. The cohort spread never reached the
+floor in any draw.
+
+**So the justification for the cohort denominator changes shape.** It is not
+"it ranks better", which is false. It is "it never degenerates", which is true
+and now has a number against it. That is a weaker claim than the retracted one
+and a defensible one, and the code comment should say so.
+
+### What this figure is not
+
+0.60 is not "Layer 2's AUC". It answers one narrow question on the author
+corpus: whole foreign files against the student's own. That is the **easiest**
+case for Layer 2, with no splicing involved, and it still only reaches 0.60.
+On the partial-substitution corpus the layer scores in the wrong direction
+entirely. The two results are consistent: a whole-file magnitude has a little
+signal against a whole foreign file and none at all against a spliced one.
+
+Do not quote 0.60 as a Layer 2 accuracy. It belongs to the denominator
+comparison and to nothing else.
 
 ## The signalDisagreement margin, and a larger problem behind it
 
