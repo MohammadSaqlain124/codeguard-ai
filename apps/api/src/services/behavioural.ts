@@ -149,13 +149,27 @@ export function baselineUsability(baseline: HasStatus | null): Usability {
  * freedom and is so unstable that honest work produced RMS z values above
  * 15. Pooling across the cohort is the answer to that instability.
  *
- * UNTRACEABLE, 12 Nov 2026, restated here 24 Nov. This paragraph used to
- * close with "AUC 0.909 against 0.766 for the student's own spread". That
- * pair is retracted, for the reason given against Z_SATURATION above: no
- * script in measurements/ computes an AUC, so the figures were
- * reproducible from nothing. denominator.py was written to replace them
- * and has never been run. Until it runs, the cohort denominator rests on
- * the stability argument alone and must not be described as measured.
+ * MEASURED 26 Nov 2026, and the reason is not the one originally given.
+ * denominator.py ran over 204 files and 21 authors, 25 draws, scoring both
+ * denominators on the same files and the same splits.
+ *
+ * Ranking: the two are indistinguishable. Median AUC 0.6047 for the cohort
+ * spread against 0.5989 for the student's own, but the cohort won only 10
+ * of 25 draws, sign test p = 0.42, and the median paired difference is
+ * -0.0029. The older claim that the cohort spread ranks better, cited here
+ * until 24 Nov as "AUC 0.909 against 0.766", is retracted and is now
+ * measured against rather than merely unsupported.
+ *
+ * Stability: this is the argument that survives. The student's own spread
+ * hit VARIANCE_FLOOR in 3.6% of feature scores and the cohort spread in
+ * 0.0%, and 9.5% of authors had at least one feature where their own
+ * spread was exactly zero. A collapsed spread turns the z-score into a
+ * real difference divided by a constant invented in this file, and that
+ * happens to about one author in ten.
+ *
+ * So the cohort spread is used because it never degenerates, not because
+ * it separates better. Keep the distinction: the first is measured, the
+ * second is false.
  *
  * The mean is the cohort's position during the baseline period, which the
  * change point needs as its "before". Each student counts once rather than
